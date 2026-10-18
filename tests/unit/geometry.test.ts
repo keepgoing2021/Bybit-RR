@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeBoxGeometry, hitTest, type BoxInput, type CoordMapper } from '../../src/chart/geometry';
+import { computeBoxGeometry, hitTest, hitTestPreset, type BoxInput, type CoordMapper } from '../../src/chart/geometry';
 
 // y = (110 − 가격) × 10, x = 논리 인덱스 × 10
 const mapper: CoordMapper = {
@@ -61,5 +61,31 @@ describe('hitTest', () => {
     const close = computeBoxGeometry({ ...longBox, tp: 99, sl: 98 }, mapper)!; // tp y 110, sl y 120
     expect(hitTest(close, 150, 114)).toBe('tp');
     expect(hitTest(close, 150, 116)).toBe('sl');
+  });
+});
+
+describe('percent preset lines', () => {
+  const presets = [
+    { pct: 3, price: 103, target: 'tp' as const },
+    { pct: -1, price: 99, target: 'sl' as const },
+  ];
+  const g = computeBoxGeometry({ ...longBox, presets }, mapper)!;
+
+  it('places each preset at its price inside the box', () => {
+    expect(g.presets).toEqual([
+      { pct: 3, price: 103, target: 'tp', y: 70 },
+      { pct: -1, price: 99, target: 'sl', y: 110 },
+    ]);
+  });
+
+  it('hits a preset line within 4px inside the box span', () => {
+    expect(hitTestPreset(g, 150, 72)?.pct).toBe(3);
+    expect(hitTestPreset(g, 150, 107)?.pct).toBe(-1);
+    expect(hitTestPreset(g, 150, 75)).toBeNull();
+    expect(hitTestPreset(g, 250, 70)).toBeNull();
+  });
+
+  it('a box without presets has none', () => {
+    expect(computeBoxGeometry(longBox, mapper)!.presets).toEqual([]);
   });
 });

@@ -1,3 +1,4 @@
+import type { PresetLevel } from '../core/presets';
 import type { Side } from '../core/types';
 
 export interface CoordMapper {
@@ -14,6 +15,8 @@ export interface BoxInput {
   startLogical: number;
   /** 박스 오른쪽 끝 (최신 봉 + 연장 봉 수) */
   endLogical: number;
+  /** ±% 점선 (누르면 그 가격으로 SL/TP 설정) */
+  presets?: PresetLevel[];
 }
 
 export interface Rect {
@@ -34,6 +37,7 @@ export interface BoxGeometry {
   /** 엔트리 ~ SL (반투명 빨강) */
   loss: Rect | null;
   handles: { sl: Rect | null; tp: Rect | null };
+  presets: (PresetLevel & { y: number })[];
 }
 
 export const HANDLE_SIZE = 10;
@@ -66,7 +70,22 @@ export function computeBoxGeometry(i: BoxInput, m: CoordMapper): BoxGeometry | n
     profit: band(yTp),
     loss: band(ySl),
     handles: { sl: handle(ySl), tp: handle(yTp) },
+    presets: (i.presets ?? []).flatMap((p) => {
+      const y = m.priceToY(p.price);
+      return y === null ? [] : [{ ...p, y }];
+    }),
   };
+}
+
+/** 박스 가로 범위 안에서 ±% 점선 위인지 (가장 가까운 것) */
+export function hitTestPreset(g: BoxGeometry, x: number, y: number, tol = 4): (PresetLevel & { y: number }) | null {
+  if (x < g.x1 || x > g.x2) return null;
+  let best: (PresetLevel & { y: number }) | null = null;
+  for (const p of g.presets) {
+    const d = Math.abs(p.y - y);
+    if (d <= tol && (!best || d < Math.abs(best.y - y))) best = p;
+  }
+  return best;
 }
 
 /** SL·TP 선(박스 가로 범위 안) 또는 핸들 위인지. 둘 다 가까우면 더 가까운 쪽. */

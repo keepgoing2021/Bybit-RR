@@ -15,7 +15,8 @@ import { decimalsOf, snapToTick } from '../core/price';
 import type { Candle, Side } from '../core/types';
 import { CountdownPrimitive, type CountdownState } from './countdownPrimitive';
 import { DragController, type DragTarget } from './drag';
-import type { BoxGeometry } from './geometry';
+import type { PresetLevel } from '../core/presets';
+import { hitTestPreset, type BoxGeometry } from './geometry';
 import { RRBoxPrimitive, type OverlayModel } from './rrPrimitive';
 import { THEME } from './theme';
 
@@ -33,11 +34,15 @@ export interface OverlayInput {
   labels: OverlayModel['labels'];
   /** SL 선정 캔들의 기간 (SL 기준 시간봉이 더 크면 차트 여러 봉에 걸친다) */
   slCandle: { time: number; durationMs: number; label: string } | null;
+  /** 엔트리 ±% 점선 (진행 중 시나리오만) */
+  presets: PresetLevel[];
   swing: { time: number; price: number; label: string } | null;
 }
 
 export interface ChartViewCallbacks {
   onDrag(which: DragTarget, price: number): void;
+  /** ±% 점선을 눌렀을 때 */
+  onPreset(which: DragTarget, price: number): void;
   onDragEnd(which: DragTarget): void;
   formatTime(ms: number): string;
 }
@@ -63,6 +68,7 @@ export class ChartView {
   private overlay: OverlayInput | null = null;
   private lines: { entry: IPriceLine | null; sl: IPriceLine | null; tp: IPriceLine | null } = { entry: null, sl: null, tp: null };
   private hover: DragTarget | null = null;
+  private hoverPreset: number | null = null;
   private dragging: DragTarget | null = null;
   private readonly cleanup: (() => void)[] = [];
 
@@ -229,6 +235,8 @@ export class ChartView {
       highlight: this.highlightRange(o.slCandle),
       swing: o.swing && swingLogical !== null && swingLogical >= 0 ? { logical: swingLogical, price: o.swing.price, label: o.swing.label } : null,
       active: this.dragging ?? this.hover,
+      presets: o.presets,
+      hoverPreset: this.hoverPreset,
     };
     this.prim.setModel(model);
     this.syncLines(o);
@@ -262,6 +270,12 @@ export class ChartView {
     }
   }
 
+  private presetAt(x: number, y: number) {
+    if (!this.overlay?.draggable) return null;
+    const g = this.prim.computeGeometry();
+    return g ? hitTestPreset(g, x, y) : null;
+  }
+
   private bindPointer(): void {
     const el = this.container;
     const local = (e: PointerEvent) => {
@@ -271,7 +285,15 @@ export class ChartView {
     const onDown = (e: PointerEvent) => {
       if (e.button !== 0) return;
       const { x, y } = local(e);
-      if (!this.drag.pointerDown(x, y)) return;
+      if (!this.drag.pointerDown(x, y)) {
+        const preset = this.presetAt(x, y);
+        if (!preset) return;
+        // 점선 클릭: 그 가격으로 SL/TP 설정. 차트 이동으로 넘어가지 않게 막는다
+        e.preventDefault();
+        e.stopPropagation();
+        this.cb.onPreset(preset.target, preset.price);
+        return;
+      }
       this.dragging = this.drag.hover(x, y);
       e.preventDefault();
       e.stopPropagation();
@@ -288,9 +310,11 @@ export class ChartView {
         return;
       }
       const h = this.drag.hover(x, y);
-      if (h !== this.hover) {
+      const p = h ? null : this.presetAt(x, y)?.pct ?? null;
+      if (h !== this.hover || p !== this.hoverPreset) {
         this.hover = h;
-        el.style.cursor = h ? 'ns-resize' : '';
+        this.hoverPreset = p;
+        el.style.cursor = h ? 'ns-resize' : p !== null ? 'pointer' : '';
         this.rebuildOverlay();
       }
     };

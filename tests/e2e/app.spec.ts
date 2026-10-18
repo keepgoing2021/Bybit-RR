@@ -266,3 +266,32 @@ test('SL candle band is labeled with its timeframe', async ({ page }) => {
   await expect.poll(() => scenario(page)).not.toBeNull();
   await expect.poll(() => page.evaluate(() => window.__rrDebug.getHighlight()?.label ?? null)).toBe('SL 기준 4시간봉');
 });
+
+test('clicking a percent line sets TP or SL to that level', async ({ page }) => {
+  await open(page, { tf: '15' });
+  await page.getByTestId('btn-long').click();
+  await expect.poll(() => scenario(page)).not.toBeNull();
+  const s0 = (await scenario(page))!;
+  // 기존 SL·TP 선이 점선 클릭을 가로채지 않도록 화면 밖으로 치운다
+  await setLevel(page, 'sl', (s0.entry * 0.8).toFixed(1));
+  await setLevel(page, 'tp', (s0.entry * 1.2).toFixed(1));
+  await expect.poll(async () => (await rendered(page))?.presets.length ?? 0).toBe(6);
+  const g = (await rendered(page))!;
+  const r = await chartRect(page);
+  const x = r.left + (g.x1 + g.x2) / 2;
+  const plus1 = g.presets.find((p) => p.pct === 1)!;
+  const minus1 = g.presets.find((p) => p.pct === -1)!;
+  expect(plus1.target).toBe('tp');
+  expect(minus1.target).toBe('sl');
+  expect(plus1.y).toBeGreaterThan(0);
+  expect(minus1.y).toBeLessThan(r.height);
+
+  const rangeBefore = await visibleRange(page);
+  await page.mouse.click(x, r.top + plus1.y);
+  await expect.poll(async () => (await scenario(page))!.applied.tp).toBe(plus1.price);
+  await page.mouse.click(x, r.top + minus1.y);
+  await expect.poll(async () => (await scenario(page))!.applied.sl).toBe(minus1.price);
+  await expect(page.getByTestId('rr')).toHaveText('1:1');
+  expect((await scenario(page))!.entry).toBe(s0.entry);
+  expect(await visibleRange(page)).toEqual(rangeBefore); // 클릭이 차트를 움직이지 않음
+});

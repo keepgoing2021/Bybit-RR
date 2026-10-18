@@ -9,6 +9,7 @@ import type {
   SeriesType,
   Time,
 } from 'lightweight-charts';
+import type { PresetLevel } from '../core/presets';
 import type { Side } from '../core/types';
 import { computeBoxGeometry, type BoxGeometry, type CoordMapper } from './geometry';
 import { THEME } from './theme';
@@ -29,6 +30,10 @@ export interface OverlayModel {
   /** TP 선정 스윙 지점 */
   swing: { logical: number; price: number; label: string } | null;
   active: 'sl' | 'tp' | null;
+  /** 엔트리 ±% 점선 */
+  presets: PresetLevel[];
+  /** 마우스가 올라간 점선의 % */
+  hoverPreset: number | null;
 }
 
 /**
@@ -102,7 +107,10 @@ export class RRBoxPrimitive implements ISeriesPrimitive<Time> {
     const mapper = this.mapper();
     if (!m || !mapper) return null;
     return computeBoxGeometry(
-      { side: m.side, entry: m.entry, sl: m.sl, tp: m.tp, startLogical: m.startLogical, endLogical: m.endLogical },
+      {
+        side: m.side, entry: m.entry, sl: m.sl, tp: m.tp, startLogical: m.startLogical, endLogical: m.endLogical,
+        presets: m.presets,
+      },
       mapper,
     );
   }
@@ -137,6 +145,27 @@ export class RRBoxPrimitive implements ISeriesPrimitive<Time> {
         ctx.fillStyle = THEME.lossFill;
         ctx.fillRect(g.loss.x, g.loss.y, g.loss.w, g.loss.h);
       }
+
+      // 엔트리 ±% 점선 (누르면 그 가격으로 설정)
+      ctx.font = `600 11px ${THEME.font}`;
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'bottom';
+      for (const p of g.presets) {
+        const hot = m.hoverPreset === p.pct;
+        const color = p.target === 'tp' ? THEME.profit : THEME.loss;
+        ctx.globalAlpha = (m.closed ? 0.55 : 1) * (hot ? 1 : 0.5);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = hot ? 1.5 : 1;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(g.x1, Math.round(p.y) + 0.5);
+        ctx.lineTo(g.x2, Math.round(p.y) + 0.5);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = color;
+        ctx.fillText(`${p.pct > 0 ? '+' : '−'}${Math.abs(p.pct)}%`, g.x2 - 4, p.y - 2);
+      }
+      ctx.globalAlpha = m.closed ? 0.55 : 1;
 
       hline(ctx, g.x1, g.x2, g.yEntry, THEME.entry, 1.5);
       if (g.yTp !== null) hline(ctx, g.x1, g.x2, g.yTp, THEME.profit, m.active === 'tp' ? 2.5 : 1.5);

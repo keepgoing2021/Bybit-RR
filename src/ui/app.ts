@@ -4,6 +4,7 @@ import { analyzeAutoLevels } from '../core/analysis';
 import { captureEntry, evaluateFreshness, type FeedSnapshot, type Freshness } from '../core/freshness';
 import { barRemainingMs, formatCountdown } from '../core/countdown';
 import { applyTrade } from '../core/liveCandle';
+import { presetLevels } from '../core/presets';
 import { computeMetrics, formatRR, type Metrics } from '../core/metrics';
 import { loadSettings, loadState, saveSettings, saveState, type StorageLike, type UiSelection } from '../core/persistence';
 import { formatPrice } from '../core/price';
@@ -96,6 +97,12 @@ export class App {
         this.renderNow();
       },
       onDragEnd: () => this.persist(),
+      onPreset: (which, price) => {
+        if (!this.scenario) return;
+        this.scenario = setLevel(this.scenario, which, price);
+        this.persist();
+        this.renderNow(true);
+      },
       formatTime: (ms) => formatTime(ms),
     });
     window.setInterval(() => {
@@ -753,6 +760,7 @@ export class App {
             label: s.auto.sl.method === 'prevCandle' ? `SL 기준 ${tfName(s.auto.sl.timeframe)}` : 'SL 기준 캔들',
           }
         : null,
+      presets: s.status === 'active' ? presetLevels(s.side, s.entry, s.tickSize) : [],
       swing: s.auto.tp.swing && s.auto.tp.timeframe
         ? { time: s.auto.tp.swing.time, price: s.auto.tp.swing.price, label: `TP 기준 ${tfName(s.auto.tp.timeframe)} 스윙` }
         : null,
