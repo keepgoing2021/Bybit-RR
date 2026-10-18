@@ -9,8 +9,7 @@ export function autoLevels(sl: number | null, tp: number | null): AutoLevels {
       candle: null, score: null, atr: null, timeframe: '15', bufferTicks: 0, method: 'prevCandle',
     },
     tp: {
-      price: tp, candidatePrice: tp, status: tp === null ? 'unavailable' : 'ok', reason: null,
-      swing: null, timeframe: '60',
+      price: tp, candidatePrice: tp, status: tp === null ? 'unavailable' : 'ok', reason: null, rr: null,
     },
   };
 }
@@ -20,7 +19,6 @@ export function makeScenario(sl: number | null = 98, tp: number | null = 106, si
     id: 's1',
     symbol: 'BTCUSDT',
     timeframe: '15',
-    htf: '60',
     side,
     entry: { price: 100, priceTime: 1_000, source: 'trade', clickedAt: 1_200 },
     tickSize: 0.01,

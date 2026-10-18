@@ -18,7 +18,8 @@ export interface UiSelection {
   provider: 'bybit' | 'demo';
   symbol: string;
   timeframe: Timeframe;
-  htf: Timeframe | null;
+  /** 이전 버전의 TP 기준 (쓰지 않음) */
+  htf?: Timeframe | null;
   /** SL 기준 시간봉 (없으면 차트 시간봉 기준 기본값) */
   slTf?: Timeframe;
 }
@@ -126,7 +127,7 @@ function isUiSelection(v: unknown): boolean {
     (v.provider === 'bybit' || v.provider === 'demo') &&
     typeof v.symbol === 'string' &&
     isTf(v.timeframe) &&
-    (v.htf === null || isTf(v.htf)) &&
+    (v.htf === undefined || v.htf === null || isTf(v.htf)) &&
     (v.slTf === undefined || isTf(v.slTf))
   );
 }
@@ -139,7 +140,7 @@ function isScenario(v: unknown): boolean {
     typeof v.id === 'string' &&
     typeof v.symbol === 'string' &&
     isTf(v.timeframe) &&
-    (v.htf === null || isTf(v.htf)) &&
+    (v.htf === undefined || v.htf === null || isTf(v.htf)) &&
     (v.side === 'LONG' || v.side === 'SHORT') &&
     isNum(v.entry) &&
     isNum(v.tickSize) &&

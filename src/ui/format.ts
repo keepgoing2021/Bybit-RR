@@ -64,9 +64,8 @@ export function slRationale(a: AutoSL, side: Side, timeZone?: string): string {
   return `SL: ${tfName(a.timeframe)} ${formatTime(a.candle.time, timeZone)} 캔들 ${edge}${buffer}${score}`;
 }
 
-/** TP 선정 근거. 예: 'TP: 4시간봉의 확정 스윙 고점 (10월 17일 08:00 캔들, 10월 17일 16:00 확정)' */
-export function tpRationale(a: AutoTP, side: Side, timeZone?: string): string {
-  if (a.status !== 'ok' || !a.swing || !a.timeframe) return a.reason ?? '유효한 자동 TP 없음';
-  const kind = side === 'LONG' ? '고점' : '저점';
-  return `TP: ${tfName(a.timeframe)}의 확정 스윙 ${kind} (${formatTime(a.swing.time, timeZone)} 캔들, ${formatTime(a.swing.confirmedAt, timeZone)} 확정)`;
+/** TP 근거. 예: 'TP: 기본 손익비 1:1.5 (손익비 점선이나 입력으로 바꿀 수 있음)' */
+export function tpRationale(a: AutoTP, _side: Side, _timeZone?: string): string {
+  if (a.status !== 'ok' || !a.rr) return a.reason ?? '유효한 자동 TP 없음';
+  return `TP: 기본 손익비 1:${a.rr} (손익비 점선이나 입력으로 바꿀 수 있음)`;
 }

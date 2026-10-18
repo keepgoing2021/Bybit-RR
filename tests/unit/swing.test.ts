@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { findSwings, selectSwingTarget, type Swing } from '../../src/core/swing';
+import { findSwings } from '../../src/core/swing';
 import { fromHighs, fromLows, MIN } from './helpers/candles';
 
 describe('findSwings', () => {
@@ -26,42 +26,5 @@ describe('findSwings', () => {
     const c = fromHighs([1, 5, 2, 8, 3, 4, 1]);
     expect(findSwings(c, 1).filter((s) => s.kind === 'high').map((s) => s.index)).toEqual([1, 3, 5]);
     expect(findSwings(c, 3).filter((s) => s.kind === 'high').map((s) => s.index)).toEqual([3]);
-  });
-});
-
-const high = (index: number, price: number): Swing => ({ kind: 'high', index, time: index * MIN, price, confirmIndex: index + 2 });
-const low = (index: number, price: number): Swing => ({ kind: 'low', index, time: index * MIN, price, confirmIndex: index + 2 });
-
-describe('selectSwingTarget', () => {
-  it('LONG takes the most recent swing high', () => {
-    const r = selectSwingTarget('LONG', [high(2, 120), low(4, 90), high(6, 110)], 100, 'latest');
-    expect(r.status).toBe('ok');
-    expect(r.swing?.index).toBe(6);
-  });
-
-  it('LONG most recent high below entry is invalid in latest mode', () => {
-    const r = selectSwingTarget('LONG', [high(2, 120), high(6, 95)], 100, 'latest');
-    expect(r.status).toBe('invalid');
-    expect(r.swing?.index).toBe(6);
-    expect(r.reason).toContain('유효한 자동 TP 없음');
-  });
-
-  it('beyondEntry mode takes the most recent high above entry', () => {
-    const r = selectSwingTarget('LONG', [high(2, 120), high(6, 95)], 100, 'beyondEntry');
-    expect(r.status).toBe('ok');
-    expect(r.swing?.index).toBe(2);
-  });
-
-  it('SHORT takes the most recent swing low', () => {
-    const r = selectSwingTarget('SHORT', [low(1, 80), high(3, 130), low(5, 90)], 100, 'latest');
-    expect(r.status).toBe('ok');
-    expect(r.swing?.price).toBe(90);
-  });
-
-  it('no swing of the needed kind is unavailable', () => {
-    const r = selectSwingTarget('SHORT', [high(3, 130)], 100, 'latest');
-    expect(r.status).toBe('unavailable');
-    expect(r.swing).toBeNull();
-    expect(r.reason).toContain('확정 스윙 저점 없음');
   });
 });

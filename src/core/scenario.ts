@@ -13,8 +13,8 @@ export interface Scenario {
   symbol: string;
   /** 생성 당시 차트 시간봉 (SL 분석 기준) */
   timeframe: Timeframe;
-  /** 생성 당시 TP 분석용 상위 시간봉 */
-  htf: Timeframe | null;
+  /** 이전 버전의 TP 기준 상위 시간봉 (지금은 쓰지 않음, 읽기만) */
+  htf?: Timeframe | null;
   side: Side;
   entry: number;
   /** LONG/SHORT를 누른 순간 잡은 가격 (자동값으로 되돌리기의 기준). 이 필드 전에 저장된 계산엔 없음 */
@@ -46,7 +46,6 @@ export interface CreateScenarioInput {
   id: string;
   symbol: string;
   timeframe: Timeframe;
-  htf: Timeframe | null;
   side: Side;
   entry: { price: number; priceTime: number; source: 'trade' | 'ticker'; clickedAt: number };
   tickSize: number;
@@ -60,7 +59,6 @@ export function createScenario(i: CreateScenarioInput): Scenario {
     id: i.id,
     symbol: i.symbol,
     timeframe: i.timeframe,
-    htf: i.htf,
     side: i.side,
     entry: snapToTick(i.entry.price, i.tickSize),
     capturedEntry: snapToTick(i.entry.price, i.tickSize),

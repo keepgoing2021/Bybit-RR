@@ -7,10 +7,9 @@ import type { Candle } from '../../src/core/types';
 const SPIKE = { ...DEFAULT_SETTINGS, slMode: 'spike' as const };
 const PREV = { ...DEFAULT_SETTINGS, slMode: 'prevCandle' as const };
 const LOWEST = { ...DEFAULT_SETTINGS, slMode: 'lowestN' as const };
-import { fromHighs, MIN, ranged } from './helpers/candles';
+import { MIN, ranged } from './helpers/candles';
 
 const ones = (n: number) => Array.from({ length: n }, () => 1);
-const M15 = 15 * MIN;
 
 /** 1분봉 30개, 20번째가 고저폭 3 스파이크 (저가 98.5, 고가 101.5) */
 function ltfWithSpike(): Candle[] {
@@ -26,7 +25,6 @@ function input(over: Partial<AnalyzeInput> = {}): AnalyzeInput {
     cutoff: 30 * MIN,
     tickSize: 0.1,
     ltf: { timeframe: '1', candles: ltfWithSpike() },
-    htf: null,
     slTf: null,
     settings: SPIKE,
     ...over,
@@ -84,46 +82,29 @@ describe('analyzeAutoLevels — SL', () => {
   });
 });
 
-describe('analyzeAutoLevels — TP', () => {
-  it('TP is latest confirmed HTF swing high', () => {
-    const htf = fromHighs([100, 101, 110, 103, 102, 104, 103], 0, M15);
-    const r = analyzeAutoLevels(input({ cutoff: 7 * M15, htf: { timeframe: '15', candles: htf } }));
+describe('analyzeAutoLevels — TP from the default RR', () => {
+  it('defaults to 1:1.5', () => {
+    expect(DEFAULT_SETTINGS.defaultRR).toBe(1.5);
+  });
+
+  it('puts TP at entry + RR × (entry − auto SL)', () => {
+    const r = analyzeAutoLevels(input({ settings: { ...SPIKE, defaultRR: 2 } })); // SL 98.5 → 위험 1.5
     expect(r.tp.status).toBe('ok');
-    expect(r.tp.price).toBe(110);
-    expect(r.tp.timeframe).toBe('15');
-    expect(r.tp.swing).toEqual({ time: 2 * M15, price: 110, confirmedAt: 5 * M15 });
+    expect(r.tp.price).toBe(103);
+    expect(r.tp.rr).toBe(2);
   });
 
-  it('swing confirmed after cutoff is not used', () => {
-    const htf = fromHighs([100, 101, 108, 102, 101, 115, 103, 102], 0, M15);
-    const before = analyzeAutoLevels(input({ cutoff: 7 * M15, htf: { timeframe: '15', candles: htf } }));
-    expect(before.tp.price).toBe(108);
-    const after = analyzeAutoLevels(input({ cutoff: 8 * M15, htf: { timeframe: '15', candles: htf } }));
-    expect(after.tp.price).toBe(115);
+  it('SHORT goes below the entry', () => {
+    const r = analyzeAutoLevels(input({ side: 'SHORT', settings: { ...SPIKE, defaultRR: 2 } })); // SL 101.5
+    expect(r.tp.price).toBe(97);
   });
 
-  it('SHORT TP below entry from the latest swing low', () => {
-    const htf: Candle[] = [105, 104, 96, 101, 102, 103, 104].map((low, i) => ({
-      time: i * M15, open: low + 0.5, high: low + 1, low, close: low + 0.5, volume: 1, confirmed: true,
-    }));
-    const r = analyzeAutoLevels(input({ side: 'SHORT', cutoff: 7 * M15, htf: { timeframe: '15', candles: htf } }));
-    expect(r.tp.price).toBe(96);
-  });
-
-  it('LONG latest swing high below entry is invalid and not replaced', () => {
-    const htf = fromHighs([100, 101, 110, 103, 102, 104, 103], 0, M15);
-    const r = analyzeAutoLevels(input({ entry: 111, cutoff: 7 * M15, htf: { timeframe: '15', candles: htf } }));
-    expect(r.tp.status).toBe('invalid');
+  it('has no TP while there is no valid auto SL', () => {
+    const r = analyzeAutoLevels(input({ entry: 98 })); // SL 후보 98.5가 엔트리 위 → 무효
+    expect(r.sl.price).toBeNull();
     expect(r.tp.price).toBeNull();
-    expect(r.tp.candidatePrice).toBe(110);
-    expect(r.tp.reason).toContain('유효한 자동 TP 없음');
-  });
-
-  it('htf null gives unavailable TP', () => {
-    const r = analyzeAutoLevels(input());
     expect(r.tp.status).toBe('unavailable');
-    expect(r.tp.price).toBeNull();
-    expect(r.tp.timeframe).toBeNull();
+    expect(r.tp.reason).toContain('SL');
   });
 });
 

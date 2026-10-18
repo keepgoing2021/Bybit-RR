@@ -38,7 +38,9 @@ test('bybit provider loads symbols, candles and live trades through the app', as
   expect(s.auto.sl.candle!.time + 3 * M15).toBeLessThanOrEqual(s.priceTime);
   expect(s.auto.sl.candidatePrice).toBe(s.auto.sl.candle!.low);
   await expect(page.getByTestId('sl-rationale')).toContainText('15분봉 최근 확정 스윙 저점');
-  expect(s.auto.tp.timeframe).toBe('60');
+  // TP(기본): 자동 SL에서 손익비 1:1.5 자리
+  expect(s.auto.tp.rr).toBe(1.5);
+  expect(s.applied.tp).toBeCloseTo(s.entry + 1.5 * (s.entry - s.applied.sl!), 1);
 
   const stats = await (await request.get(`${MOCK}/mock/stats`)).json();
   expect(stats.subscribes).toContainEqual(['kline.15.BTCUSDT', 'publicTrade.BTCUSDT', 'tickers.BTCUSDT']);
@@ -73,19 +75,6 @@ test.describe('failure handling', () => {
     await page.getByTestId('source').selectOption('demo');
     await expect(page.getByTestId('feed-status')).toHaveAttribute('data-state', 'live', { timeout: 20_000 });
     await expect(page.getByTestId('load-error')).toBeHidden();
-  });
-
-  test('higher timeframe fetch failure still creates the scenario with a reason', async ({ page, request }) => {
-    await openBybit(page);
-    await request.post(`${MOCK}/mock/fail?route=kline&interval=60`);
-    await page.getByTestId('btn-long').click();
-    const s = (await page.waitForFunction(() =>
-      (window as unknown as { __rrDebug: { getScenario(): Scenario | null } }).__rrDebug.getScenario(),
-    ).then((h) => h.jsonValue())) as Scenario;
-    expect(s.auto.tp.price).toBeNull();
-    expect(s.auto.tp.reason).toContain('상위 시간봉 데이터 조회 실패');
-    await expect(page.getByTestId('tp-rationale')).toContainText('상위 시간봉 데이터 조회 실패');
-    await expect(page.getByTestId('btn-short')).toBeEnabled();
   });
 
   test('switching the data source clears a calculation made on the other source', async ({ page }) => {

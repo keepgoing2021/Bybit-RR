@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { barEnd, barStart, defaultHigherTf, defaultSlTf, higherTimeframes, isClosedBy, prevBarStart, slTimeframes, tfLabel, tfMs, TIMEFRAMES } from '../../src/core/timeframe';
+import { barEnd, barStart, defaultSlTf, isClosedBy, prevBarStart, slTimeframes, tfLabel, tfMs, TIMEFRAMES } from '../../src/core/timeframe';
 import type { Candle } from '../../src/core/types';
 
 const candle = (time: number, confirmed = true): Candle => ({
@@ -53,32 +53,6 @@ describe('tfLabel', () => {
     expect(tfLabel('D')).toBe('일');
     expect(tfLabel('W')).toBe('주');
     expect(tfLabel('M')).toBe('월');
-  });
-});
-
-describe('defaultHigherTf', () => {
-  it('follows the design table D10', () => {
-    expect(defaultHigherTf('1')).toBe('15');
-    expect(defaultHigherTf('3')).toBe('15');
-    expect(defaultHigherTf('5')).toBe('60');
-    expect(defaultHigherTf('15')).toBe('60');
-    expect(defaultHigherTf('30')).toBe('240');
-    expect(defaultHigherTf('60')).toBe('240');
-    expect(defaultHigherTf('120')).toBe('D');
-    expect(defaultHigherTf('240')).toBe('D');
-    expect(defaultHigherTf('360')).toBe('D');
-    expect(defaultHigherTf('720')).toBe('W');
-    expect(defaultHigherTf('D')).toBe('W');
-    expect(defaultHigherTf('W')).toBe('M');
-    expect(defaultHigherTf('M')).toBeNull();
-  });
-});
-
-describe('higherTimeframes', () => {
-  it('lists only strictly larger intervals', () => {
-    expect(higherTimeframes('60')).toEqual(['120', '240', '360', '720', 'D', 'W', 'M']);
-    expect(higherTimeframes('W')).toEqual(['M']);
-    expect(higherTimeframes('M')).toEqual([]);
   });
 });
 

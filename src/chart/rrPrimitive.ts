@@ -27,8 +27,6 @@ export interface OverlayModel {
   labels: { profit: string | null; loss: string | null; center: string; centerValid: boolean };
   /** SL 선정 캔들의 기간 [from, to) (논리 인덱스) */
   highlight: { from: number; to: number; label: string } | null;
-  /** TP 선정 스윙 지점 */
-  swing: { logical: number; price: number; label: string } | null;
   active: 'sl' | 'tp' | null;
   /** 손익비 점선 */
   presets: PresetLevel[];
@@ -192,19 +190,6 @@ export class RRBoxPrimitive implements ISeriesPrimitive<Time> {
       if (!m.closed) {
         if (g.handles.tp) handle(ctx, g.handles.tp, THEME.profit, m.active === 'tp');
         if (g.handles.sl) handle(ctx, g.handles.sl, THEME.loss, m.active === 'sl');
-      }
-
-      if (m.swing && mapper) {
-        const x = mapper.logicalToX(m.swing.logical);
-        const y = mapper.priceToY(m.swing.price);
-        if (x !== null && y !== null) {
-          ctx.strokeStyle = THEME.profit;
-          ctx.lineWidth = 1.5;
-          ctx.beginPath();
-          ctx.arc(x, y, 5, 0, Math.PI * 2);
-          ctx.stroke();
-          chip(ctx, m.swing.label, x, y - 16, THEME.chipDark, THEME.textMuted, mediaSize.width);
-        }
       }
 
       const cx = (g.x1 + g.x2) / 2;

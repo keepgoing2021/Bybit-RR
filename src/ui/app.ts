@@ -11,7 +11,7 @@ import { decimalsOf, formatPrice } from '../core/price';
 import { boxShiftOf, createScenario, restoreAuto, setBoxShift, setEntry, setLevel, type Scenario } from '../core/scenario';
 import { DEFAULT_SETTINGS, sanitizeSettings, type AnalysisSettings } from '../core/settings';
 import { DEFAULT_SIZING, planSizing, sanitizeSizing, type SizingPlan, type SizingSettings } from '../core/sizing';
-import { barEnd, defaultHigherTf, defaultSlTf, higherTimeframes, slTimeframes, TIMEFRAMES, tfMs } from '../core/timeframe';
+import { barEnd, defaultSlTf, slTimeframes, TIMEFRAMES, tfMs } from '../core/timeframe';
 import type { PriceTick, Side, SymbolInfo, Timeframe } from '../core/types';
 import type { SocketState } from '../data/bybit/socket';
 import { CandleStore } from '../data/candleStore';
@@ -33,11 +33,11 @@ export interface AppDeps {
 }
 
 const DEFAULT_UI: Record<SourceKind, UiSelection> = {
-  bybit: { provider: 'bybit', symbol: 'BTCUSDT', timeframe: '15', htf: '60' },
-  demo: { provider: 'demo', symbol: 'DEMO-BTC', timeframe: '15', htf: '60' },
+  bybit: { provider: 'bybit', symbol: 'BTCUSDT', timeframe: '15' },
+  demo: { provider: 'demo', symbol: 'DEMO-BTC', timeframe: '15' },
 };
 
-const SETTING_FIELDS: { key: keyof AnalysisSettings; label: string; options?: [string, string][] }[] = [
+const SETTING_FIELDS: { key: keyof AnalysisSettings; label: string; options?: [string, string][]; step?: string }[] = [
   {
     key: 'slMode',
     label: 'SL 방식',
@@ -53,12 +53,8 @@ const SETTING_FIELDS: { key: keyof AnalysisSettings; label: string; options?: [s
   { key: 'atrPeriod', label: 'ATR 기간' },
   { key: 'atrMethod', label: 'ATR 계산 방식', options: [['wilder', 'Wilder (TradingView 기본)'], ['sma', '단순 평균']] },
   { key: 'slBufferTicks', label: 'SL 버퍼 (틱)' },
-  { key: 'swingBars', label: '스윙 판별 봉 수 (좌우 각각, SL·TP 공통)' },
-  {
-    key: 'tpMode',
-    label: 'TP 스윙 선택',
-    options: [['latest', '가장 최근 확정 스윙'], ['beyondEntry', '엔트리 너머의 가장 최근 스윙']],
-  },
+  { key: 'swingBars', label: '스윙 판별 봉 수 (좌우 각각)' },
+  { key: 'defaultRR', label: '새 계산의 TP 손익비 (1:X의 X)', step: '0.1' },
   { key: 'boxExtendBars', label: '박스 오른쪽 연장 (봉)' },
   { key: 'boxOffsetBars', label: '박스 시작 위치 (진입 봉에서 오른쪽으로 봉 수)' },
   { key: 'staleAfterSec', label: '연결 지연 판정 (초)' },
@@ -153,7 +149,7 @@ export class App {
     this.stopWatch?.();
     this.stopWatch = null;
     if (!keepSelection) {
-      this.ui = { ...DEFAULT_UI[kind], timeframe: this.ui.timeframe, htf: this.ui.htf };
+      this.ui = { ...DEFAULT_UI[kind], timeframe: this.ui.timeframe };
       // 다른 데이터 공급원의 계산은 바로 지운다 (종목 목록을 못 받아도 남지 않게)
       this.scenario = null;
       this.persist();
@@ -299,7 +295,7 @@ export class App {
       this.toast(`계산할 수 없습니다: ${cap.reason}`);
       return;
     }
-    const { symbol, timeframe, htf } = this.ui;
+    const { symbol, timeframe } = this.ui;
     const slTf = this.currentSlTf();
     const tickSize = this.tickSize;
     const settings = this.settings;
@@ -308,7 +304,7 @@ export class App {
 
     this.creating = true;
     this.renderStatus();
-    // 상위 시간봉 데이터는 클릭 시점에 받는다 (기준 시각 이후 캔들은 분석에서 걸러짐)
+    // 'SL 기준 시간봉의 직전 마감 봉' 방식만 다른 시간봉 데이터가 필요하다 (클릭 시점에 받고, 기준 시각 이후 캔들은 분석에서 걸러짐)
     const fetchTf = async (tf: Timeframe | null, limit: number) => {
       if (!tf) return { candles: null, error: null };
       if (tf === timeframe) return { candles: ltfCandles, error: null };
@@ -318,23 +314,16 @@ export class App {
         return { candles: null, error: errText(e) };
       }
     };
-    const [htfRes, slRes] = await Promise.all([
-      fetchTf(htf, CONFIG.historyLimit),
-      fetchTf(settings.slMode === 'prevCandle' ? slTf : null, 10),
-    ]);
+    const slRes = await fetchTf(settings.slMode === 'prevCandle' ? slTf : null, 10);
     const auto = analyzeAutoLevels({
       side,
       entry: cap.price,
       cutoff: cap.priceTime,
       tickSize,
       ltf: { timeframe, candles: ltfCandles },
-      htf: htf && htfRes.candles ? { timeframe: htf, candles: htfRes.candles } : null,
       slTf: slRes.candles ? { timeframe: slTf, candles: slRes.candles } : null,
       settings,
     });
-    if (htf && !htfRes.candles) {
-      auto.tp = { ...auto.tp, timeframe: htf, reason: `유효한 자동 TP 없음: 상위 시간봉 데이터 조회 실패 (${htfRes.error})` };
-    }
     if (settings.slMode === 'prevCandle' && !slRes.candles) {
       auto.sl = { ...auto.sl, timeframe: slTf, reason: `유효한 자동 SL 없음: SL 기준 시간봉 데이터 조회 실패 (${slRes.error})` };
     }
@@ -342,7 +331,6 @@ export class App {
       id: newId(),
       symbol,
       timeframe,
-      htf,
       side,
       entry: { price: cap.price, priceTime: cap.priceTime, source: cap.source, clickedAt: cap.clickedAt },
       tickSize,
@@ -457,7 +445,6 @@ export class App {
     );
     const tf = sel('tf');
     tf.append(...TIMEFRAMES.map((t) => h('option', { value: t }, tfName(t))));
-    const htf = sel('htf');
     const sltf = sel('sltf');
     const long = h('button', { class: 'side long', 'data-testid': 'btn-long', type: 'button' }, 'LONG');
     const short = h('button', { class: 'side short', 'data-testid': 'btn-short', type: 'button' }, 'SHORT');
@@ -475,7 +462,6 @@ export class App {
       field('종목', picker.root),
       field('차트', tf),
       field('SL 기준', sltf),
-      field('TP 기준', htf),
       h('div', { class: 'sides' }, long, short),
       h('div', { class: 'status' }, status, statusReason),
       sizing.bar,
@@ -558,7 +544,7 @@ export class App {
             s.append(...f.options.map(([v, label]) => h('option', { value: v }, label)));
             return s;
           })()
-        : h('input', { type: 'number', step: '1', 'data-testid': `setting-${f.key}` });
+        : h('input', { type: 'number', step: f.step ?? '1', 'data-testid': `setting-${f.key}` });
       control.addEventListener('change', () => this.applySettings());
       settingsInputs.set(f.key, control);
       settingsBody.append(h('label', { class: 'setting' }, h('span', {}, f.label), control));
@@ -594,15 +580,10 @@ export class App {
       const t = tf.value as Timeframe;
       this.ui.timeframe = t;
       this.ui.slTf = defaultSlTf(t); // 차트 시간봉을 바꾸면 SL 기준도 한 단계 위 기본값으로
-      if (!this.ui.htf || !higherTimeframes(t).includes(this.ui.htf)) this.ui.htf = defaultHigherTf(t);
       void this.loadMarket();
     });
     sltf.addEventListener('change', () => {
       this.ui.slTf = sltf.value as Timeframe;
-      this.persist();
-    });
-    htf.addEventListener('change', () => {
-      this.ui.htf = (htf.value || null) as Timeframe | null;
       this.persist();
     });
     long.addEventListener('click', () => void this.onSide('LONG'));
@@ -629,7 +610,7 @@ export class App {
     });
 
     return {
-      source, picker, tf, htf, sltf, long, short, status, statusReason, demoBadge,
+      source, picker, tf, sltf, long, short, status, statusReason, demoBadge,
       loadError, chart, empty, card, sideChip, title, entry, times, rr, rrInput, rrLabel, reasons,
       sl, tp, slWhy, tpWhy, sizing, restore, del, settingsInputs, demoTools, toast,
     };
@@ -810,9 +791,6 @@ export class App {
     e.source.value = this.ui.provider;
     e.picker.setValue(this.ui.symbol);
     e.tf.value = this.ui.timeframe;
-    const highers = higherTimeframes(this.ui.timeframe);
-    e.htf.replaceChildren(h('option', { value: '' }, '없음'), ...highers.map((t) => h('option', { value: t }, tfName(t))));
-    e.htf.value = this.ui.htf ?? '';
     e.sltf.replaceChildren(...slTimeframes(this.ui.timeframe).map((t) => h('option', { value: t }, tfName(t))));
     // 'SL 기준 시간봉의 직전 마감 봉' 방식에서만 고를 수 있다. 다른 방식은 차트 시간봉을 쓴다.
     const pickable = this.settings.slMode === 'prevCandle';
@@ -927,9 +905,6 @@ export class App {
       presets: rrLevels(s.side, s.entry, s.applied.sl, s.tickSize),
       splits: plan ? plan.tranches.slice(1).map((t) => ({ price: t.price, label: `${t.n}차 ${(t.share * 100).toFixed(0)}%` })) : [],
       shiftBars: boxShiftOf(s),
-      swing: s.auto.tp.swing && s.auto.tp.timeframe
-        ? { time: s.auto.tp.swing.time, price: s.auto.tp.swing.price, label: `TP 기준 ${tfName(s.auto.tp.timeframe)} 스윙` }
-        : null,
     };
     this.chart.setOverlay(overlay);
   }

@@ -51,27 +51,6 @@ export function tfLabel(tf: Timeframe): string {
   return minutes >= 60 ? `${minutes / 60}시간` : `${minutes}분`;
 }
 
-/** 설계 문서 D10: 현재 차트 시간봉에 대한 TP 분석용 상위 시간봉 기본값 (초기 가정) */
-const DEFAULT_HIGHER: Record<Timeframe, Timeframe | null> = {
-  '1': '15',
-  '3': '15',
-  '5': '60',
-  '15': '60',
-  '30': '240',
-  '60': '240',
-  '120': 'D',
-  '240': 'D',
-  '360': 'D',
-  '720': 'W',
-  D: 'W',
-  W: 'M',
-  M: null,
-};
-
-export function defaultHigherTf(tf: Timeframe): Timeframe | null {
-  return DEFAULT_HIGHER[tf];
-}
-
 /**
  * SL 기준 시간봉 기본값: 차트보다 한 단계 위. 15분→4시간, 4시간→12시간, 1일→1주는 사용자 지정.
  * 월봉은 더 큰 시간봉이 없어 직전 월봉을 쓴다.
@@ -99,10 +78,6 @@ export function defaultSlTf(tf: Timeframe): Timeframe {
 /** SL 기준으로 고를 수 있는 시간봉: 차트 시간봉과 그 위 */
 export function slTimeframes(tf: Timeframe): Timeframe[] {
   return TIMEFRAMES.filter((t) => tfMs(t) >= tfMs(tf));
-}
-
-export function higherTimeframes(tf: Timeframe): Timeframe[] {
-  return TIMEFRAMES.filter((t) => tfMs(t) > tfMs(tf));
 }
 
 /** 기준 시각까지 마감됐고 공급원이 확정으로 표시한 캔들인지 (설계 문서 D5) */

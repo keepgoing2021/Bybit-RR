@@ -1,7 +1,8 @@
+import { tpForRR } from './presets';
 import { formatPrice, snapToTick } from './price';
 import type { AnalysisSettings, SlMode } from './settings';
 import { selectSpikeCandle } from './spike';
-import { findSwings, selectSwingTarget } from './swing';
+import { findSwings } from './swing';
 import { barEnd, isClosedBy } from './timeframe';
 import type { Candle, Side, Timeframe } from './types';
 
@@ -25,13 +26,14 @@ export interface AutoSL {
   bars?: number;
 }
 
+/** 자동 TP: 기본 손익비 자리 (진입 ± RR × 자동 SL 손절폭) */
 export interface AutoTP {
   price: number | null;
   candidatePrice: number | null;
   status: LevelStatus;
   reason: string | null;
-  swing: { time: number; price: number; confirmedAt: number } | null;
-  timeframe: Timeframe | null;
+  /** 사용한 기본 손익비. 이 방식 전에 저장된 계산엔 없음 */
+  rr: number | null;
 }
 
 export interface AutoLevels {
@@ -46,18 +48,27 @@ export interface AnalyzeInput {
   cutoff: number;
   tickSize: number;
   ltf: { timeframe: Timeframe; candles: Candle[] };
-  htf: { timeframe: Timeframe; candles: Candle[] } | null;
   /** SL 기준 시간봉 캔들 (prevCandle 방식에서 사용) */
   slTf: { timeframe: Timeframe; candles: Candle[] } | null;
   settings: AnalysisSettings;
 }
 
 /**
- * SL·TP 자동 제안. RR은 고려하지 않는다 — 가격 구조만 본다.
- * 무효한 값은 price=null로 두고 사유를 남기며, 다른 후보로 대체하지 않는다.
+ * 자동 제안. SL은 가격 구조로 정하고(RR 고려 없음), TP는 그 SL에서 기본 손익비 자리에 둔다.
+ * 무효한 SL은 price=null로 두고 사유를 남기며, 다른 후보로 대체하지 않는다.
  */
 export function analyzeAutoLevels(i: AnalyzeInput): AutoLevels {
-  return { sl: analyzeSL(i), tp: analyzeTP(i) };
+  const sl = analyzeSL(i);
+  return { sl, tp: defaultTP(i, sl) };
+}
+
+function defaultTP(i: AnalyzeInput, sl: AutoSL): AutoTP {
+  const rr = i.settings.defaultRR;
+  const price = tpForRR(i.side, i.entry, sl.price, rr, i.tickSize);
+  if (price === null) {
+    return { price: null, candidatePrice: null, status: 'unavailable', reason: '유효한 자동 TP 없음: 자동 SL이 없어 기본 손익비 자리를 정할 수 없음', rr };
+  }
+  return { price, candidatePrice: price, status: 'ok', reason: null, rr };
 }
 
 function analyzeSL(i: AnalyzeInput): AutoSL {
@@ -182,42 +193,4 @@ function analyzeSpikeSL(i: AnalyzeInput): AutoSL {
     };
   }
   return finishSL(i, base, spike.candle, { score: spike.score, atr: spike.atr });
-}
-
-function analyzeTP(i: AnalyzeInput): AutoTP {
-  const { side, entry, cutoff, tickSize, htf, settings } = i;
-  if (!htf) {
-    return {
-      price: null,
-      candidatePrice: null,
-      status: 'unavailable',
-      reason: '유효한 자동 TP 없음: 상위 시간봉 미선택',
-      swing: null,
-      timeframe: null,
-    };
-  }
-
-  const closed = htf.candles.filter((c) => isClosedBy(c, htf.timeframe, cutoff));
-  const base: AutoTP = {
-    price: null,
-    candidatePrice: null,
-    status: 'unavailable',
-    reason: null,
-    swing: null,
-    timeframe: htf.timeframe,
-  };
-  if (closed.length < settings.swingBars * 2 + 1) {
-    return { ...base, reason: `유효한 자동 TP 없음: 데이터 부족 (상위 시간봉 확정 캔들 ${closed.length}개)` };
-  }
-
-  const target = selectSwingTarget(side, findSwings(closed, settings.swingBars), entry, settings.tpMode);
-  if (!target.swing) return { ...base, reason: target.reason };
-
-  const s = target.swing;
-  const price = snapToTick(s.price, tickSize);
-  const swing = { time: s.time, price, confirmedAt: barEnd(htf.timeframe, closed[s.confirmIndex].time) };
-  if (target.status !== 'ok') {
-    return { ...base, status: target.status, reason: target.reason, swing, candidatePrice: price };
-  }
-  return { ...base, status: 'ok', price, candidatePrice: price, swing };
 }

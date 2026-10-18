@@ -11,7 +11,7 @@ describe('DEFAULT_SETTINGS', () => {
       atrMethod: 'wilder',
       slBufferTicks: 0,
       swingBars: 2,
-      tpMode: 'latest',
+      defaultRR: 1.5,
       boxExtendBars: 10,
       boxOffsetBars: 2,
       staleAfterSec: 15,
@@ -35,20 +35,23 @@ describe('sanitizeSettings', () => {
   });
 
   it('falls back to defaults for unknown enum values and garbage', () => {
-    expect(sanitizeSettings({ atrMethod: 'ema', tpMode: 'nearest', slMode: 'ema' })).toEqual(DEFAULT_SETTINGS);
+    expect(sanitizeSettings({ atrMethod: 'ema', slMode: 'ema', defaultRR: 'x' })).toEqual(DEFAULT_SETTINGS);
     expect(sanitizeSettings(null)).toEqual(DEFAULT_SETTINGS);
     expect(sanitizeSettings('x')).toEqual(DEFAULT_SETTINGS);
     expect(sanitizeSettings({ lookback: 'abc' }).lookback).toBe(50);
   });
 
   it('keeps valid values', () => {
-    const s = sanitizeSettings({ ...DEFAULT_SETTINGS, atrMethod: 'sma', tpMode: 'beyondEntry', lookback: 80, slMode: 'spike' });
+    const s = sanitizeSettings({ ...DEFAULT_SETTINGS, atrMethod: 'sma', lookback: 80, slMode: 'spike', defaultRR: 1.7 });
     expect(s.slMode).toBe('spike');
     expect(sanitizeSettings({ slMode: 'prevCandle' }).slMode).toBe('prevCandle');
     expect(sanitizeSettings({ slMode: 'lowestN' }).slMode).toBe('lowestN');
     expect(sanitizeSettings({ slMode: 'swing' }).slMode).toBe('swing');
     expect(s.atrMethod).toBe('sma');
-    expect(s.tpMode).toBe('beyondEntry');
+    expect(s.defaultRR).toBe(1.7); // 정수로 반올림하지 않는다
+    expect(sanitizeSettings({ defaultRR: 50 }).defaultRR).toBe(20);
+    expect(sanitizeSettings({ defaultRR: 0 }).defaultRR).toBe(0.1);
+    expect(sanitizeSettings({ defaultRR: 1.234 }).defaultRR).toBe(1.23);
     expect(s.lookback).toBe(80);
   });
 });

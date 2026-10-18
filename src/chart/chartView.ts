@@ -40,7 +40,6 @@ export interface OverlayInput {
   presets: PresetLevel[];
   /** 박스를 진입 봉에서 오른쪽으로 옮긴 봉 수 */
   shiftBars: number;
-  swing: { time: number; price: number; label: string } | null;
   /** 2차 이후 분할 진입 가격선 (진행 중 시나리오만) */
   splits: SplitLine[];
 }
@@ -332,7 +331,6 @@ export class ChartView {
     const last = this.candles.length - 1;
     const shift = o.shiftBars;
     const end = (o.endTime === null ? last + o.extendBars : this.logicalForTime(o.endTime) ?? last) + shift;
-    const swingLogical = o.swing ? this.logicalForTime(o.swing.time) : null;
     const model: OverlayModel = {
       side: o.side,
       entry: o.entry,
@@ -343,7 +341,6 @@ export class ChartView {
       closed: o.endTime !== null,
       labels: o.labels,
       highlight: this.highlightRange(o.slCandle),
-      swing: o.swing && swingLogical !== null && swingLogical >= 0 ? { logical: swingLogical, price: o.swing.price, label: o.swing.label } : null,
       active: this.dragging ?? this.hover,
       presets: o.presets,
       hoverPreset: this.hoverPreset,

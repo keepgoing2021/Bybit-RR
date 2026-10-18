@@ -26,7 +26,7 @@ const throwing: StorageLike = {
 const state = (): PersistedState => ({
   version: 1,
   scenario: setLevel(makeScenario(), 'sl', 97),
-  ui: { provider: 'bybit', symbol: 'BTCUSDT', timeframe: '15', htf: '60' },
+  ui: { provider: 'bybit', symbol: 'BTCUSDT', timeframe: '15' },
 });
 
 describe('state persistence', () => {
@@ -97,6 +97,17 @@ describe('settings persistence', () => {
     const st = memoryStorage();
     saveSettings(st, { ...DEFAULT_SETTINGS, slMode: 'prevCandle' });
     expect(loadSettings(st).slMode).toBe('prevCandle');
+  });
+});
+
+describe('saves from before TP 기준 was removed', () => {
+  it('still load (htf in the UI selection and the scenario is ignored)', () => {
+    const st = memoryStorage();
+    const old = { ...state(), ui: { ...state().ui!, htf: '60' }, scenario: { ...state().scenario!, htf: '60' } };
+    st.setItem(STATE_KEY, JSON.stringify(old));
+    const loaded = loadState(st);
+    expect(loaded?.ui?.symbol).toBe('BTCUSDT');
+    expect(loaded?.scenario).not.toBeNull();
   });
 });
 

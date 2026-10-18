@@ -12,9 +12,7 @@ const sl = (over: Partial<AutoSL> = {}): AutoSL => ({
 });
 
 const tp = (over: Partial<AutoTP> = {}): AutoTP => ({
-  price: 110, candidatePrice: 110, status: 'ok', reason: null,
-  swing: { time: Date.UTC(2026, 9, 16, 23, 0), price: 110, confirmedAt: Date.UTC(2026, 9, 17, 7, 0) },
-  timeframe: '240', ...over,
+  price: 110, candidatePrice: 110, status: 'ok', reason: null, rr: 1.5, ...over,
 });
 
 describe('time formatting', () => {
@@ -87,17 +85,13 @@ describe('slRationale — swing', () => {
 });
 
 describe('tpRationale', () => {
-  it('matches the spec example for LONG', () => {
-    expect(tpRationale(tp(), 'LONG', TZ)).toBe('TP: 4시간봉의 확정 스윙 고점 (10월 17일 08:00 캔들, 10월 17일 16:00 확정)');
+  it('names the default RR', () => {
+    expect(tpRationale(tp(), 'LONG', TZ)).toBe('TP: 기본 손익비 1:1.5 (손익비 점선이나 입력으로 바꿀 수 있음)');
   });
 
-  it('uses the swing low for SHORT', () => {
-    expect(tpRationale(tp(), 'SHORT', TZ)).toContain('확정 스윙 저점');
-  });
-
-  it('shows the reason when no valid auto TP exists', () => {
-    expect(tpRationale(tp({ status: 'unavailable', price: null, swing: null, reason: '유효한 자동 TP 없음: 상위 시간봉 미선택' }), 'LONG', TZ))
-      .toBe('유효한 자동 TP 없음: 상위 시간봉 미선택');
+  it('shows the reason when there is no auto TP', () => {
+    expect(tpRationale(tp({ status: 'unavailable', price: null, rr: null, reason: '유효한 자동 TP 없음: SL 없음' }), 'LONG', TZ))
+      .toBe('유효한 자동 TP 없음: SL 없음');
   });
 });
 

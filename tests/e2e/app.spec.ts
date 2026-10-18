@@ -265,6 +265,15 @@ test('switching symbol clears the calculation', async ({ page }) => {
   expect(await scenario(page)).toBeNull();
 });
 
+async function setSetting(page: Page, key: string, value: string) {
+  const details = page.locator('details.settings');
+  if (!(await details.evaluate((d) => (d as HTMLDetailsElement).open))) await details.locator('summary').click();
+  const control = page.getByTestId(`setting-${key}`);
+  await control.fill(value);
+  await control.press('Enter');
+  await control.blur();
+}
+
 async function setSlMode(page: Page, mode: string) {
   const details = page.locator('details.settings');
   if (!(await details.evaluate((d) => (d as HTMLDetailsElement).open))) await details.locator('summary').click();
@@ -279,6 +288,26 @@ test('default SL uses the chart timeframe, so the SL timeframe box is locked to 
   await page.getByTestId('tf').selectOption('240');
   await waitLive(page);
   await expect(sltf).toHaveValue('240');
+});
+
+test('no TP 기준: TP starts at RR 1:1.5 from the auto SL and can be changed in settings', async ({ page }) => {
+  await open(page, { tf: '240' });
+  await expect(page.getByTestId('htf')).toHaveCount(0);
+  await expect(page.locator('header.topbar')).not.toContainText('TP 기준');
+  await page.getByTestId('btn-long').click();
+  await expect.poll(() => scenario(page)).not.toBeNull();
+  const s = (await scenario(page))!;
+  expect(s.auto.sl.status).toBe('ok');
+  expect(s.auto.tp.rr).toBe(1.5);
+  expect(s.applied.tp).toBe(Number((s.entry + 1.5 * (s.entry - s.applied.sl!)).toFixed(1)));
+  await expect(page.getByTestId('rr-input')).toHaveValue('1.5');
+  await expect(page.getByTestId('tp-rationale')).toContainText('기본 손익비 1:1.5');
+  await expect(page.locator('.card')).not.toContainText('스윙 고점');
+
+  await setSetting(page, 'defaultRR', '2');
+  await page.getByTestId('btn-long').click();
+  await expect.poll(async () => (await scenario(page))?.auto.tp.rr).toBe(2);
+  await expect(page.getByTestId('rr-input')).toHaveValue('2');
 });
 
 test('LONG on a 4H chart uses the latest confirmed 4H swing low', async ({ page }) => {
@@ -517,7 +546,6 @@ test('labels show price and percent only, no tick counts', async ({ page }) => {
 test('monthly chart: candles start on the 1st and the countdown runs to the month end', async ({ page }) => {
   await open(page, { tf: 'M' });
   await expect(page.getByTestId('tf')).toHaveValue('M');
-  await expect(page.getByTestId('htf')).toHaveValue('');
   const snap = await page.evaluate(() => window.__rrDebug.getLiveSnapshot());
   const start = new Date(snap.lastCandle!.time);
   expect([start.getUTCDate(), start.getUTCHours(), start.getUTCMinutes()]).toEqual([1, 0, 0]);
