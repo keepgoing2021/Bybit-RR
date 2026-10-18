@@ -31,13 +31,13 @@ test('bybit provider loads symbols, candles and live trades through the app', as
   expect(s.symbol).toBe('BTCUSDT');
   expect(s.priceSource).toBe('trade');
   expect(Number((Math.round(s.entry / 0.1) * 0.1).toFixed(1))).toBe(s.entry);
-  // SL: 15분봉 차트 → 4시간봉에서 엔트리 직전에 마감된 봉의 저가
-  const H4 = 4 * 3600_000;
-  expect(s.auto.sl.method).toBe('prevCandle');
-  expect(s.auto.sl.timeframe).toBe('240');
-  expect(s.auto.sl.candle!.time).toBe(Math.floor(s.priceTime / H4) * H4 - H4);
+  // SL(기본): 15분봉 차트의 최근 확정 스윙 저점 — 오른쪽 2봉까지 엔트리 전에 마감된 것
+  const M15 = 15 * 60_000;
+  expect(s.auto.sl.method).toBe('swing');
+  expect(s.auto.sl.timeframe).toBe('15');
+  expect(s.auto.sl.candle!.time + 3 * M15).toBeLessThanOrEqual(s.priceTime);
   expect(s.auto.sl.candidatePrice).toBe(s.auto.sl.candle!.low);
-  await expect(page.getByTestId('sl-rationale')).toContainText('4시간봉 직전 마감 봉 저가');
+  await expect(page.getByTestId('sl-rationale')).toContainText('15분봉 최근 확정 스윙 저점');
   expect(s.auto.tp.timeframe).toBe('60');
 
   const stats = await (await request.get(`${MOCK}/mock/stats`)).json();

@@ -63,6 +63,29 @@ describe('slRationale — previous higher-timeframe candle', () => {
   });
 });
 
+describe('slRationale — last N bars', () => {
+  const a = sl({ method: 'lowestN', timeframe: '240', score: null, atr: null, bars: 20 });
+
+  it('names the timeframe, the bar count, the edge and the candle', () => {
+    expect(slRationale(a, 'LONG', TZ)).toBe('SL: 4시간봉 최근 20봉 최저가 (10월 18일 14:15 캔들)');
+    expect(slRationale({ ...a, bufferTicks: 2 }, 'SHORT', TZ)).toBe('SL: 4시간봉 최근 20봉 최고가 + 버퍼 2틱 (10월 18일 14:15 캔들)');
+  });
+
+  it('says when the extreme is in the bar still in progress', () => {
+    expect(slRationale({ ...a, candle: { ...a.candle!, confirmed: false } }, 'LONG', TZ)).toBe(
+      'SL: 4시간봉 최근 20봉 최저가 (진행 중인 10월 18일 14:15 캔들)',
+    );
+  });
+});
+
+describe('slRationale — swing', () => {
+  it('names the timeframe, the swing kind and the candle', () => {
+    const a = sl({ method: 'swing', timeframe: '240', score: null, atr: null });
+    expect(slRationale(a, 'LONG', TZ)).toBe('SL: 4시간봉 최근 확정 스윙 저점 (10월 18일 14:15 캔들)');
+    expect(slRationale({ ...a, bufferTicks: 2 }, 'SHORT', TZ)).toBe('SL: 4시간봉 최근 확정 스윙 고점 + 버퍼 2틱 (10월 18일 14:15 캔들)');
+  });
+});
+
 describe('tpRationale', () => {
   it('matches the spec example for LONG', () => {
     expect(tpRationale(tp(), 'LONG', TZ)).toBe('TP: 4시간봉의 확정 스윙 고점 (10월 17일 08:00 캔들, 10월 17일 16:00 확정)');

@@ -1,5 +1,5 @@
 import { formatPrice, snapToTick } from './price';
-import type { AnalysisSettings } from './settings';
+import type { AnalysisSettings, SlMode } from './settings';
 import { selectSpikeCandle } from './spike';
 import { findSwings, selectSwingTarget } from './swing';
 import { isClosedBy, tfMs } from './timeframe';
@@ -19,8 +19,10 @@ export interface AutoSL {
   atr: number | null;
   timeframe: Timeframe;
   bufferTicks: number;
-  /** prevCandle: SL 기준 시간봉의 직전 마감 봉 / spike: 차트 시간봉의 가장 급격한 캔들 */
-  method: 'prevCandle' | 'spike';
+  /** settings.slMode와 같은 의미. 선정 규칙을 기록한다 */
+  method: SlMode;
+  /** lowestN: 실제로 탐색한 마감 봉 수 (데이터가 N개보다 적으면 그 수) */
+  bars?: number;
 }
 
 export interface AutoTP {
@@ -59,7 +61,60 @@ export function analyzeAutoLevels(i: AnalyzeInput): AutoLevels {
 }
 
 function analyzeSL(i: AnalyzeInput): AutoSL {
-  return i.settings.slMode === 'spike' ? analyzeSpikeSL(i) : analyzePrevCandleSL(i);
+  switch (i.settings.slMode) {
+    case 'swing':
+      return analyzeSwingSL(i);
+    case 'lowestN':
+      return analyzeLowestSL(i);
+    case 'spike':
+      return analyzeSpikeSL(i);
+    default:
+      return analyzePrevCandleSL(i);
+  }
+}
+
+/**
+ * 차트 시간봉의 확정 스윙 저점(LONG)·고점(SHORT) 중 엔트리 너머에 있는 가장 최근 것.
+ * 스윙은 오른쪽에 swingBars개 봉이 마감돼야 확정되므로 진행 중인 봉은 쓰지 않는다.
+ */
+function analyzeSwingSL(i: AnalyzeInput): AutoSL {
+  const { side, entry, cutoff, ltf, settings } = i;
+  const base = emptySL(i, ltf.timeframe, 'swing');
+  const closed = ltf.candles.filter((c) => isClosedBy(c, ltf.timeframe, cutoff));
+  const need = settings.swingBars * 2 + 1;
+  if (closed.length < need) {
+    return { ...base, reason: `유효한 자동 SL 없음: 데이터 부족 (확정 캔들 ${closed.length}개, 스윙 판별에 최소 ${need}개 필요)` };
+  }
+  const kind = side === 'LONG' ? 'low' : 'high';
+  const beyond = (p: number) => (side === 'LONG' ? p < entry : p > entry);
+  const swing = findSwings(closed, settings.swingBars)
+    .filter((s) => s.kind === kind)
+    .reverse()
+    .find((s) => beyond(s.price));
+  if (!swing) {
+    const where = side === 'LONG' ? '아래' : '위';
+    return { ...base, reason: `유효한 자동 SL 없음: 엔트리 ${where}에 확정 스윙 ${kind === 'low' ? '저점' : '고점'} 없음` };
+  }
+  return finishSL(i, base, closed[swing.index], {});
+}
+
+/** 차트 시간봉 최근 N개 마감 봉 + 엔트리 시점에 진행 중인 봉(그때까지의 값) 중 최저가(LONG)·최고가(SHORT) */
+function analyzeLowestSL(i: AnalyzeInput): AutoSL {
+  const { side, cutoff, ltf, settings } = i;
+  const base = emptySL(i, ltf.timeframe, 'lowestN');
+  const ms = tfMs(ltf.timeframe);
+  const closed = ltf.candles.filter((c) => isClosedBy(c, ltf.timeframe, cutoff)).slice(-settings.slLowestBars);
+  const forming = ltf.candles.find((c) => !isClosedBy(c, ltf.timeframe, cutoff) && c.time <= cutoff && cutoff < c.time + ms);
+  const pool = forming ? [...closed, forming] : closed;
+  if (pool.length === 0) {
+    return { ...base, reason: '유효한 자동 SL 없음: 데이터 부족 (엔트리 이전 캔들 없음)' };
+  }
+  let pick = pool[0];
+  for (const c of pool) {
+    // 같은 값이면 더 최근 봉
+    if (side === 'LONG' ? c.low <= pick.low : c.high >= pick.high) pick = c;
+  }
+  return finishSL(i, base, pick, { bars: closed.length });
 }
 
 /** 선정 캔들의 꼬리 끝(+버퍼)을 SL 후보로 만들고, 엔트리 반대편이 아니면 무효 처리 */

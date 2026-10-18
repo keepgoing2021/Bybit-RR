@@ -48,6 +48,15 @@ export function slRationale(a: AutoSL, side: Side, timeZone?: string): string {
   }
   const edge = side === 'LONG' ? '저가' : '고가';
   const buffer = a.bufferTicks > 0 ? ` ${side === 'LONG' ? '−' : '+'} 버퍼 ${a.bufferTicks}틱` : '';
+  if (a.method === 'swing') {
+    const kind = side === 'LONG' ? '저점' : '고점';
+    return `SL: ${tfName(a.timeframe)} 최근 확정 스윙 ${kind}${buffer} (${formatTime(a.candle.time, timeZone)} 캔들)`;
+  }
+  if (a.method === 'lowestN') {
+    const extreme = side === 'LONG' ? '최저가' : '최고가';
+    const when = `${a.candle.confirmed ? '' : '진행 중인 '}${formatTime(a.candle.time, timeZone)} 캔들`;
+    return `SL: ${tfName(a.timeframe)} 최근 ${a.bars ?? '?'}봉 ${extreme}${buffer} (${when})`;
+  }
   if (a.method === 'prevCandle') {
     return `SL: ${tfName(a.timeframe)} 직전 마감 봉 ${edge}${buffer} (${formatTime(a.candle.time, timeZone)} 캔들)`;
   }

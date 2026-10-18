@@ -4,7 +4,8 @@ import { DEFAULT_SETTINGS, sanitizeSettings } from '../../src/core/settings';
 describe('DEFAULT_SETTINGS', () => {
   it('matches the MVP assumptions in the spec', () => {
     expect(DEFAULT_SETTINGS).toEqual({
-      slMode: 'prevCandle',
+      slMode: 'swing',
+      slLowestBars: 20,
       lookback: 50,
       atrPeriod: 14,
       atrMethod: 'wilder',
@@ -26,6 +27,8 @@ describe('sanitizeSettings', () => {
     expect(s.swingBars).toBe(3);
     expect(s.slBufferTicks).toBe(0);
     expect(s.boxExtendBars).toBe(200);
+    expect(sanitizeSettings({ slLowestBars: 0 }).slLowestBars).toBe(1);
+    expect(sanitizeSettings({ slLowestBars: 9999 }).slLowestBars).toBe(500);
   });
 
   it('falls back to defaults for unknown enum values and garbage', () => {
@@ -38,6 +41,9 @@ describe('sanitizeSettings', () => {
   it('keeps valid values', () => {
     const s = sanitizeSettings({ ...DEFAULT_SETTINGS, atrMethod: 'sma', tpMode: 'beyondEntry', lookback: 80, slMode: 'spike' });
     expect(s.slMode).toBe('spike');
+    expect(sanitizeSettings({ slMode: 'prevCandle' }).slMode).toBe('prevCandle');
+    expect(sanitizeSettings({ slMode: 'lowestN' }).slMode).toBe('lowestN');
+    expect(sanitizeSettings({ slMode: 'swing' }).slMode).toBe('swing');
     expect(s.atrMethod).toBe('sma');
     expect(s.tpMode).toBe('beyondEntry');
     expect(s.lookback).toBe(80);

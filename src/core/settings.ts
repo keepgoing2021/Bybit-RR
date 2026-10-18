@@ -2,18 +2,27 @@ import type { AtrMethod } from './atr';
 import type { TpMode } from './swing';
 
 /** 확정된 전략이 아닌 MVP 초기 가정값. 설정 패널에서 바꿀 수 있다. */
-export type SlMode = 'prevCandle' | 'spike';
+export type SlMode = 'swing' | 'lowestN' | 'prevCandle' | 'spike';
+export const SL_MODES: SlMode[] = ['swing', 'lowestN', 'prevCandle', 'spike'];
 
 export interface AnalysisSettings {
-  /** SL 방식: SL 기준 시간봉의 직전 마감 봉(기본) / 차트 시간봉의 가장 급격한 캔들 */
+  /**
+   * SL 방식 (모두 LONG 기준, SHORT는 고가로 대칭)
+   * swing(기본): 차트 시간봉의 최근 확정 스윙 저점 중 엔트리 아래 것
+   * lowestN: 차트 시간봉 최근 N개 마감 봉 + 진행 중인 봉의 최저가
+   * prevCandle: SL 기준 시간봉의 직전 마감 봉 저가
+   * spike: 차트 시간봉의 가장 급격한 캔들 저가
+   */
   slMode: SlMode;
+  /** lowestN 방식의 탐색 범위 (마감 봉 수) */
+  slLowestBars: number;
   /** 급격한 캔들 탐색 범위 (직전 확정 캔들 수) */
   lookback: number;
   atrPeriod: number;
   atrMethod: AtrMethod;
   /** SL 버퍼 (틱). LONG은 아래로, SHORT는 위로 더한다. */
   slBufferTicks: number;
-  /** 스윙 판별 봉 수 (좌우 각각) */
+  /** 스윙 판별 봉 수 (좌우 각각, SL 스윙과 TP 스윙 공통) */
   swingBars: number;
   tpMode: TpMode;
   /** 박스 오른쪽 끝: 최신 봉에서 몇 봉 앞까지 */
@@ -25,7 +34,8 @@ export interface AnalysisSettings {
 }
 
 export const DEFAULT_SETTINGS: AnalysisSettings = {
-  slMode: 'prevCandle',
+  slMode: 'swing',
+  slLowestBars: 20,
   lookback: 50,
   atrPeriod: 14,
   atrMethod: 'wilder',
@@ -40,6 +50,7 @@ export const DEFAULT_SETTINGS: AnalysisSettings = {
 type NumericKey = Exclude<keyof AnalysisSettings, 'atrMethod' | 'tpMode' | 'slMode'>;
 
 export const SETTING_RANGES: Record<NumericKey, [number, number]> = {
+  slLowestBars: [1, 500],
   lookback: [5, 500],
   atrPeriod: [2, 200],
   slBufferTicks: [0, 10000],
@@ -62,6 +73,6 @@ export function sanitizeSettings(raw: unknown): AnalysisSettings {
   }
   if (src.atrMethod === 'wilder' || src.atrMethod === 'sma') out.atrMethod = src.atrMethod;
   if (src.tpMode === 'latest' || src.tpMode === 'beyondEntry') out.tpMode = src.tpMode;
-  if (src.slMode === 'prevCandle' || src.slMode === 'spike') out.slMode = src.slMode;
+  if ((SL_MODES as unknown[]).includes(src.slMode)) out.slMode = src.slMode as SlMode;
   return out;
 }

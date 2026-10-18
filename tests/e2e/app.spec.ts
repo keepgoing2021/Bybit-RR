@@ -13,6 +13,7 @@ type Debug = {
   getLastPrice(): number | null;
   getCountdown(): { text: string; remainingMs: number } | null;
   getHighlight(): { from: number; to: number; label: string } | null;
+  isPriceAutoScale(): boolean;
 };
 declare global {
   interface Window { __rrDebug: Debug }
@@ -221,9 +222,45 @@ test('switching symbol hides scenario', async ({ page }) => {
   await expect.poll(() => rendered(page)).not.toBeNull();
 });
 
-test('SL timeframe defaults one frame up and follows the chart timeframe', async ({ page }) => {
+async function setSlMode(page: Page, mode: string) {
+  const details = page.locator('details.settings');
+  if (!(await details.evaluate((d) => (d as HTMLDetailsElement).open))) await details.locator('summary').click();
+  await page.getByTestId('setting-slMode').selectOption(mode);
+}
+
+test('default SL uses the chart timeframe, so the SL timeframe box is locked to it', async ({ page }) => {
   await open(page, { tf: '15' });
   const sltf = page.getByTestId('sltf');
+  await expect(sltf).toBeDisabled();
+  await expect(sltf).toHaveValue('15');
+  await page.getByTestId('tf').selectOption('240');
+  await waitLive(page);
+  await expect(sltf).toHaveValue('240');
+});
+
+test('LONG on a 4H chart uses the latest confirmed 4H swing low', async ({ page }) => {
+  await open(page, { tf: '240' });
+  await page.getByTestId('btn-long').click();
+  await expect.poll(() => scenario(page)).not.toBeNull();
+  const s = (await scenario(page))!;
+  const H4 = 4 * 3600_000;
+  expect(s.auto.sl.method).toBe('swing');
+  expect(s.auto.sl.timeframe).toBe('240');
+  expect(s.auto.sl.status).toBe('ok');
+  const c = s.auto.sl.candle!;
+  expect(c.time % H4).toBe(0);
+  expect(c.time + 3 * H4).toBeLessThanOrEqual(s.priceTime); // 오른쪽 2봉까지 마감돼야 확정
+  expect(s.auto.sl.price).toBe(c.low);
+  expect(s.auto.sl.price!).toBeLessThan(s.entry);
+  await expect(page.getByTestId('sl-rationale')).toContainText('4시간봉 최근 확정 스윙 저점');
+  await expect.poll(() => page.evaluate(() => window.__rrDebug.getHighlight()?.label ?? null)).toBe('SL 기준 스윙 저점');
+});
+
+test('previous-candle SL mode: SL timeframe defaults one frame up and follows the chart timeframe', async ({ page }) => {
+  await open(page, { tf: '15' });
+  await setSlMode(page, 'prevCandle');
+  const sltf = page.getByTestId('sltf');
+  await expect(sltf).toBeEnabled();
   await expect(sltf).toHaveValue('240');
   await page.getByTestId('tf').selectOption('240');
   await waitLive(page);
@@ -231,21 +268,49 @@ test('SL timeframe defaults one frame up and follows the chart timeframe', async
   await page.getByTestId('tf').selectOption('D');
   await waitLive(page);
   await expect(sltf).toHaveValue('W');
-  await sltf.selectOption('D'); // 사용자가 바꾼 값은 새로고침 뒤에도 유지
+  await sltf.selectOption('D'); // 사용자가 바꾼 값과 SL 방식은 새로고침 뒤에도 유지
   await page.reload();
   await waitLive(page);
   await expect(page.getByTestId('sltf')).toHaveValue('D');
+  await expect(page.getByTestId('sltf')).toBeEnabled();
 });
 
-test('LONG uses the previous closed candle of the SL timeframe', async ({ page }) => {
+test('previous-candle SL mode uses the previous closed candle of the SL timeframe', async ({ page }) => {
   await open(page, { tf: '15' });
+  await setSlMode(page, 'prevCandle');
   await page.getByTestId('btn-long').click();
   await expect.poll(() => scenario(page)).not.toBeNull();
   const s = (await scenario(page))!;
   const H4 = 4 * 3600_000;
+  expect(s.auto.sl.method).toBe('prevCandle');
   expect(s.auto.sl.timeframe).toBe('240');
   expect(s.auto.sl.candle!.time).toBe(Math.floor(s.priceTime / H4) * H4 - H4);
   await expect(page.getByTestId('sl-rationale')).toContainText('4시간봉 직전 마감 봉');
+  await expect.poll(() => page.evaluate(() => window.__rrDebug.getHighlight()?.label ?? null)).toBe('SL 기준 4시간봉');
+});
+
+test('Alt+R resets the chart view like TradingView', async ({ page }) => {
+  await open(page, { tf: '15' });
+  const r = await chartRect(page);
+  const n = await page.evaluate(() => window.__rrDebug.getCandleCount());
+  const initial = (await visibleRange(page))!;
+  expect(initial.to).toBeCloseTo(n + 24, 0);
+  // 가격축을 끌어 자동 맞춤을 끄고, 차트를 옆으로 끈다
+  const axisX = r.left + r.width - 25;
+  await page.mouse.move(axisX, r.top + r.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(axisX, r.top + r.height / 2 + 120, { steps: 8 });
+  await page.mouse.up();
+  await page.mouse.move(r.left + r.width / 2, r.top + r.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(r.left + r.width / 2 + 300, r.top + r.height / 2, { steps: 8 });
+  await page.mouse.up();
+  expect(await page.evaluate(() => window.__rrDebug.isPriceAutoScale())).toBe(false);
+  expect((await visibleRange(page))!.to).toBeLessThan(n);
+  await page.keyboard.press('Alt+KeyR');
+  await expect.poll(async () => (await visibleRange(page))!.to).toBeCloseTo(n + 24, 0);
+  expect((await visibleRange(page))!.from).toBeCloseTo(initial.from, 0);
+  expect(await page.evaluate(() => window.__rrDebug.isPriceAutoScale())).toBe(true);
 });
 
 test('price axis shows a countdown to the bar close that ticks down', async ({ page }) => {
@@ -258,13 +323,6 @@ test('price axis shows a countdown to the bar close that ticks down', async ({ p
   await page.waitForTimeout(2_100);
   const b = (await read())!;
   expect(b.text).not.toBe(a.text);
-});
-
-test('SL candle band is labeled with its timeframe', async ({ page }) => {
-  await open(page, { tf: '15' });
-  await page.getByTestId('btn-long').click();
-  await expect.poll(() => scenario(page)).not.toBeNull();
-  await expect.poll(() => page.evaluate(() => window.__rrDebug.getHighlight()?.label ?? null)).toBe('SL 기준 4시간봉');
 });
 
 test('clicking a percent line sets TP or SL to that level', async ({ page }) => {

@@ -151,12 +151,20 @@ export class ChartView {
     this.candles = candles;
     this.tfMs = tfMs;
     this.series.setData(candles.map(toBar));
-    if (resetView) {
-      const n = candles.length;
-      const bars = Math.max(30, Math.min(150, Math.floor(this.container.clientWidth / 9)));
-      this.chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, n - bars), to: n + 24 });
-    }
+    if (resetView) this.resetView();
     this.rebuildOverlay();
+  }
+
+  /** 처음 보기로 되돌린다: 최근 봉들 + 오른쪽 여백, 가격축 자동 맞춤 (TradingView Alt+R) */
+  resetView(): void {
+    const n = this.candles.length;
+    const bars = Math.max(30, Math.min(150, Math.floor(this.container.clientWidth / 9)));
+    this.chart.priceScale('right').applyOptions({ autoScale: true });
+    this.chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, n - bars), to: n + 24 });
+  }
+
+  isPriceAutoScale(): boolean {
+    return this.chart.priceScale('right').options().autoScale;
   }
 
   /** 캔들 저장소가 이미 반영한 값을 차트에 반영한다 */

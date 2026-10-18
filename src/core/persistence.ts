@@ -82,7 +82,10 @@ export function saveSettings(storage: StorageLike, settings: AnalysisSettings): 
 export function loadSettings(storage: StorageLike): AnalysisSettings {
   try {
     const raw = storage.getItem(SETTINGS_KEY);
-    return sanitizeSettings(raw === null ? null : JSON.parse(raw));
+    const parsed: unknown = raw === null ? null : JSON.parse(raw);
+    // 스윙 SL(slLowestBars와 함께 추가)이 생기기 전에 저장된 설정의 SL 방식은 그때의 기본값이라 새 기본값으로 바꾼다
+    if (isObject(parsed) && !('slLowestBars' in parsed)) delete parsed.slMode;
+    return sanitizeSettings(parsed);
   } catch {
     return sanitizeSettings(null);
   }

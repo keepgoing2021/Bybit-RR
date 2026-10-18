@@ -1,6 +1,6 @@
 import { ChartView, type OverlayInput } from '../chart/chartView';
 import { CONFIG } from '../config';
-import { analyzeAutoLevels } from '../core/analysis';
+import { analyzeAutoLevels, type AutoSL } from '../core/analysis';
 import { captureEntry, evaluateFreshness, type FeedSnapshot, type Freshness } from '../core/freshness';
 import { barRemainingMs, formatCountdown } from '../core/countdown';
 import { applyTrade } from '../core/liveCandle';
@@ -40,13 +40,19 @@ const SETTING_FIELDS: { key: keyof AnalysisSettings; label: string; options?: [s
   {
     key: 'slMode',
     label: 'SL 방식',
-    options: [['prevCandle', 'SL 기준 시간봉의 직전 마감 봉'], ['spike', '차트 시간봉의 가장 급격한 캔들']],
+    options: [
+      ['swing', '차트 시간봉의 최근 확정 스윙 저점·고점'],
+      ['lowestN', '차트 시간봉 최근 N봉의 최저·최고가'],
+      ['prevCandle', 'SL 기준 시간봉의 직전 마감 봉'],
+      ['spike', '차트 시간봉의 가장 급격한 캔들'],
+    ],
   },
+  { key: 'slLowestBars', label: '최저·최고 탐색 범위 (마감 봉 수, 최근 N봉 방식. 진행 중인 봉도 포함)' },
   { key: 'lookback', label: '급격한 캔들 탐색 범위 (봉, 급격한 캔들 방식)' },
   { key: 'atrPeriod', label: 'ATR 기간' },
   { key: 'atrMethod', label: 'ATR 계산 방식', options: [['wilder', 'Wilder (TradingView 기본)'], ['sma', '단순 평균']] },
   { key: 'slBufferTicks', label: 'SL 버퍼 (틱)' },
-  { key: 'swingBars', label: '스윙 판별 봉 수 (좌우 각각)' },
+  { key: 'swingBars', label: '스윙 판별 봉 수 (좌우 각각, SL·TP 공통)' },
   {
     key: 'tpMode',
     label: 'TP 스윙 선택',
@@ -56,6 +62,21 @@ const SETTING_FIELDS: { key: keyof AnalysisSettings; label: string; options?: [s
   { key: 'staleAfterSec', label: '연결 지연 판정 (초)' },
   { key: 'maxPriceAgeSec', label: '가격 유효 시간 (초)' },
 ];
+
+/** 차트의 노란 띠(SL을 정한 캔들) 이름표 */
+function slBandLabel(a: AutoSL, side: Side): string {
+  const low = side === 'LONG';
+  switch (a.method) {
+    case 'swing':
+      return `SL 기준 스윙 ${low ? '저점' : '고점'}`;
+    case 'lowestN':
+      return `SL 기준 최근 ${a.bars ?? '?'}봉 ${low ? '최저' : '최고'}`;
+    case 'prevCandle':
+      return `SL 기준 ${tfName(a.timeframe)}`;
+    default:
+      return 'SL 기준 캔들';
+  }
+}
 
 const emptyFeed = (): FeedSnapshot => ({ socketOpen: false, lastMessageAt: null, clock: null, lastPrice: null });
 
@@ -583,6 +604,12 @@ export class App {
     });
     dlgCancel.addEventListener('click', () => this.closeDialog());
     dialog.addEventListener('keydown', (e) => e.key === 'Escape' && this.closeDialog());
+    // TradingView처럼 Alt+R로 차트 보기 초기화. 한글 입력 상태에서도 되도록 e.code로 본다
+    document.addEventListener('keydown', (e) => {
+      if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || e.code !== 'KeyR') return;
+      e.preventDefault();
+      this.chart.resetView();
+    });
 
     return {
       source, picker, tf, htf, sltf, long, short, status, statusReason, demoBadge,
@@ -649,9 +676,11 @@ export class App {
     e.htf.replaceChildren(h('option', { value: '' }, '없음'), ...highers.map((t) => h('option', { value: t }, tfName(t))));
     e.htf.value = this.ui.htf ?? '';
     e.sltf.replaceChildren(...slTimeframes(this.ui.timeframe).map((t) => h('option', { value: t }, tfName(t))));
-    e.sltf.value = this.currentSlTf();
-    e.sltf.disabled = this.settings.slMode !== 'prevCandle';
-    e.sltf.title = e.sltf.disabled ? "설정의 'SL 방식'이 급격한 캔들일 때는 쓰지 않습니다" : '';
+    // 'SL 기준 시간봉의 직전 마감 봉' 방식에서만 고를 수 있다. 다른 방식은 차트 시간봉을 쓴다.
+    const pickable = this.settings.slMode === 'prevCandle';
+    e.sltf.value = pickable ? this.currentSlTf() : this.ui.timeframe;
+    e.sltf.disabled = !pickable;
+    e.sltf.title = pickable ? '' : "지금 SL 방식은 차트 시간봉을 씁니다. 설정의 'SL 방식'이 직전 마감 봉일 때만 바꿀 수 있습니다";
     const demo = this.provider?.isDemo ?? false;
     show(e.demoBadge, demo);
     show(e.demoTools, demo);
@@ -763,7 +792,7 @@ export class App {
         ? {
             time: s.auto.sl.candle.time,
             durationMs: tfMs(s.auto.sl.timeframe),
-            label: s.auto.sl.method === 'prevCandle' ? `SL 기준 ${tfName(s.auto.sl.timeframe)}` : 'SL 기준 캔들',
+            label: slBandLabel(s.auto.sl, s.side),
           }
         : null,
       presets: s.status === 'active' ? presetLevels(s.side, s.entry, s.tickSize) : [],
@@ -784,6 +813,7 @@ export class App {
       computeExpectedGeometry: () => this.chart.computeExpectedGeometry(),
       chartClientRect: () => this.chart.clientRect(),
       getVisibleRange: () => this.chart.getVisibleRange(),
+      isPriceAutoScale: () => this.chart.isPriceAutoScale(),
       getCandleCount: () => this.store.all().length,
       getLastPrice: () => this.feed.lastPrice?.price ?? null,
       getCountdown: () => this.countdown,

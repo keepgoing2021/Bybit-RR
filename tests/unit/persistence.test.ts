@@ -81,6 +81,22 @@ describe('settings persistence', () => {
     saveSettings(st, { ...DEFAULT_SETTINGS, swingBars: 3 });
     expect(loadSettings(st).swingBars).toBe(3);
   });
+
+  it('settings saved before the swing SL existed switch to the new default SL mode', () => {
+    const st = memoryStorage();
+    const old: Record<string, unknown> = { ...DEFAULT_SETTINGS, slMode: 'prevCandle', swingBars: 3 };
+    delete old.slLowestBars;
+    st.setItem(SETTINGS_KEY, JSON.stringify(old));
+    const s = loadSettings(st);
+    expect(s.slMode).toBe('swing');
+    expect(s.swingBars).toBe(3);
+  });
+
+  it('a mode chosen after the change is kept', () => {
+    const st = memoryStorage();
+    saveSettings(st, { ...DEFAULT_SETTINGS, slMode: 'prevCandle' });
+    expect(loadSettings(st).slMode).toBe('prevCandle');
+  });
 });
 
 describe('box shift persistence', () => {
