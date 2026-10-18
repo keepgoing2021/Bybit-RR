@@ -9,6 +9,7 @@ type Debug = {
   timeToX(ms: number): number | null;
   isBoxSelected(): boolean;
   wickColors(): { up: string; down: string };
+  getLegend(): { index: number | null; stats: { time: number; close: number; changePct: number; amplitudePct: number } | null; text: string };
   priceToClientY(p: number): number | null;
   getRenderedGeometry(): BoxGeometry | null;
   computeExpectedGeometry(): BoxGeometry | null;
@@ -790,4 +791,41 @@ test('the RR box stays on one line even for a long value', async ({ page }) => {
   await page.getByTestId('rr-input').press('Enter');
   await expect(page.getByTestId('rr-input')).toHaveValue('12.75');
   expect((await page.getByTestId('rr-edit').boundingBox())!.height).toBeLessThan(60);
+});
+
+test('candle legend: current candle by default, the hovered candle on hover, current again right of the candles', async ({ page }) => {
+  await open(page, { tf: '15' });
+  await page.mouse.move(2, 2); // 차트 밖
+  const now = await page.evaluate(() => ({
+    legend: window.__rrDebug.getLegend(), snap: window.__rrDebug.getLiveSnapshot(), n: window.__rrDebug.getCandleCount(),
+    closes: window.__rrDebug.getRecentCloses(2),
+  }));
+  expect(now.legend.index).toBe(now.n - 1);
+  expect(now.legend.stats!.time).toBe(now.snap.lastCandle!.time);
+  expect(now.legend.stats!.changePct).toBeCloseTo(((now.closes[1] - now.closes[0]) / now.closes[0]) * 100, 6);
+  expect(now.legend.text).toMatch(/^시 [\d.]+고 [\d.]+저 [\d.]+종 [\d.]+[+−][\d.]+ \([+−][\d.]+%\)진폭 [\d.]+%$/);
+
+  // 10봉 전 캔들 위
+  const r = await chartRect(page);
+  const target = await page.evaluate(() => {
+    const n = window.__rrDebug.getCandleCount();
+    const closes = window.__rrDebug.getRecentCloses(40);
+    const t = window.__rrDebug.getLiveSnapshot().lastCandle!.time - 10 * 15 * 60_000;
+    return { n, t, x: window.__rrDebug.timeToX(t)!, closes };
+  });
+  await page.mouse.move(r.left + target.x, r.top + r.height / 2);
+  await expect.poll(async () => (await page.evaluate(() => window.__rrDebug.getLegend())).stats!.time).toBe(target.t);
+  const hovered = await page.evaluate(() => window.__rrDebug.getLegend());
+  expect(hovered.index).toBe(target.n - 11);
+  // 이동평균도 그 캔들 기준
+  const ma20 = target.closes.slice(40 - 11 - 19, 40 - 10).reduce((a, b) => a + b, 0) / 20;
+  const shown = Number((await page.getByTestId('ma-legend').textContent())!.match(/MA20 ([\d.]+)/)![1]);
+  expect(shown).toBeCloseTo(ma20, 0);
+
+  // 캔들 오른쪽 빈 곳 → 현재 캔들
+  const lastX = await page.evaluate(() => window.__rrDebug.timeToX(window.__rrDebug.getLiveSnapshot().lastCandle!.time)!);
+  await page.mouse.move(r.left + lastX + 60, r.top + r.height / 2);
+  await expect.poll(async () => (await page.evaluate(() => window.__rrDebug.getLegend())).index).toBe(
+    await page.evaluate(() => window.__rrDebug.getCandleCount() - 1),
+  );
 });

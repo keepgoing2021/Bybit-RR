@@ -978,6 +978,7 @@ export class App {
       wickColors: () => this.chart.wickColors(),
       timeToX: (ms: number) => this.chart.timeToX(ms),
       getMaLast: () => this.chart.getMaLast(),
+      getLegend: () => this.chart.getLegend(),
       getRecentCloses: (n: number) => this.store.all().slice(-n).map((c) => c.close),
       /** 마지막 캔들과 최신 가격을 같은 순간에 읽는다 */
       getLiveSnapshot: () => ({ lastCandle: this.store.last() ?? null, lastPrice: this.feed.lastPrice }),

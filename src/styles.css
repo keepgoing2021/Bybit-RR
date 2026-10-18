@@ -744,16 +744,46 @@ button.danger {
   color: var(--warning, #f5a524);
 }
 
-.ma-legend {
+/* 차트 왼쪽 위 범례: 캔들 정보 + 이동평균 */
+.chart-legend {
   position: absolute;
   top: 8px;
   left: 10px;
   z-index: 3;
   display: flex;
-  gap: 12px;
-  font-size: 12px;
-  font-weight: 600;
+  flex-direction: column;
+  gap: 3px;
   pointer-events: none;
+  font-size: 12px;
+}
+
+.ohlc-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  color: var(--muted);
+}
+
+.ohlc-legend b {
+  font-weight: 600;
+}
+
+.ohlc-legend .up {
+  color: var(--profit);
+}
+
+.ohlc-legend .down {
+  color: var(--loss);
+}
+
+.ohlc-legend [data-testid='ohlc-amplitude'] b {
+  color: var(--text);
+}
+
+.ma-legend {
+  display: flex;
+  gap: 12px;
+  font-weight: 600;
 }
 
 /* 상단 바의 분할 진입 입력 */

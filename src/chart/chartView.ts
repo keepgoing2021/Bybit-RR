@@ -12,6 +12,7 @@ import {
   type Time,
   type UTCTimestamp,
 } from 'lightweight-charts';
+import { candleStats, legendIndex, type CandleStats } from '../core/candleStats';
 import { MA_LINES, sma, smaAt } from '../core/ma';
 import { decimalsOf, snapToTick } from '../core/price';
 import type { Candle, Side } from '../core/types';
@@ -70,6 +71,9 @@ export class ChartView {
   private readonly series: ISeriesApi<'Candlestick'>;
   private readonly prim = new RRBoxPrimitive();
   private readonly countdown = new CountdownPrimitive();
+  private readonly ohlcEl: HTMLElement;
+  /** 마우스가 가리키는 논리 인덱스 (차트 밖이면 null) */
+  private hoverLogical: number | null = null;
   private readonly ma: { period: number; label: string; color: string; series: ISeriesApi<'Line'>; value: HTMLElement }[];
   private readonly drag: DragController;
   private readonly mover: BoxMoveController;
@@ -123,7 +127,13 @@ export class ChartView {
     this.series.attachPrimitive(this.prim);
     this.series.attachPrimitive(this.countdown);
 
-    // 이동평균선 (MA20, MA100). 값은 왼쪽 위 범례에 표시하고 가격축 라벨은 끈다 (엔트리·SL·TP 라벨과 겹치지 않게)
+    // 왼쪽 위 범례: 1줄 캔들 정보(시·고·저·종, 등락, 진폭), 2줄 이동평균. 마우스가 올라간 캔들 기준, 없으면 현재 캔들
+    const legendBox = document.createElement('div');
+    legendBox.className = 'chart-legend';
+    this.ohlcEl = document.createElement('div');
+    this.ohlcEl.className = 'ohlc-legend';
+    this.ohlcEl.dataset.testid = 'ohlc-legend';
+    // 이동평균선 (MA20, MA100). 가격축 라벨은 끈다 (엔트리·SL·TP 라벨과 겹치지 않게)
     const legend = document.createElement('div');
     legend.className = 'ma-legend';
     legend.dataset.testid = 'ma-legend';
@@ -143,7 +153,14 @@ export class ChartView {
       });
       return { period: m.period, label: m.label, color: m.color, series, value };
     });
-    container.append(legend);
+    legendBox.append(this.ohlcEl, legend);
+    container.append(legendBox);
+    this.chart.subscribeCrosshairMove((p) => {
+      const logical = p.point && p.logical !== undefined ? Number(p.logical) : null;
+      if (logical === this.hoverLogical) return;
+      this.hoverLogical = logical;
+      this.renderMaLegend();
+    });
 
     this.drag = new DragController({
       getGeometry: () => (this.overlay?.draggable ? this.prim.computeGeometry() : null),
@@ -233,11 +250,56 @@ export class ChartView {
     this.renderMaLegend();
   }
 
+  /** 범례에 보이는 봉 (마우스가 올라간 캔들, 없거나 오른쪽 빈 곳이면 현재 캔들) */
+  private legendBar(): number | null {
+    return legendIndex(this.hoverLogical, this.candles.length);
+  }
+
   private renderMaLegend(): void {
+    const i = this.legendBar();
+    const d = decimalsOf(this.tickSize);
     for (const m of this.ma) {
-      const last = smaAt(this.candles, this.candles.length - 1, m.period);
-      m.value.textContent = last ? last.value.toFixed(decimalsOf(this.tickSize)) : '—';
+      const p = i === null ? null : smaAt(this.candles, i, m.period);
+      m.value.textContent = p ? p.value.toFixed(d) : '—';
     }
+    this.renderOhlc(i === null ? null : candleStats(this.candles, i));
+  }
+
+  private renderOhlc(s: CandleStats | null): void {
+    const el = this.ohlcEl;
+    if (!s) {
+      el.replaceChildren();
+      return;
+    }
+    const d = decimalsOf(this.tickSize);
+    const dir = s.up ? 'up' : 'down';
+    const kv = (k: string, v: number) => {
+      const span = document.createElement('span');
+      const b = document.createElement('b');
+      b.className = `num ${dir}`;
+      b.textContent = v.toFixed(d);
+      span.append(`${k} `, b);
+      return span;
+    };
+    const sign = s.change >= 0 ? '+' : '−';
+    const change = document.createElement('span');
+    change.className = `num ${dir}`;
+    change.dataset.testid = 'ohlc-change';
+    change.textContent = `${sign}${Math.abs(s.change).toFixed(d)} (${sign}${Math.abs(s.changePct).toFixed(2)}%)`;
+    const amp = document.createElement('span');
+    amp.dataset.testid = 'ohlc-amplitude';
+    amp.append('진폭 ');
+    const ampV = document.createElement('b');
+    ampV.className = 'num';
+    ampV.textContent = `${s.amplitudePct.toFixed(2)}%`;
+    amp.append(ampV);
+    el.replaceChildren(kv('시', s.open), kv('고', s.high), kv('저', s.low), kv('종', s.close), change, amp);
+  }
+
+  /** 검증용: 범례에 보이는 봉과 값 */
+  getLegend(): { index: number | null; stats: CandleStats | null; text: string } {
+    const i = this.legendBar();
+    return { index: i, stats: i === null ? null : candleStats(this.candles, i), text: this.ohlcEl.textContent ?? '' };
   }
 
   /** 검증용: 각 이동평균선의 마지막 점 (차트에 들어간 값) */
