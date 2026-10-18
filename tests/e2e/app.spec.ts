@@ -7,6 +7,8 @@ type Debug = {
   getScenario(): Scenario | null;
   getLastCopied(): string | null;
   timeToX(ms: number): number | null;
+  isBoxSelected(): boolean;
+  wickColors(): { up: string; down: string };
   priceToClientY(p: number): number | null;
   getRenderedGeometry(): BoxGeometry | null;
   computeExpectedGeometry(): BoxGeometry | null;
@@ -684,47 +686,101 @@ test('capital and split inputs live in the top bar, even before a scenario exist
   await expect(page.locator('.panel').getByTestId('sizing-capital')).toHaveCount(0);
 });
 
-test('average entry if all splits fill: emphasized in the panel and drawn as a white line', async ({ page }) => {
+const finalAvgY = async (page: Page) => {
+  const g = await rendered(page);
+  return g ? g.avgLines.find((a) => a.final)?.y ?? null : 'no box';
+};
+
+test('average entry at each fill stage: table column, emphasized all-filled row, distinct chart lines, toggle', async ({ page }) => {
   await open(page, { tf: '15' });
   await validLong(page); // SL −10
   await page.getByTestId('sizing-capital').fill('10000');
   await page.getByTestId('sizing-capital').press('Enter');
   const avgCell = page.getByTestId('sizing-avg');
   await expect(avgCell).not.toHaveText('');
+  await expect(page.getByTestId('sizing-summary')).toContainText('전부 체결 시 예상 평단');
   expect(await avgCell.evaluate((el) => getComputedStyle(el).fontWeight)).toBe('700');
   expect(await avgCell.evaluate((el) => getComputedStyle(el).color)).toBe('rgb(255, 255, 255)');
-  const avg = Number(await avgCell.textContent());
   const s = (await scenario(page))!;
-  expect(avg).toBeLessThan(s.entry);
-  expect(avg).toBeGreaterThan(s.applied.sl!);
-  await expect.poll(async () => (await rendered(page))?.yAvg ?? null).not.toBeNull();
-  const y = (await page.evaluate((p) => window.__rrDebug.priceToClientY(p), avg))! - (await chartRect(page)).top;
-  expect((await rendered(page))!.yAvg!).toBeCloseTo(y, 0);
 
-  await expect(page.getByTestId('sizing-summary')).toContainText('체결 시 예상 평단');
+  // 표: 1차 = 진입가, 뒤로 갈수록 평단이 SL 쪽으로, 마지막 = 전부 체결 평단
+  const stage = (await page.getByTestId('stage-avg').allTextContents()).map(Number);
+  expect(stage).toHaveLength(3);
+  expect(stage[0]).toBe(s.entry);
+  expect(stage[1]).toBeLessThan(stage[0]);
+  expect(stage[2]).toBeLessThan(stage[1]);
+  expect(stage[2]).toBe(Number(await avgCell.textContent()));
+
+  // 차트: 2차 체결 시·전부 체결 시 두 선, 값은 표와 같다
+  await expect.poll(async () => (await rendered(page))?.avgLines.length ?? 0).toBe(2);
+  const lines = (await rendered(page))!.avgLines;
+  expect(lines.map((l) => l.final)).toEqual([false, true]);
+  expect(lines.map((l) => l.price)).toEqual([stage[1], stage[2]]);
+  expect(lines[0].label).toBe(`2차 체결 시 평단 ${stage[1].toFixed(1)}`);
+  expect(lines[1].label).toBe(`전부 체결 시 평단 ${stage[2].toFixed(1)}`);
+  const y = (await page.evaluate((p) => window.__rrDebug.priceToClientY(p), stage[2]))! - (await chartRect(page)).top;
+  expect(lines[1].y).toBeCloseTo(y, 0);
+
+  // 5분할 → 2·3·4차 체결 시 + 전부 체결 시
+  await page.getByTestId('sizing-splits').selectOption('5');
+  await expect.poll(async () => (await rendered(page))?.avgLines.map((l) => l.label.split(' ')[0]) ?? []).toEqual(['2차', '3차', '4차', '전부']);
 
   // 끄고 켜기 (새로고침해도 유지)
   const toggle = page.getByTestId('sizing-avg-toggle');
   await expect(toggle).toBeChecked();
   await toggle.uncheck();
-  await expect.poll(async () => {
-    const g = await rendered(page);
-    return g ? g.yAvg : 'no box';
-  }).toBeNull();
-  await expect(page.getByTestId('sizing-avg')).not.toHaveText(''); // 패널 값은 그대로
+  await expect.poll(() => finalAvgY(page)).toBeNull();
+  await expect(avgCell).not.toHaveText(''); // 패널 값은 그대로
   await page.reload();
   await waitLive(page);
   await expect(page.getByTestId('sizing-avg-toggle')).not.toBeChecked();
   await expect.poll(async () => (await rendered(page)) !== null).toBe(true);
-  expect((await rendered(page))!.yAvg).toBeNull();
+  expect((await rendered(page))!.avgLines).toEqual([]);
   await page.getByTestId('sizing-avg-toggle').check();
-  await expect.poll(async () => (await rendered(page))?.yAvg ?? null).not.toBeNull();
+  await expect.poll(() => finalAvgY(page)).not.toBeNull();
 
   await page.getByTestId('sizing-splits').selectOption('1'); // 1회 진입이면 평단 = 진입가라 선을 그리지 않는다
-  await expect.poll(async () => {
-    const g = await rendered(page);
-    return g ? g.yAvg : 'no box';
-  }).toBeNull();
+  await expect.poll(() => finalAvgY(page)).toBeNull();
+});
+
+test('click the box to select it, Delete clears the calculation; typing Delete in an input does not', async ({ page }) => {
+  await open(page, { tf: '15' });
+  await page.getByTestId('btn-long').click();
+  await expect.poll(() => scenario(page)).not.toBeNull();
+  const e = (await scenario(page))!.entry;
+  await setLevel(page, 'sl', (e * 0.985).toFixed(1));
+  await setLevel(page, 'tp', (e * 1.02).toFixed(1));
+  await expect.poll(async () => { const g = await rendered(page); return !!(g?.profit && g?.loss); }).toBe(true);
+  const g = (await rendered(page))!;
+  const r = await chartRect(page);
+  const lines = [g.ySl!, g.yTp!, ...g.presets.map((p) => p.y), ...g.splits.map((p) => p.y), ...g.avgLines.map((p) => p.y)];
+  let y = Math.max(0, Math.min(g.profit!.y, g.loss!.y)) + 2;
+  while (lines.some((l) => Math.abs(l - y) < 10)) y += 2;
+
+  await page.mouse.click(r.left + g.x1 + 12, r.top + y);
+  await expect.poll(() => page.evaluate(() => window.__rrDebug.isBoxSelected())).toBe(true);
+  // 박스가 선택된 채로 입력칸에서 Backspace·Delete는 글자만 지운다
+  await page.getByTestId('sizing-capital').fill('123');
+  await page.getByTestId('sizing-capital').press('Backspace');
+  await page.getByTestId('sizing-capital').press('Delete');
+  expect(await page.evaluate(() => window.__rrDebug.isBoxSelected())).toBe(true);
+  expect(await scenario(page)).not.toBeNull();
+
+  await page.mouse.click(r.left + 30, r.top + r.height / 2); // 바깥 → 선택 해제
+  await expect.poll(() => page.evaluate(() => window.__rrDebug.isBoxSelected())).toBe(false);
+  await page.keyboard.press('Delete');
+  expect(await scenario(page)).not.toBeNull();
+
+  await page.mouse.click(r.left + g.x1 + 12, r.top + y);
+  await expect.poll(() => page.evaluate(() => window.__rrDebug.isBoxSelected())).toBe(true);
+  await page.keyboard.press('Delete');
+  await expect.poll(() => scenario(page)).toBeNull();
+  await expect.poll(() => rendered(page)).toBeNull();
+});
+
+test('candle wicks are white', async ({ page }) => {
+  await open(page, { tf: '15' });
+  expect(await page.evaluate(() => window.__rrDebug.wickColors())).toEqual({ up: '#FFFFFF', down: '#FFFFFF' });
 });
 
 test('the RR box stays on one line even for a long value', async ({ page }) => {

@@ -715,6 +715,7 @@ button.danger {
 }
 
 .sizing-table th {
+  white-space: nowrap;
   color: var(--muted);
   font-weight: 500;
   text-align: right;
@@ -732,6 +733,11 @@ button.danger {
   text-align: right;
   border-bottom: 1px solid var(--line);
   white-space: nowrap;
+}
+
+.sizing-table .stage-avg.final {
+  color: #ffffff;
+  font-weight: 700;
 }
 
 .sizing-table tr.too-small td {

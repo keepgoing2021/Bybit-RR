@@ -610,6 +610,19 @@ export class App {
       this.renderNow();
     });
     disconnect.addEventListener('click', () => this.provider.simulateDisconnect?.(6_000));
+    // 박스를 눌러 선택한 뒤 Delete(또는 Backspace)로 지우기. 입력칸에서 글자를 지울 때는 무시
+    document.addEventListener('keydown', (e) => {
+      if (!this.chart.isBoxSelected()) return;
+      if (e.key === 'Escape') {
+        this.chart.clearSelection();
+        return;
+      }
+      if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName))) return;
+      e.preventDefault();
+      this.clearCalc();
+    });
     // TradingView처럼 Alt+R로 차트 보기 초기화. 한글 입력 상태에서도 되도록 e.code로 본다
     document.addEventListener('keydown', (e) => {
       if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || e.code !== 'KeyR') return;
@@ -640,7 +653,7 @@ export class App {
     const table = h(
       'table',
       { class: 'sizing-table', 'data-testid': 'sizing-table' },
-      h('thead', {}, h('tr', {}, ...['차수', '가격', '금액 USDT', '수량', '비중'].map((t) => h('th', {}, t)))),
+      h('thead', {}, h('tr', {}, ...['차수', '가격', '금액', '수량', '체결 시 평단'].map((t) => h('th', {}, t)))),
       body,
     );
     // 차트의 '체결 시 예상 평단' 점선 켜기/끄기
@@ -660,7 +673,7 @@ export class App {
       h('dt', {}, '총 포지션'), sum.total,
       h('dt', {}, '필요 레버리지'), sum.lev,
       h('dt', { class: 'group' }, '모두 체결되면'), h('dd', { class: 'group' }, avgToggle),
-      h('dt', { class: 'avg' }, '체결 시 예상 평단'), sum.avg,
+      h('dt', { class: 'avg' }, '전부 체결 시 예상 평단'), sum.avg,
       h('dt', {}, '손절 시'), sum.loss,
       h('dt', {}, '목표 시'), sum.profit,
       h('dt', {}, '손익비'), sum.rr,
@@ -749,11 +762,16 @@ export class App {
         const row = h(
           'tr',
           { 'data-testid': 'sizing-row', class: t.tooSmall ? 'too-small' : '' },
-          h('td', {}, `${t.n}차${t.n === 1 ? ' (진입)' : ''}`),
+          h('td', {}, `${t.n}차 `, h('span', { class: 'muted small' }, `${(t.share * 100).toFixed(0)}%`)),
           h('td', { class: 'num' }, this.copyCell(formatPrice(t.price, s.tickSize), '가격')),
           h('td', { class: 'num' }, this.copyCell(usdt(t.notional), '금액', t.notional.toFixed(2))),
           h('td', { class: 'num' }, this.copyCell(t.qty.toFixed(qd), '수량')),
-          h('td', { class: 'num' }, `${(t.share * 100).toFixed(1)}%`),
+          // 1차부터 이 분할까지 체결됐을 때의 평단 (1차 = 진입가)
+          h(
+            'td',
+            { class: `num stage-avg${t.n === plan.tranches.length && t.n > 1 ? ' final' : ''}`, 'data-testid': 'stage-avg' },
+            formatPrice(snapToTick(t.avgIfFilled, s.tickSize), s.tickSize),
+          ),
         );
         if (t.tooSmall) row.title = `거래소 최소 주문(수량 ${info?.minQty ?? '?'}, 금액 ${info?.minNotional ?? '?'} USDT) 미만`;
         return row;
@@ -925,7 +943,16 @@ export class App {
         : null,
       presets: rrLevels(s.side, s.entry, s.applied.sl, s.tickSize),
       splits: plan ? plan.tranches.slice(1).map((t) => ({ price: t.price, label: `${t.n}차 ${(t.share * 100).toFixed(0)}%` })) : [],
-      avgEntry: this.sizing.showAvgLine && plan && plan.tranches.length > 1 ? snapToTick(plan.avgEntry, s.tickSize) : null,
+      // 분할별 체결 시 예상 평단: 2차 체결 시 … 전부 체결 시 (1차 체결 시 = 진입가라 따로 그리지 않음)
+      avgLines:
+        this.sizing.showAvgLine && plan && plan.tranches.length > 1
+          ? plan.tranches.slice(1).map((t) => {
+              const price = snapToTick(t.avgIfFilled, s.tickSize);
+              const final = t.n === plan.tranches.length;
+              const p = formatPrice(price, s.tickSize);
+              return { price, final, label: `${final ? '전부' : `${t.n}차`} 체결 시 평단 ${p}`, short: `${final ? '전부' : `${t.n}차`} ${p}` };
+            })
+          : [],
       shiftBars: boxShiftOf(s),
     };
     this.chart.setOverlay(overlay);
@@ -947,6 +974,8 @@ export class App {
       getCountdown: () => this.countdown,
       getHighlight: () => this.chart.getHighlight(),
       getOverlayLabels: () => this.chart.getOverlayLabels(),
+      isBoxSelected: () => this.chart.isBoxSelected(),
+      wickColors: () => this.chart.wickColors(),
       timeToX: (ms: number) => this.chart.timeToX(ms),
       getMaLast: () => this.chart.getMaLast(),
       getRecentCloses: (n: number) => this.store.all().slice(-n).map((c) => c.close),

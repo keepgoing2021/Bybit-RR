@@ -13,12 +13,12 @@ import {
   type UTCTimestamp,
 } from 'lightweight-charts';
 import { MA_LINES, sma, smaAt } from '../core/ma';
-import { decimalsOf, formatPrice, snapToTick } from '../core/price';
+import { decimalsOf, snapToTick } from '../core/price';
 import type { Candle, Side } from '../core/types';
 import { CountdownPrimitive, type CountdownState } from './countdownPrimitive';
 import { BoxMoveController, DragController, type DragTarget } from './drag';
 import type { PresetLevel } from '../core/presets';
-import { hitTestPreset, type BoxGeometry, type SplitLine } from './geometry';
+import { hitTestPreset, type AvgLine, type BoxGeometry, type SplitLine } from './geometry';
 import { RRBoxPrimitive, type OverlayModel } from './rrPrimitive';
 import { THEME } from './theme';
 
@@ -42,8 +42,8 @@ export interface OverlayInput {
   shiftBars: number;
   /** 2차 이후 분할 진입 가격선 (진행 중 시나리오만) */
   splits: SplitLine[];
-  /** 체결 시 예상 평단: 모든 분할이 체결됐을 때 (분할이 없거나, 계산 전이거나, 꺼 두면 null) */
-  avgEntry: number | null;
+  /** 분할별 체결 시 예상 평단 (2차 체결 시 … 전부 체결 시). 분할이 없거나 꺼 두면 빈 배열 */
+  avgLines: AvgLine[];
 }
 
 export interface ChartViewCallbacks {
@@ -81,6 +81,8 @@ export class ChartView {
   private hover: DragTarget | null = null;
   private hoverPreset: string | null = null;
   private dragging: DragTarget | null = null;
+  /** 박스를 눌러 선택한 상태 (Delete로 지우기) */
+  private selected = false;
   private readonly cleanup: (() => void)[] = [];
 
   constructor(private readonly container: HTMLElement, private readonly cb: ChartViewCallbacks) {
@@ -114,8 +116,9 @@ export class ChartView {
       downColor: THEME.loss,
       borderUpColor: THEME.profit,
       borderDownColor: THEME.loss,
-      wickUpColor: THEME.profit,
-      wickDownColor: THEME.loss,
+      // 꼬리는 흰색 (몸통 색과 구분해 고저가 눈에 띄게)
+      wickUpColor: '#FFFFFF',
+      wickDownColor: '#FFFFFF',
     });
     this.series.attachPrimitive(this.prim);
     this.series.attachPrimitive(this.countdown);
@@ -247,6 +250,7 @@ export class ChartView {
   }
 
   setOverlay(o: OverlayInput | null): void {
+    if (!o) this.selected = false;
     this.overlay = o;
     this.rebuildOverlay();
   }
@@ -258,6 +262,22 @@ export class ChartView {
   /** 검증용: 캔들 시작 시각의 차트 안 x 좌표 */
   timeToX(ms: number): number | null {
     return this.chart.timeScale().timeToCoordinate((ms / 1000) as UTCTimestamp);
+  }
+
+  /** 검증용: 캔들 꼬리 색 */
+  wickColors(): { up: string; down: string } {
+    const o = this.series.options();
+    return { up: o.wickUpColor, down: o.wickDownColor };
+  }
+
+  isBoxSelected(): boolean {
+    return this.selected;
+  }
+
+  clearSelection(): void {
+    if (!this.selected) return;
+    this.selected = false;
+    this.rebuildOverlay();
   }
 
   getOverlayLabels(): OverlayInput['labels'] | null {
@@ -347,7 +367,8 @@ export class ChartView {
       presets: o.presets,
       hoverPreset: this.hoverPreset,
       splits: o.splits,
-      avg: o.avgEntry === null ? null : { price: o.avgEntry, label: `체결 시 예상 평단 ${formatPrice(o.avgEntry, this.tickSize)}` },
+      avgLines: o.avgLines,
+      selected: this.selected,
     };
     this.prim.setModel(model);
     this.syncLines(o);
@@ -358,7 +379,7 @@ export class ChartView {
       entry: { price: o ? o.entry : null, color: THEME.entry, title: '엔트리' },
       sl: { price: o ? o.sl : null, color: THEME.loss, title: 'SL' },
       tp: { price: o ? o.tp : null, color: THEME.profit, title: 'TP' },
-      avg: { price: o ? o.avgEntry : null, color: '#FFFFFF', title: '예상 평단' },
+      avg: { price: o?.avgLines.find((a) => a.final)?.price ?? null, color: '#FFFFFF', title: '예상 평단' },
     };
     for (const key of ['entry', 'sl', 'tp', 'avg'] as const) {
       const { price, color, title } = want[key];
@@ -397,6 +418,13 @@ export class ChartView {
     const onDown = (e: PointerEvent) => {
       if (e.button !== 0) return;
       const { x, y } = local(e);
+      // 박스(선·점선·몸통)를 누르면 선택, 바깥을 누르면 선택 해제
+      const g = this.overlay ? this.prim.computeGeometry() : null;
+      const onBox = !!g && (this.drag.hover(x, y) !== null || this.presetAt(x, y) !== null || this.mover.hover(x, y));
+      if (onBox !== this.selected) {
+        this.selected = onBox;
+        this.rebuildOverlay();
+      }
       if (!this.drag.pointerDown(x, y)) {
         const preset = this.presetAt(x, y);
         if (preset) {

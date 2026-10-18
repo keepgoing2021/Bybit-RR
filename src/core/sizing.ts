@@ -71,6 +71,8 @@ export interface Tranche {
   loss: number;
   /** 거래소 최소 주문 수량·금액 미만 */
   tooSmall: boolean;
+  /** 1차부터 이 분할까지 체결됐을 때의 평단 (1차 = 진입가, 마지막 = 전부 체결) */
+  avgIfFilled: number;
 }
 
 export interface SizingPlan {
@@ -133,7 +135,12 @@ export function planSizing(i: SizingInput): SizingResult {
   const tpValid = tp !== null && sign * (tp - entry) > 0;
   const profitAtTp = tpValid ? rows.reduce((a, r) => a + r.qty * sign * (tp - r.price), 0) : null;
 
-  const tranches: Tranche[] = rows.map((r, k) => ({
+  let cumNotional = 0;
+  let cumQty = 0;
+  const tranches: Tranche[] = rows.map((r, k) => {
+    cumNotional += r.notional;
+    cumQty += r.qty;
+    return {
     n: k + 1,
     price: r.price,
     share: totalNotional > 0 ? r.notional / totalNotional : 0,
@@ -141,7 +148,9 @@ export function planSizing(i: SizingInput): SizingResult {
     qty: r.qty,
     loss: r.loss,
     tooSmall: r.qty <= 0 || (i.minQty !== undefined && r.qty < i.minQty) || (i.minNotional !== undefined && r.notional < i.minNotional),
-  }));
+    avgIfFilled: cumQty > 0 ? cumNotional / cumQty : r.price,
+    };
+  });
 
   return {
     ok: true,

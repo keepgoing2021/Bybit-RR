@@ -92,6 +92,21 @@ describe('planSizing — loss at SL equals the chosen % of capital', () => {
   });
 });
 
+describe('planSizing — average entry at each fill stage', () => {
+  it('each split carries the average if every split up to it fills (1차 = entry, last = all filled)', () => {
+    const r = planSizing(base());
+    if (!r.ok) throw new Error(r.reason);
+    expect(r.plan.tranches.map((t) => t.avgIfFilled)).toEqual([100, 97.7755, 95.4854].map((x) => expect.closeTo(x, 4)));
+    expect(r.plan.tranches.at(-1)!.avgIfFilled).toBeCloseTo(r.plan.avgEntry, 12);
+  });
+
+  it('uses the rounded quantities', () => {
+    const r = planSizing(base({ qtyStep: 0.1 })); // 2.9, 6, 9.3
+    if (!r.ok) throw new Error(r.reason);
+    expect(r.plan.tranches[1].avgIfFilled).toBeCloseTo((2.9 * 100 + 6 * 96.7) / 8.9, 9);
+  });
+});
+
 describe('planSizing — order size rules', () => {
   it('rounds each quantity down to the qty step, so the loss never exceeds the budget', () => {
     const r = planSizing(base({ qtyStep: 0.1 }));

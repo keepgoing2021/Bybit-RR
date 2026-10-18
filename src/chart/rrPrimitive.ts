@@ -11,7 +11,7 @@ import type {
 } from 'lightweight-charts';
 import type { PresetLevel } from '../core/presets';
 import type { Side } from '../core/types';
-import { computeBoxGeometry, type BoxGeometry, type CoordMapper, type SplitLine } from './geometry';
+import { computeBoxGeometry, type AvgLine, type BoxGeometry, type CoordMapper, type SplitLine } from './geometry';
 import { THEME } from './theme';
 
 type DrawTarget = Parameters<IPrimitivePaneRenderer['draw']>[0];
@@ -34,8 +34,10 @@ export interface OverlayModel {
   hoverPreset: string | null;
   /** 2차 이후 분할 진입 가격선 */
   splits: SplitLine[];
-  /** 체결 시 예상 평단 (이름표 문구 포함) */
-  avg: { price: number; label: string } | null;
+  /** 분할별 체결 시 예상 평단 (2차 체결 시 … 전부 체결 시) */
+  avgLines: AvgLine[];
+  /** 박스가 선택됨 (Delete로 지우기) */
+  selected: boolean;
 }
 
 /**
@@ -111,7 +113,7 @@ export class RRBoxPrimitive implements ISeriesPrimitive<Time> {
     return computeBoxGeometry(
       {
         side: m.side, entry: m.entry, sl: m.sl, tp: m.tp, startLogical: m.startLogical, endLogical: m.endLogical,
-        presets: m.presets, splits: m.splits, avgEntry: m.avg?.price ?? null,
+        presets: m.presets, splits: m.splits, avgLines: m.avgLines,
       },
       mapper,
     );
@@ -184,12 +186,19 @@ export class RRBoxPrimitive implements ISeriesPrimitive<Time> {
         ctx.fillText(sp.label, g.x1 + 4, sp.y - 2);
       }
 
-      // 체결 시 예상 평단: 흰 점선 + 오른쪽 흰 칩
-      if (g.yAvg !== null && m.avg) {
-        ctx.setLineDash([6, 4]);
-        hline(ctx, g.x1, g.x2, g.yAvg, '#FFFFFF', 1.5);
+      // 체결 시 예상 평단: 전부 체결은 굵은 흰 점선 + 흰 칩, 중간 단계는 옅은 잔점선 + 테두리 칩
+      for (const a of g.avgLines) {
+        ctx.globalAlpha = (m.closed ? 0.55 : 1) * (a.final ? 1 : 0.75);
+        ctx.setLineDash(a.final ? [6, 4] : [2, 3]);
+        hline(ctx, g.x1, g.x2, a.y, '#FFFFFF', a.final ? 1.5 : 1);
         ctx.setLineDash([]);
-        avgChip(ctx, m.avg.label, g.x2 - 3, g.yAvg);
+        ctx.globalAlpha = m.closed ? 0.55 : 1;
+        if (a.showLabel) {
+          // 박스 왼쪽의 분할 이름표(약 56px)를 가리지 않게, 넓으면 긴 이름표·좁으면 짧은 이름표
+          ctx.font = `${a.final ? 700 : 600} 11px ${THEME.font}`;
+          const fits = ctx.measureText(a.label).width + 12 <= g.x2 - g.x1 - 60;
+          avgChip(ctx, fits ? a.label : a.short, g.x2 - 3, a.y, a.final);
+        }
       }
 
       hline(ctx, g.x1, g.x2, g.yEntry, THEME.entry, 1.5);
@@ -199,6 +208,19 @@ export class RRBoxPrimitive implements ISeriesPrimitive<Time> {
       if (!m.closed) {
         if (g.handles.tp) handle(ctx, g.handles.tp, THEME.profit, m.active === 'tp');
         if (g.handles.sl) handle(ctx, g.handles.sl, THEME.loss, m.active === 'sl');
+      }
+
+      // 선택됨: 박스 테두리 + 안내
+      if (m.selected) {
+        const ys = [g.yEntry, g.ySl, g.yTp].filter((v): v is number => v !== null);
+        const top = Math.min(...ys);
+        const bottom = Math.max(...ys);
+        ctx.strokeStyle = '#FFFFFF';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 3]);
+        ctx.strokeRect(Math.round(g.x1) - 3.5, Math.round(top) - 3.5, g.x2 - g.x1 + 7, bottom - top + 7);
+        ctx.setLineDash([]);
+        chip(ctx, 'Delete 키로 지우기', (g.x1 + g.x2) / 2, bottom + 38, THEME.chipDark, '#FFFFFF', mediaSize.width, '#FFFFFF');
       }
 
       const cx = (g.x1 + g.x2) / 2;
@@ -245,15 +267,21 @@ function handle(ctx: Ctx, r: { x: number; y: number; w: number; h: number }, col
   ctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1);
 }
 
-/** 평단 이름표: 오른쪽 정렬 흰 칩, 검은 글씨 */
-function avgChip(ctx: Ctx, text: string, right: number, y: number): void {
-  ctx.font = `700 11px ${THEME.font}`;
+/** 평단 이름표: 전부 체결은 흰 칩·검은 글씨, 중간 단계는 어두운 칩·흰 테두리·흰 글씨 */
+function avgChip(ctx: Ctx, text: string, right: number, y: number, final: boolean): void {
+  ctx.font = `${final ? 700 : 600} 11px ${THEME.font}`;
   const w = ctx.measureText(text).width + 12;
   const h = 16;
-  ctx.fillStyle = '#FFFFFF';
+  ctx.fillStyle = final ? '#FFFFFF' : THEME.chipDark;
   roundRect(ctx, right - w, y - h / 2, w, h, 4);
   ctx.fill();
-  ctx.fillStyle = THEME.chipText;
+  if (!final) {
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
+    ctx.lineWidth = 1;
+    roundRect(ctx, right - w + 0.5, y - h / 2 + 0.5, w - 1, h - 1, 4);
+    ctx.stroke();
+  }
+  ctx.fillStyle = final ? THEME.chipText : '#FFFFFF';
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
   ctx.fillText(text, right - w + 6, y + 0.5);

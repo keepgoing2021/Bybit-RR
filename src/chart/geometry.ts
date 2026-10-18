@@ -19,8 +19,17 @@ export interface BoxInput {
   presets?: PresetLevel[];
   /** 2차 이후 분할 진입 가격선 */
   splits?: SplitLine[];
-  /** 모든 분할이 체결됐을 때의 평단 (분할이 없으면 없음) */
-  avgEntry?: number | null;
+  /** 분할별 예상 평단 (2차 체결 시 … 전부 체결 시). 분할이 없으면 없음 */
+  avgLines?: AvgLine[];
+}
+
+export interface AvgLine {
+  price: number;
+  label: string;
+  /** 박스가 좁을 때 쓰는 짧은 이름표 (예: '2차 63513.7') */
+  short: string;
+  /** 전부 체결 시 평단 (가장 강조) */
+  final: boolean;
 }
 
 export interface SplitLine {
@@ -48,8 +57,8 @@ export interface BoxGeometry {
   handles: { sl: Rect | null; tp: Rect | null };
   presets: (PresetLevel & { y: number })[];
   splits: (SplitLine & { y: number })[];
-  /** 평단 선 y (없으면 null) */
-  yAvg: number | null;
+  /** 분할별 예상 평단 선. showLabel=false면 이름표가 다른 것과 겹쳐서 선만 그린다 */
+  avgLines: (AvgLine & { y: number; showLabel: boolean })[];
 }
 
 export const HANDLE_SIZE = 10;
@@ -83,12 +92,28 @@ export function computeBoxGeometry(i: BoxInput, m: CoordMapper): BoxGeometry | n
     loss: band(ySl),
     handles: { sl: handle(ySl), tp: handle(yTp) },
     presets: spaced(i.presets ?? [], m, yEntry),
-    yAvg: i.avgEntry == null ? null : m.priceToY(i.avgEntry),
+    avgLines: labeledAvgLines(i.avgLines ?? [], m),
     splits: (i.splits ?? []).flatMap((p) => {
       const y = m.priceToY(p.price);
       return y === null ? [] : [{ ...p, y }];
     }),
   };
+}
+
+/** 전부 체결 평단 이름표는 항상, 나머지는 이미 보이는 이름표와 14px 넘게 떨어질 때만 */
+function labeledAvgLines(lines: AvgLine[], m: CoordMapper): (AvgLine & { y: number; showLabel: boolean })[] {
+  const placed = lines.flatMap((l) => {
+    const y = m.priceToY(l.price);
+    return y === null ? [] : [{ ...l, y, showLabel: false }];
+  });
+  const shown: number[] = [];
+  for (const l of [...placed.filter((p) => p.final), ...placed.filter((p) => !p.final)]) {
+    if (l.final || shown.every((y) => Math.abs(y - l.y) >= PRESET_MIN_GAP)) {
+      l.showLabel = true;
+      shown.push(l.y);
+    }
+  }
+  return placed;
 }
 
 /** 점선 사이 최소 간격 (px). 이보다 가까우면 이름표가 겹치므로 그 점선은 그리지 않는다 */

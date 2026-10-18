@@ -108,9 +108,23 @@ describe('split entry lines', () => {
   });
 });
 
-describe('average entry line (all splits filled)', () => {
-  it('maps the average price to y, or null when there is none', () => {
-    expect(computeBoxGeometry({ ...longBox, avgEntry: 99.2 }, mapper)!.yAvg).toBeCloseTo(108, 9);
-    expect(computeBoxGeometry(longBox, mapper)!.yAvg).toBeNull();
+describe('average entry lines per fill stage', () => {
+  // 엔트리 100 (y 100), SL 90 (y 200)
+  const box = { ...longBox, sl: 90 };
+  it('maps each stage; the all-filled one always keeps its label, others hide labels that would overlap', () => {
+    const g = computeBoxGeometry({
+      ...box,
+      avgLines: [
+        { price: 97, label: '2차 체결 시 평단 97', short: '2차 97', final: false }, // y 130
+        { price: 95.5, label: '3차 체결 시 평단 95.5', short: '3차 95.5', final: false }, // y 145 → 전부 체결(150)과 5px
+        { price: 95, label: '전부 체결 시 평단 95', short: '전부 95', final: true }, // y 150
+      ],
+    }, mapper)!;
+    expect(g.avgLines.map((a) => [a.final, a.showLabel])).toEqual([[false, true], [false, false], [true, true]]);
+    expect(g.avgLines.map((a) => a.y)).toEqual([130, 145, 150].map((y) => expect.closeTo(y, 9)));
+  });
+
+  it('has none unless given', () => {
+    expect(computeBoxGeometry(longBox, mapper)!.avgLines).toEqual([]);
   });
 });
