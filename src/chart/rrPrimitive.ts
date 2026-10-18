@@ -11,7 +11,7 @@ import type {
 } from 'lightweight-charts';
 import type { PresetLevel } from '../core/presets';
 import type { Side } from '../core/types';
-import { computeBoxGeometry, type BoxGeometry, type CoordMapper } from './geometry';
+import { computeBoxGeometry, type BoxGeometry, type CoordMapper, type SplitLine } from './geometry';
 import { THEME } from './theme';
 
 type DrawTarget = Parameters<IPrimitivePaneRenderer['draw']>[0];
@@ -34,6 +34,8 @@ export interface OverlayModel {
   presets: PresetLevel[];
   /** 마우스가 올라간 점선의 % */
   hoverPreset: number | null;
+  /** 2차 이후 분할 진입 가격선 */
+  splits: SplitLine[];
 }
 
 /**
@@ -109,7 +111,7 @@ export class RRBoxPrimitive implements ISeriesPrimitive<Time> {
     return computeBoxGeometry(
       {
         side: m.side, entry: m.entry, sl: m.sl, tp: m.tp, startLogical: m.startLogical, endLogical: m.endLogical,
-        presets: m.presets,
+        presets: m.presets, splits: m.splits,
       },
       mapper,
     );
@@ -166,6 +168,21 @@ export class RRBoxPrimitive implements ISeriesPrimitive<Time> {
         ctx.fillText(`${p.pct > 0 ? '+' : '−'}${Math.abs(p.pct)}%`, g.x2 - 4, p.y - 2);
       }
       ctx.globalAlpha = m.closed ? 0.55 : 1;
+
+      // 분할 진입 가격선 (엔트리 색 점선, 이름표는 왼쪽)
+      ctx.textAlign = 'left';
+      for (const sp of g.splits) {
+        ctx.strokeStyle = THEME.entry;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([2, 3]);
+        ctx.beginPath();
+        ctx.moveTo(g.x1, Math.round(sp.y) + 0.5);
+        ctx.lineTo(g.x2, Math.round(sp.y) + 0.5);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = THEME.entry;
+        ctx.fillText(sp.label, g.x1 + 4, sp.y - 2);
+      }
 
       hline(ctx, g.x1, g.x2, g.yEntry, THEME.entry, 1.5);
       if (g.yTp !== null) hline(ctx, g.x1, g.x2, g.yTp, THEME.profit, m.active === 'tp' ? 2.5 : 1.5);

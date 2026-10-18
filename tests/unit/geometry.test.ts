@@ -89,3 +89,14 @@ describe('percent preset lines', () => {
     expect(computeBoxGeometry(longBox, mapper)!.presets).toEqual([]);
   });
 });
+
+describe('split entry lines', () => {
+  it('maps each split price to a y coordinate and keeps its label', () => {
+    const g = computeBoxGeometry({ ...longBox, splits: [{ price: 99.3, label: '2차 33%' }, { price: 98.7, label: '3차 50%' }] }, mapper)!;
+    expect(g.splits).toEqual([
+      { price: 99.3, label: '2차 33%', y: mapper.priceToY(99.3) },
+      { price: 98.7, label: '3차 50%', y: mapper.priceToY(98.7) },
+    ]);
+    expect(computeBoxGeometry(longBox, mapper)!.splits).toEqual([]);
+  });
+});

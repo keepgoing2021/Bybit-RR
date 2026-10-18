@@ -1,9 +1,8 @@
-import { tfMs } from '../../core/timeframe';
+import { barEnd } from '../../core/timeframe';
 import type { Candle, PriceTick, SymbolInfo, Timeframe } from '../../core/types';
 
 /** REST /v5/market/kline result.list (최신순) → 오름차순 캔들. serverTime 기준으로 마감된 캔들만 확정 처리 */
 export function parseKlineList(list: string[][], serverTime: number, tf: Timeframe): Candle[] {
-  const dur = tfMs(tf);
   return list
     .map((row) => {
       const time = Number(row[0]);
@@ -14,7 +13,7 @@ export function parseKlineList(list: string[][], serverTime: number, tf: Timefra
         low: Number(row[3]),
         close: Number(row[4]),
         volume: Number(row[5]),
-        confirmed: time + dur <= serverTime,
+        confirmed: barEnd(tf, time) <= serverTime,
       };
     })
     .filter((c) => Number.isFinite(c.time) && Number.isFinite(c.close))
@@ -31,7 +30,19 @@ export function parseInstruments(list: unknown[]): SymbolInfo[] {
     const pf = r.priceFilter as Record<string, unknown> | undefined;
     const tickSize = Number(pf?.tickSize);
     if (typeof r.symbol !== 'string' || !Number.isFinite(tickSize) || tickSize <= 0) continue;
-    out.push({ symbol: r.symbol, tickSize });
+    const info: SymbolInfo = { symbol: r.symbol, tickSize };
+    const lot = r.lotSizeFilter as Record<string, unknown> | undefined;
+    const pos = (v: unknown) => {
+      const n = Number(v);
+      return v !== undefined && Number.isFinite(n) && n > 0 ? n : undefined;
+    };
+    const qtyStep = pos(lot?.qtyStep);
+    const minQty = pos(lot?.minOrderQty);
+    const minNotional = pos(lot?.minNotionalValue);
+    if (qtyStep !== undefined) info.qtyStep = qtyStep;
+    if (minQty !== undefined) info.minQty = minQty;
+    if (minNotional !== undefined) info.minNotional = minNotional;
+    out.push(info);
   }
   return out;
 }

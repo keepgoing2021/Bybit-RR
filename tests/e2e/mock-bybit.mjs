@@ -77,7 +77,8 @@ const server = http.createServer((req, res) => {
   if (url.pathname === '/v5/market/instruments-info') {
     const item = (symbol, tick, extra = {}) => ({
       symbol, contractType: 'LinearPerpetual', status: 'Trading', baseCoin: symbol.replace('USDT', ''), quoteCoin: 'USDT',
-      priceScale: String(Math.max(0, -Math.floor(Math.log10(tick)))), priceFilter: { minPrice: String(tick), maxPrice: '1999999.80', tickSize: String(tick) }, ...extra,
+      priceScale: String(Math.max(0, -Math.floor(Math.log10(tick)))), priceFilter: { minPrice: String(tick), maxPrice: '1999999.80', tickSize: String(tick) },
+      lotSizeFilter: { maxOrderQty: '1190.000', minOrderQty: '0.001', qtyStep: '0.001', minNotionalValue: '5' }, ...extra,
     });
     return json({
       retCode: 0, retMsg: 'OK', time: Date.now(), retExtInfo: {},

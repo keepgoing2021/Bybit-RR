@@ -16,7 +16,7 @@ import type { Candle, Side } from '../core/types';
 import { CountdownPrimitive, type CountdownState } from './countdownPrimitive';
 import { BoxMoveController, DragController, type DragTarget } from './drag';
 import type { PresetLevel } from '../core/presets';
-import { hitTestPreset, type BoxGeometry } from './geometry';
+import { hitTestPreset, type BoxGeometry, type SplitLine } from './geometry';
 import { RRBoxPrimitive, type OverlayModel } from './rrPrimitive';
 import { THEME } from './theme';
 
@@ -39,6 +39,8 @@ export interface OverlayInput {
   /** 박스를 오른쪽으로 옮긴 양 (ms) */
   shiftMs: number;
   swing: { time: number; price: number; label: string } | null;
+  /** 2차 이후 분할 진입 가격선 (진행 중 시나리오만) */
+  splits: SplitLine[];
 }
 
 export interface ChartViewCallbacks {
@@ -184,6 +186,10 @@ export class ChartView {
     this.countdown.set(state);
   }
 
+  getOverlayLabels(): OverlayInput['labels'] | null {
+    return this.overlay?.labels ?? null;
+  }
+
   getHighlight(): { from: number; to: number; label: string } | null {
     return this.prim.getModel()?.highlight ?? null;
   }
@@ -268,6 +274,7 @@ export class ChartView {
       active: this.dragging ?? this.hover,
       presets: o.presets,
       hoverPreset: this.hoverPreset,
+      splits: o.splits,
     };
     this.prim.setModel(model);
     this.syncLines(o);

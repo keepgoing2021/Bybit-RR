@@ -1,10 +1,12 @@
 import type { Scenario } from './scenario';
 import { sanitizeSettings, type AnalysisSettings } from './settings';
+import { sanitizeSizing, type SizingSettings } from './sizing';
 import { TIMEFRAMES } from './timeframe';
 import type { Timeframe } from './types';
 
 export const STATE_KEY = 'rrtool.v1.state';
 export const SETTINGS_KEY = 'rrtool.v1.settings';
+export const SIZING_KEY = 'rrtool.v1.sizing';
 
 export interface StorageLike {
   getItem(key: string): string | null;
@@ -88,6 +90,24 @@ export function loadSettings(storage: StorageLike): AnalysisSettings {
     return sanitizeSettings(parsed);
   } catch {
     return sanitizeSettings(null);
+  }
+}
+
+/** 분할 진입 계산 입력 (운영자산 등). 이 브라우저에만 저장된다 */
+export function saveSizing(storage: StorageLike, sizing: SizingSettings): void {
+  try {
+    storage.setItem(SIZING_KEY, JSON.stringify(sizing));
+  } catch {
+    // 무시
+  }
+}
+
+export function loadSizing(storage: StorageLike): SizingSettings {
+  try {
+    const raw = storage.getItem(SIZING_KEY);
+    return sanitizeSizing(raw === null ? null : JSON.parse(raw));
+  } catch {
+    return sanitizeSizing(null);
   }
 }
 

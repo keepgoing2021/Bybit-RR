@@ -1,5 +1,5 @@
 import { snapToTick } from '../../core/price';
-import { tfMs } from '../../core/timeframe';
+import { barEnd, barStart, prevBarStart } from '../../core/timeframe';
 import type { Candle, Timeframe } from '../../core/types';
 
 /**
@@ -7,9 +7,9 @@ import type { Candle, Timeframe } from '../../core/types';
  * 모든 시간봉이 같은 가격 함수에서 나오므로 시간봉끼리 대체로 일관된다.
  */
 export const DEMO_SYMBOLS = [
-  { symbol: 'DEMO-BTC', tickSize: 0.1, seed: 1, base: 65_000 },
-  { symbol: 'DEMO-ETH', tickSize: 0.01, seed: 2, base: 3_200 },
-  { symbol: 'DEMO-SOL', tickSize: 0.001, seed: 3, base: 150 },
+  { symbol: 'DEMO-BTC', tickSize: 0.1, seed: 1, base: 65_000, qtyStep: 0.001 },
+  { symbol: 'DEMO-ETH', tickSize: 0.01, seed: 2, base: 3_200, qtyStep: 0.01 },
+  { symbol: 'DEMO-SOL', tickSize: 0.001, seed: 3, base: 150, qtyStep: 0.1 },
 ] as const;
 
 export function demoSymbolInfo(symbol: string) {
@@ -74,8 +74,9 @@ export function demoPrice(seed: number, base: number, t: number): number {
 export function demoCandleAt(
   seed: number, base: number, tf: Timeframe, start: number, until: number, tickSize: number,
 ): Candle {
-  const dur = tfMs(tf);
-  const end = Math.min(start + dur, until);
+  const barClose = barEnd(tf, start);
+  const dur = barClose - start;
+  const end = Math.min(barClose, until);
   const samples = Math.min(240, Math.max(30, Math.round(dur / MIN)));
   const step = (end - start) / samples;
   const open = snapToTick(demoPrice(seed, base, start), tickSize);
@@ -87,16 +88,14 @@ export function demoCandleAt(
     if (p > high) high = p;
     if (p < low) low = p;
   }
-  return { time: start, open, high, low, close, volume: 0, confirmed: start + dur <= until };
+  return { time: start, open, high, low, close, volume: 0, confirmed: barClose <= until };
 }
 
 export function demoCandles(
   seed: number, tf: Timeframe, endTime: number, count: number, tickSize: number, base?: number,
 ): Candle[] {
   const b = base ?? DEMO_SYMBOLS.find((s) => s.seed === seed)?.base ?? 100;
-  const dur = tfMs(tf);
-  const last = Math.floor(endTime / dur) * dur;
-  const out: Candle[] = [];
-  for (let i = count - 1; i >= 0; i--) out.push(demoCandleAt(seed, b, tf, last - i * dur, endTime, tickSize));
-  return out;
+  const starts: number[] = [];
+  for (let t = barStart(tf, endTime); starts.length < count; t = prevBarStart(tf, t)) starts.unshift(t);
+  return starts.map((t) => demoCandleAt(seed, b, tf, t, endTime, tickSize));
 }

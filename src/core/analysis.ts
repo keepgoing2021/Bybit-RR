@@ -2,7 +2,7 @@ import { formatPrice, snapToTick } from './price';
 import type { AnalysisSettings, SlMode } from './settings';
 import { selectSpikeCandle } from './spike';
 import { findSwings, selectSwingTarget } from './swing';
-import { isClosedBy, tfMs } from './timeframe';
+import { barEnd, isClosedBy } from './timeframe';
 import type { Candle, Side, Timeframe } from './types';
 
 export type LevelStatus = 'ok' | 'invalid' | 'unavailable';
@@ -102,9 +102,8 @@ function analyzeSwingSL(i: AnalyzeInput): AutoSL {
 function analyzeLowestSL(i: AnalyzeInput): AutoSL {
   const { side, cutoff, ltf, settings } = i;
   const base = emptySL(i, ltf.timeframe, 'lowestN');
-  const ms = tfMs(ltf.timeframe);
   const closed = ltf.candles.filter((c) => isClosedBy(c, ltf.timeframe, cutoff)).slice(-settings.slLowestBars);
-  const forming = ltf.candles.find((c) => !isClosedBy(c, ltf.timeframe, cutoff) && c.time <= cutoff && cutoff < c.time + ms);
+  const forming = ltf.candles.find((c) => !isClosedBy(c, ltf.timeframe, cutoff) && c.time <= cutoff && cutoff < barEnd(ltf.timeframe, c.time));
   const pool = forming ? [...closed, forming] : closed;
   if (pool.length === 0) {
     return { ...base, reason: '유효한 자동 SL 없음: 데이터 부족 (엔트리 이전 캔들 없음)' };
@@ -216,7 +215,7 @@ function analyzeTP(i: AnalyzeInput): AutoTP {
 
   const s = target.swing;
   const price = snapToTick(s.price, tickSize);
-  const swing = { time: s.time, price, confirmedAt: closed[s.confirmIndex].time + tfMs(htf.timeframe) };
+  const swing = { time: s.time, price, confirmedAt: barEnd(htf.timeframe, closed[s.confirmIndex].time) };
   if (target.status !== 'ok') {
     return { ...base, status: target.status, reason: target.reason, swing, candidatePrice: price };
   }

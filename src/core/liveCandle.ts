@@ -1,4 +1,5 @@
-import type { Candle, PriceTick } from './types';
+import { barEnd } from './timeframe';
+import type { Candle, PriceTick, Timeframe } from './types';
 
 /**
  * 체결 하나를 마지막 캔들에 반영한다.
@@ -9,18 +10,27 @@ import type { Candle, PriceTick } from './types';
 export function applyTrade(
   last: Candle | undefined,
   tick: PriceTick,
-  tfMs: number,
+  tf: Timeframe,
 ): { kind: 'update' | 'append'; candle: Candle } | null {
   if (!last || tick.time < last.time) return null;
   const p = tick.price;
-  if (tick.time < last.time + tfMs) {
+  const end = barEnd(tf, last.time);
+  if (tick.time < end) {
     if (last.confirmed) return null;
     return {
       kind: 'update',
       candle: { ...last, close: p, high: Math.max(last.high, p), low: Math.min(last.low, p) },
     };
   }
-  const start = last.time + Math.floor((tick.time - last.time) / tfMs) * tfMs;
+  // 마지막 캔들의 격자(거래소가 정한 시작 시각)를 이어 간다. 월봉은 달력 기준
+  let start: number;
+  if (tf === 'M') {
+    start = end;
+    while (barEnd(tf, start) <= tick.time) start = barEnd(tf, start);
+  } else {
+    const len = end - last.time;
+    start = last.time + Math.floor((tick.time - last.time) / len) * len;
+  }
   return {
     kind: 'append',
     candle: { time: start, open: p, high: p, low: p, close: p, volume: 0, confirmed: false },

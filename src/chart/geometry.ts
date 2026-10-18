@@ -17,6 +17,13 @@ export interface BoxInput {
   endLogical: number;
   /** ±% 점선 (누르면 그 가격으로 SL/TP 설정) */
   presets?: PresetLevel[];
+  /** 2차 이후 분할 진입 가격선 */
+  splits?: SplitLine[];
+}
+
+export interface SplitLine {
+  price: number;
+  label: string;
 }
 
 export interface Rect {
@@ -38,6 +45,7 @@ export interface BoxGeometry {
   loss: Rect | null;
   handles: { sl: Rect | null; tp: Rect | null };
   presets: (PresetLevel & { y: number })[];
+  splits: (SplitLine & { y: number })[];
 }
 
 export const HANDLE_SIZE = 10;
@@ -71,6 +79,10 @@ export function computeBoxGeometry(i: BoxInput, m: CoordMapper): BoxGeometry | n
     loss: band(ySl),
     handles: { sl: handle(ySl), tp: handle(yTp) },
     presets: (i.presets ?? []).flatMap((p) => {
+      const y = m.priceToY(p.price);
+      return y === null ? [] : [{ ...p, y }];
+    }),
+    splits: (i.splits ?? []).flatMap((p) => {
       const y = m.priceToY(p.price);
       return y === null ? [] : [{ ...p, y }];
     }),

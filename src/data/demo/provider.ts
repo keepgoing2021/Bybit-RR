@@ -1,5 +1,5 @@
 import { snapToTick } from '../../core/price';
-import { tfMs } from '../../core/timeframe';
+import { barStart } from '../../core/timeframe';
 import type { Candle, SymbolInfo, Timeframe } from '../../core/types';
 import type { Scheduler } from '../bybit/socket';
 import type { FeedListener, MarketDataProvider } from '../provider';
@@ -26,7 +26,8 @@ export class DemoProvider implements MarketDataProvider {
   constructor(private readonly o: DemoProviderOptions) {}
 
   async listSymbols(): Promise<SymbolInfo[]> {
-    return DEMO_SYMBOLS.map(({ symbol, tickSize }) => ({ symbol, tickSize }));
+    // 데모 주문 규칙은 Bybit 같은 종목과 비슷한 값 (최소 주문 금액 5 USDT)
+    return DEMO_SYMBOLS.map(({ symbol, tickSize, qtyStep }) => ({ symbol, tickSize, qtyStep, minQty: qtyStep, minNotional: 5 }));
   }
 
   async fetchCandles(symbol: string, tf: Timeframe, limit: number): Promise<{ candles: Candle[]; serverTime: number }> {
@@ -40,7 +41,6 @@ export class DemoProvider implements MarketDataProvider {
     this.stopActive?.();
     const info = demoSymbolInfo(symbol);
     const s = this.o.scheduler;
-    const dur = tfMs(tf);
     let interval: number | null = null;
     let timeout: number | null = null;
     let opened = 0;
@@ -52,7 +52,7 @@ export class DemoProvider implements MarketDataProvider {
       const t = this.o.now();
       l.onMessage(t, this.o.realNow());
       l.onPrice({ price: snapToTick(demoPrice(info.seed, info.base, t), info.tickSize), time: t, source: 'trade' });
-      const start = Math.floor(t / dur) * dur;
+      const start = barStart(tf, t);
       if (lastStart !== null && start > lastStart) {
         l.onCandle(demoCandleAt(info.seed, info.base, tf, lastStart, t, info.tickSize));
       }

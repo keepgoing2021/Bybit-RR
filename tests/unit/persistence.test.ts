@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
-  loadSettings, loadState, saveSettings, saveState, SETTINGS_KEY, STATE_KEY, type PersistedState, type StorageLike,
+  loadSettings, loadSizing, loadState, saveSettings, saveSizing, saveState, SETTINGS_KEY, SIZING_KEY, STATE_KEY, type PersistedState, type StorageLike,
 } from '../../src/core/persistence';
 import { setLevel } from '../../src/core/scenario';
 import { DEFAULT_SETTINGS } from '../../src/core/settings';
+import { DEFAULT_SIZING } from '../../src/core/sizing';
 import { makeScenario } from './helpers/scenario';
 
 function memoryStorage(): StorageLike & { data: Map<string, string> } {
@@ -96,6 +97,19 @@ describe('settings persistence', () => {
     const st = memoryStorage();
     saveSettings(st, { ...DEFAULT_SETTINGS, slMode: 'prevCandle' });
     expect(loadSettings(st).slMode).toBe('prevCandle');
+  });
+});
+
+describe('sizing persistence', () => {
+  it('keeps capital, risk %, split count and weights; sanitizes garbage', () => {
+    const st = memoryStorage();
+    expect(loadSizing(st)).toEqual(DEFAULT_SIZING);
+    saveSizing(st, { capital: 3000, riskPct: 2, splits: 5, weightMode: 'equalRisk' });
+    expect(loadSizing(st)).toEqual({ capital: 3000, riskPct: 2, splits: 5, weightMode: 'equalRisk' });
+    st.setItem(SIZING_KEY, '{bad json');
+    expect(loadSizing(st)).toEqual(DEFAULT_SIZING);
+    expect(loadSizing(throwing)).toEqual(DEFAULT_SIZING);
+    expect(() => saveSizing(throwing, DEFAULT_SIZING)).not.toThrow();
   });
 });
 

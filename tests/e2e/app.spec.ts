@@ -14,6 +14,8 @@ type Debug = {
   getCountdown(): { text: string; remainingMs: number } | null;
   getHighlight(): { from: number; to: number; label: string } | null;
   isPriceAutoScale(): boolean;
+  getOverlayLabels(): { profit: string | null; loss: string | null; center: string } | null;
+  getLiveSnapshot(): { lastCandle: { time: number; confirmed: boolean } | null; lastPrice: { price: number; time: number } | null };
 };
 declare global {
   interface Window { __rrDebug: Debug }
@@ -419,4 +421,78 @@ test('the box stops before it leaves the visible chart', async ({ page }) => {
     return canvas.getBoundingClientRect().width;
   });
   expect(moved.x1).toBeLessThanOrEqual(paneWidth - 50);
+});
+
+test('labels show price and percent only, no tick counts', async ({ page }) => {
+  await open(page, { tf: '15' });
+  await validLong(page);
+  const labels = (await page.evaluate(() => window.__rrDebug.getOverlayLabels()))!;
+  expect(labels.profit).toMatch(/^목표 \+[\d.]+ \([\d.]+%\)$/);
+  expect(labels.loss).toMatch(/^손절 −[\d.]+ \([\d.]+%\)$/);
+  await expect(page.locator('.card .metrics').first()).not.toContainText('틱');
+});
+
+test('monthly chart: candles start on the 1st and the countdown runs to the month end', async ({ page }) => {
+  await open(page, { tf: 'M' });
+  await expect(page.getByTestId('tf')).toHaveValue('M');
+  await expect(page.getByTestId('htf')).toHaveValue('');
+  const snap = await page.evaluate(() => window.__rrDebug.getLiveSnapshot());
+  const start = new Date(snap.lastCandle!.time);
+  expect([start.getUTCDate(), start.getUTCHours(), start.getUTCMinutes()]).toEqual([1, 0, 0]);
+  expect(snap.lastCandle!.confirmed).toBe(false);
+  const monthEnd = Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 1);
+  await expect.poll(() => page.evaluate(() => window.__rrDebug.getCountdown())).not.toBeNull();
+  const cd = (await page.evaluate(() => window.__rrDebug.getCountdown()))!;
+  expect(Math.abs(snap.lastPrice!.time + cd.remainingMs - monthEnd)).toBeLessThan(5_000);
+  if (cd.remainingMs >= 86_400_000) expect(cd.text).toMatch(/^\d+d \d+h$/);
+});
+
+test('split entries: 3 or 5 splits between entry and SL, loss at SL capped at the risk %', async ({ page }) => {
+  await open(page, { tf: '15' });
+  const s = await validLong(page); // SL = 엔트리 − 10, TP = 엔트리 + 30
+  await page.getByTestId('sizing-capital').fill('10,000');
+  await page.getByTestId('sizing-capital').press('Enter');
+  await expect(page.getByTestId('sizing-row')).toHaveCount(3);
+  const prices = async () =>
+    (await page.getByTestId('sizing-row').locator('td:nth-child(2)').allTextContents()).map(Number);
+  const expected = (n: number) => Array.from({ length: n }, (_, k) => Number((s.entry - (k / n) * 10).toFixed(1)));
+  expect(await prices()).toEqual(expected(3));
+  const money = async () =>
+    (await page.getByTestId('sizing-row').locator('td:nth-child(3)').allTextContents()).map((t) => Number(t.replace(/,/g, '')));
+  const m3 = await money();
+  expect(m3[0]).toBeLessThan(m3[1]);
+  expect(m3[1]).toBeLessThan(m3[2]);
+  const summary = page.getByTestId('sizing-summary');
+  const loss = Number((await summary.locator('dd').nth(2).textContent())!.match(/−([\d,.]+)/)![1].replace(/,/g, ''));
+  expect(loss).toBeLessThanOrEqual(100);
+  expect(loss).toBeGreaterThan(99);
+  await expect.poll(async () => (await rendered(page))?.splits.map((x) => x.label.split(' ')[0]) ?? []).toEqual(['2차', '3차']);
+  const g = (await rendered(page))!;
+  for (const sp of g.splits) {
+    expect(sp.y).toBeGreaterThan(g.yEntry);
+    expect(sp.y).toBeLessThan(g.ySl!);
+  }
+
+  await page.getByTestId('sizing-splits').selectOption('5');
+  await expect(page.getByTestId('sizing-row')).toHaveCount(5);
+  expect(await prices()).toEqual(expected(5));
+  await expect.poll(async () => (await rendered(page))?.splits.length ?? 0).toBe(4);
+
+  // SL을 옮기면 분할 가격도 따라간다
+  await setLevel(page, 'sl', (s.entry - 20).toFixed(1));
+  await expect.poll(async () => (await prices())[1]).toBe(Number((s.entry - 4).toFixed(1)));
+
+  // 입력값은 새로고침 뒤에도 남는다
+  await page.reload();
+  await waitLive(page);
+  await expect(page.getByTestId('sizing-capital')).toHaveValue('10000');
+  await expect(page.getByTestId('sizing-splits')).toHaveValue('5');
+  await expect(page.getByTestId('sizing-row')).toHaveCount(5);
+});
+
+test('split entries ask for the capital first', async ({ page }) => {
+  await open(page, { tf: '15' });
+  await validLong(page);
+  await expect(page.getByTestId('sizing-reason')).toContainText('운영자산');
+  await expect(page.getByTestId('sizing-table')).toBeHidden();
 });

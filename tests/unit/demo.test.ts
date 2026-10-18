@@ -11,6 +11,12 @@ import { FakeScheduler } from './helpers/fakes';
 const T0 = Date.UTC(2026, 9, 18, 6, 7, 30);
 
 describe('demoCandles', () => {
+  it('monthly candles start on calendar months and only the current one is open', () => {
+    const c = demoCandles(1, 'M', Date.UTC(2026, 1, 15), 3, 0.1);
+    expect(c.map((x) => x.time)).toEqual([Date.UTC(2025, 11, 1), Date.UTC(2026, 0, 1), Date.UTC(2026, 1, 1)]);
+    expect(c.map((x) => x.confirmed)).toEqual([true, true, false]);
+  });
+
   it('is deterministic for the same seed and differs across seeds', () => {
     expect(demoCandles(1, '15', T0, 50, 0.1)).toEqual(demoCandles(1, '15', T0, 50, 0.1));
     expect(demoCandles(2, '15', T0, 50, 0.1)).not.toEqual(demoCandles(1, '15', T0, 50, 0.1));

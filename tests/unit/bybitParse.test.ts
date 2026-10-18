@@ -9,6 +9,12 @@ const REST_LIST = [
 ];
 
 describe('parseKlineList', () => {
+  it('monthly candles close at the end of the calendar month', () => {
+    const rows = [[String(Date.UTC(2026, 2, 1)), '2', '3', '1', '2', '5', '9'], [String(Date.UTC(2026, 1, 1)), '1', '3', '1', '2', '5', '9']];
+    const c = parseKlineList(rows, Date.UTC(2026, 2, 2), 'M');
+    expect(c.map((x) => x.confirmed)).toEqual([true, false]);
+  });
+
   it('returns candles in ascending time order with numbers', () => {
     const c = parseKlineList(REST_LIST, 1670608800000 + 30 * 60_000, '60');
     expect(c.map((x) => x.time)).toEqual([1670601600000, 1670605200000, 1670608800000]);
@@ -24,6 +30,14 @@ describe('parseKlineList', () => {
 });
 
 describe('parseInstruments', () => {
+  it('reads the order size rules from lotSizeFilter', () => {
+    const list = [{
+      symbol: 'BTCUSDT', contractType: 'LinearPerpetual', status: 'Trading', quoteCoin: 'USDT', priceFilter: { tickSize: '0.10' },
+      lotSizeFilter: { maxOrderQty: '1190.000', minOrderQty: '0.001', qtyStep: '0.001', minNotionalValue: '5' },
+    }];
+    expect(parseInstruments(list)).toEqual([{ symbol: 'BTCUSDT', tickSize: 0.1, qtyStep: 0.001, minQty: 0.001, minNotional: 5 }]);
+  });
+
   it('keeps only trading USDT perpetuals with their tick size', () => {
     const list = [
       { symbol: 'BTCUSDT', contractType: 'LinearPerpetual', status: 'Trading', quoteCoin: 'USDT', priceFilter: { tickSize: '0.10' } },

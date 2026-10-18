@@ -6,11 +6,12 @@ import { barRemainingMs, formatCountdown } from '../core/countdown';
 import { applyTrade } from '../core/liveCandle';
 import { presetLevels } from '../core/presets';
 import { computeMetrics, formatRR, type Metrics } from '../core/metrics';
-import { loadSettings, loadState, saveSettings, saveState, type StorageLike, type UiSelection } from '../core/persistence';
-import { formatPrice } from '../core/price';
+import { loadSettings, loadSizing, loadState, saveSettings, saveSizing, saveState, type StorageLike, type UiSelection } from '../core/persistence';
+import { decimalsOf, formatPrice } from '../core/price';
 import { closeScenario, createScenario, restoreAuto, setBoxShift, setLevel, type Scenario } from '../core/scenario';
 import { DEFAULT_SETTINGS, sanitizeSettings, type AnalysisSettings } from '../core/settings';
-import { defaultHigherTf, defaultSlTf, higherTimeframes, slTimeframes, TIMEFRAMES, tfMs } from '../core/timeframe';
+import { DEFAULT_SIZING, planSizing, sanitizeSizing, type SizingPlan, type SizingSettings } from '../core/sizing';
+import { barEnd, defaultHigherTf, defaultSlTf, higherTimeframes, slTimeframes, TIMEFRAMES, tfMs } from '../core/timeframe';
 import type { PriceTick, Side, SymbolInfo, Timeframe } from '../core/types';
 import type { SocketState } from '../data/bybit/socket';
 import { CandleStore } from '../data/candleStore';
@@ -78,12 +79,16 @@ function slBandLabel(a: AutoSL, side: Side): string {
   }
 }
 
+const usdtFmt = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const usdt = (n: number) => usdtFmt.format(n);
+
 const emptyFeed = (): FeedSnapshot => ({ socketOpen: false, lastMessageAt: null, clock: null, lastPrice: null });
 
 export class App {
   private provider!: MarketDataProvider;
   private ui!: UiSelection;
   private settings: AnalysisSettings = DEFAULT_SETTINGS;
+  private sizing: SizingSettings = DEFAULT_SIZING;
   private symbols: SymbolInfo[] = [];
   private tickSize = 0.01;
   private store = new CandleStore();
@@ -105,6 +110,7 @@ export class App {
 
   async start(): Promise<void> {
     this.settings = loadSettings(this.d.storage);
+    this.sizing = loadSizing(this.d.storage);
     const saved = loadState(this.d.storage);
     this.scenario = saved?.scenario ?? null;
     const source = this.d.sourceOverride ?? saved?.ui?.provider ?? 'bybit';
@@ -242,7 +248,7 @@ export class App {
 
   /** kline 푸시(1~60초 간격) 사이에도 마지막 캔들이 체결가를 따라가게 한다 */
   private applyTradeToCandle(t: PriceTick, tf: Timeframe): void {
-    const r = applyTrade(this.store.last(), t, tfMs(tf));
+    const r = applyTrade(this.store.last(), t, tf);
     if (!r) return;
     const kind = this.store.upsert(r.candle);
     this.chart.upsertCandle(r.candle, kind, this.store.all());
@@ -258,7 +264,7 @@ export class App {
       return;
     }
     const serverNow = clock.serverTs + (this.d.now() - clock.receivedAt);
-    const remainingMs = barRemainingMs(last.time, tfMs(this.ui.timeframe), serverNow);
+    const remainingMs = barRemainingMs(last.time, barEnd(this.ui.timeframe, last.time) - last.time, serverNow);
     this.countdown = { text: formatCountdown(remainingMs), remainingMs };
     this.chart.setCountdown({ text: this.countdown.text, price: last.close, up: last.close >= last.open });
   }
@@ -485,6 +491,7 @@ export class App {
     };
     const sl = level('sl', '손절 SL');
     const tp = level('tp', '목표 TP');
+    const sizing = this.buildSizing();
     const restore = h('button', { type: 'button', 'data-testid': 'btn-restore' }, '자동 설정으로 복원');
     const close = h('button', { type: 'button', 'data-testid': 'btn-close' }, '시나리오 종료');
     const del = h('button', { type: 'button', class: 'danger', 'data-testid': 'btn-delete' }, '삭제');
@@ -499,6 +506,7 @@ export class App {
       metrics,
       tp.box,
       sl.box,
+      sizing.box,
       h('div', { class: 'actions' }, restore, close, del),
       h('p', { class: 'note' }, '가격 기준 수치입니다. 수수료, 슬리피지, 레버리지는 반영하지 않았습니다. 실제 주문이 아닌 가상 시나리오입니다.'),
     );
@@ -614,8 +622,125 @@ export class App {
     return {
       source, picker, tf, htf, sltf, long, short, status, statusReason, demoBadge,
       loadError, otherBanner, otherText, chart, empty, card, sideChip, title, stateChip, entry, times, rr, reasons, m,
-      sl, tp, restore, close, del, settingsInputs, demoTools, dialog, dialogText, dlgCancel, toast,
+      sl, tp, sizing, restore, close, del, settingsInputs, demoTools, dialog, dialogText, dlgCancel, toast,
     };
+  }
+
+  /** 분할 진입: 운영자산·손실 한도·분할 수·비중을 받아 분할별 금액을 보여준다 */
+  private buildSizing() {
+    const capital = h('input', {
+      'data-testid': 'sizing-capital', inputmode: 'decimal', autocomplete: 'off', placeholder: '예: 10000', 'aria-label': '운영자산 (USDT)',
+    });
+    const risk = h('input', { 'data-testid': 'sizing-risk', type: 'number', step: '0.1', min: '0.1', max: '10', 'aria-label': '손절 시 손실 (%)' });
+    const splits = h('select', { 'data-testid': 'sizing-splits' });
+    splits.append(h('option', { value: '1' }, '1회 진입'), h('option', { value: '3' }, '3분할'), h('option', { value: '5' }, '5분할'));
+    const weights = h('select', { 'data-testid': 'sizing-weights' });
+    const linear = h('option', { value: 'linear' });
+    weights.append(linear, h('option', { value: 'equalRisk' }, '분할별 손실 균등'));
+    const reason = h('p', { class: 'muted small', 'data-testid': 'sizing-reason' });
+    const body = h('tbody');
+    const table = h(
+      'table',
+      { class: 'sizing-table', 'data-testid': 'sizing-table' },
+      h('thead', {}, h('tr', {}, ...['차수', '가격', '금액 USDT', '수량', '비중'].map((t) => h('th', {}, t)))),
+      body,
+    );
+    const mk = () => h('dd', { class: 'num' });
+    const sum = { total: mk(), lev: mk(), loss: mk(), profit: mk(), avg: mk(), rr: mk() };
+    const summary = h(
+      'dl',
+      { class: 'metrics', 'data-testid': 'sizing-summary' },
+      h('dt', {}, '총 포지션'), sum.total,
+      h('dt', {}, '필요 레버리지'), sum.lev,
+      h('dt', {}, '손절 시 (전부 체결)'), sum.loss,
+      h('dt', {}, '목표 도달 시 (전부 체결)'), sum.profit,
+      h('dt', {}, '전부 체결 시 평단'), sum.avg,
+      h('dt', {}, '전부 체결 시 손익비'), sum.rr,
+    );
+    const note = h(
+      'p',
+      { class: 'note' },
+      '2차부터는 엔트리~SL 거리를 분할 수로 나눈 가격입니다. 모든 분할이 체결된 뒤 SL에 맞아도 손실이 운영자산의 위 %를 넘지 않게 나눴습니다. 금액은 레버리지 전 포지션 규모이며 증거금 = 금액 ÷ 레버리지. 수량은 거래소 주문 단위로 내림, 수수료·슬리피지 미반영.',
+    );
+    const field = (label: string, control: HTMLElement) => h('label', { class: 'setting' }, h('span', {}, label), control);
+    const box = h(
+      'section',
+      { class: 'sizing', 'data-testid': 'sizing' },
+      h('div', { class: 'level-head' }, h('span', { class: 'level-name' }, '분할 진입')),
+      h('div', { class: 'settings-grid' },
+        field('운영자산 (USDT)', capital), field('손절 시 손실 (자산 %)', risk), field('분할', splits), field('비중', weights)),
+      reason,
+      table,
+      summary,
+      note,
+    );
+    const apply = () => {
+      const cap = Number(capital.value.replace(/[,\s]/g, ''));
+      this.sizing = sanitizeSizing({
+        capital: capital.value.trim() === '' ? null : cap,
+        riskPct: risk.value.trim() === '' ? undefined : Number(risk.value),
+        splits: Number(splits.value),
+        weightMode: weights.value,
+      });
+      saveSizing(this.d.storage, this.sizing);
+      this.renderNow(true);
+    };
+    for (const c of [capital, risk, splits, weights]) c.addEventListener('change', apply);
+    capital.addEventListener('keydown', (e) => e.key === 'Enter' && capital.blur());
+    return { box, capital, risk, splits, weights, linear, reason, table, body, summary, sum };
+  }
+
+  private sizingPlan(s: Scenario): { plan: SizingPlan | null; reason: string | null } {
+    const info = this.symbols.find((x) => x.symbol === s.symbol);
+    const r = planSizing({
+      side: s.side, entry: s.entry, sl: s.applied.sl, tp: s.applied.tp, tickSize: s.tickSize,
+      qtyStep: info?.qtyStep, minQty: info?.minQty, minNotional: info?.minNotional, settings: this.sizing,
+    });
+    return r.ok ? { plan: r.plan, reason: null } : { plan: null, reason: r.reason };
+  }
+
+  private renderSizing(s: Scenario, force: boolean): SizingPlan | null {
+    const z = this.el.sizing;
+    const cfg = this.sizing;
+    if (force || document.activeElement !== z.capital) z.capital.value = cfg.capital === null ? '' : String(cfg.capital);
+    if (force || document.activeElement !== z.risk) z.risk.value = String(cfg.riskPct);
+    z.splits.value = String(cfg.splits);
+    z.weights.value = cfg.weightMode;
+    setText(z.linear, `${cfg.splits === 5 ? '1:2:3:4:5' : cfg.splits === 3 ? '1:2:3' : '1'} 점점 크게`);
+    z.weights.disabled = cfg.splits === 1;
+
+    const { plan, reason } = this.sizingPlan(s);
+    show(z.reason, reason !== null);
+    setText(z.reason, reason ?? '');
+    show(z.table, plan !== null);
+    show(z.summary, plan !== null);
+    if (!plan) return null;
+
+    const info = this.symbols.find((x) => x.symbol === s.symbol);
+    const qd = info?.qtyStep ? decimalsOf(info.qtyStep) : 4;
+    z.body.replaceChildren(
+      ...plan.tranches.map((t) => {
+        const row = h(
+          'tr',
+          { 'data-testid': 'sizing-row', class: t.tooSmall ? 'too-small' : '' },
+          h('td', {}, `${t.n}차${t.n === 1 ? ' (엔트리)' : ''}`),
+          h('td', { class: 'num' }, formatPrice(t.price, s.tickSize)),
+          h('td', { class: 'num' }, usdt(t.notional)),
+          h('td', { class: 'num' }, t.qty.toFixed(qd)),
+          h('td', { class: 'num' }, `${(t.share * 100).toFixed(1)}%`),
+        );
+        if (t.tooSmall) row.title = `거래소 최소 주문(수량 ${info?.minQty ?? '?'}, 금액 ${info?.minNotional ?? '?'} USDT) 미만`;
+        return row;
+      }),
+    );
+    const lev = plan.leverage;
+    setText(z.sum.total, `${usdt(plan.totalNotional)} USDT`);
+    setText(z.sum.lev, lev > 1 ? `${(Math.ceil(lev * 10) / 10).toFixed(1)}배 이상` : '없음 (1배 이하)');
+    setText(z.sum.loss, `−${usdt(plan.lossAtSl)} (−${plan.lossPct.toFixed(2)}%)`);
+    setText(z.sum.profit, plan.profitAtTp === null ? '—' : `+${usdt(plan.profitAtTp)} (+${plan.profitPct!.toFixed(2)}%)`);
+    setText(z.sum.avg, formatPrice(plan.avgEntry, s.tickSize));
+    setText(z.sum.rr, plan.rr === null ? '—' : formatRR(plan.rr));
+    return plan;
   }
 
   private applySettings(): void {
@@ -748,8 +873,8 @@ export class App {
     e.rr.dataset.valid = String(m.valid);
     e.reasons.replaceChildren(...m.reasons.map((r) => h('li', {}, r)));
 
-    setText(e.m.reward, m.rewardPct === null ? '—' : `+${formatPct(m.rewardPct)} (${m.rewardTicks}틱)`);
-    setText(e.m.risk, m.riskPct === null ? '—' : `−${formatPct(m.riskPct)} (${m.riskTicks}틱)`);
+    setText(e.m.reward, m.rewardPct === null ? '—' : `+${formatPct(m.rewardPct)}`);
+    setText(e.m.risk, m.riskPct === null ? '—' : `−${formatPct(m.riskPct)}`);
     const cur = s.status === 'closed' ? s.closed!.price : this.lastPriceBySymbol.get(s.symbol)?.price ?? null;
     setText(e.m.current, `${fp(cur)}${s.status === 'closed' ? ' (종료 시점)' : ''}`);
     setText(e.m.currentPct, m.currentPct === null ? '—' : formatPct(m.currentPct, true));
@@ -767,13 +892,14 @@ export class App {
     }
     e.restore.disabled = s.status !== 'active';
     e.close.disabled = s.status !== 'active';
+    const plan = this.renderSizing(s, force);
 
     if (!onChart) {
       this.chart.setOverlay(null);
       return;
     }
-    const profit = m.rewardDist === null ? null : `목표 +${fp(m.rewardDist)} (${formatPct(m.rewardPct!)}), ${m.rewardTicks}틱`;
-    const loss = m.riskDist === null ? null : `손절 −${fp(m.riskDist)} (${formatPct(m.riskPct!)}), ${m.riskTicks}틱`;
+    const profit = m.rewardDist === null ? null : `목표 +${fp(m.rewardDist)} (${formatPct(m.rewardPct!)})`;
+    const loss = m.riskDist === null ? null : `손절 −${fp(m.riskDist)} (${formatPct(m.riskPct!)})`;
     let center = m.valid ? `손익비 ${formatRR(m.rr!)}` : m.reasons[0] ?? '';
     if (m.currentR !== null) center += `, 현재 ${fmtR(m.currentR)}`;
     if (s.status === 'closed') center = `종료, ${center}`;
@@ -788,14 +914,19 @@ export class App {
       extendBars: this.settings.boxExtendBars,
       draggable: s.status === 'active',
       labels: { profit, loss, center, centerValid: m.valid },
-      slCandle: s.auto.sl.candle
+      // SL 캔들보다 큰 시간봉 차트에서는 띠가 실제보다 넓어 보이므로 그리지 않는다
+      slCandle: s.auto.sl.candle && tfMs(s.auto.sl.timeframe) >= tfMs(this.ui.timeframe)
         ? {
             time: s.auto.sl.candle.time,
-            durationMs: tfMs(s.auto.sl.timeframe),
+            durationMs: barEnd(s.auto.sl.timeframe, s.auto.sl.candle.time) - s.auto.sl.candle.time,
             label: slBandLabel(s.auto.sl, s.side),
           }
         : null,
       presets: s.status === 'active' ? presetLevels(s.side, s.entry, s.tickSize) : [],
+      splits:
+        s.status === 'active' && plan
+          ? plan.tranches.slice(1).map((t) => ({ price: t.price, label: `${t.n}차 ${(t.share * 100).toFixed(0)}%` }))
+          : [],
       shiftMs: s.boxShiftMs ?? 0,
       swing: s.auto.tp.swing && s.auto.tp.timeframe
         ? { time: s.auto.tp.swing.time, price: s.auto.tp.swing.price, label: `TP 기준 ${tfName(s.auto.tp.timeframe)} 스윙` }
@@ -818,6 +949,7 @@ export class App {
       getLastPrice: () => this.feed.lastPrice?.price ?? null,
       getCountdown: () => this.countdown,
       getHighlight: () => this.chart.getHighlight(),
+      getOverlayLabels: () => this.chart.getOverlayLabels(),
       /** 마지막 캔들과 최신 가격을 같은 순간에 읽는다 */
       getLiveSnapshot: () => ({ lastCandle: this.store.last() ?? null, lastPrice: this.feed.lastPrice }),
       priceToClientY: (p: number) => this.chart.priceToClientY(p),
