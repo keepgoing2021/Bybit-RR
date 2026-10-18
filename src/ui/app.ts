@@ -490,7 +490,7 @@ export class App {
     const rr = h(
       'label',
       { class: 'rr-edit', 'data-testid': 'rr-edit', title: '숫자를 고치면 TP가 그 손익비로 움직입니다' },
-      h('span', { class: 'rr num' }, '1:'),
+      h('span', { class: 'rr num rr-head' }, '1:'),
       rrInput,
       h('span', { class: 'edit-icon', 'aria-hidden': 'true' }, '✎'),
     );
@@ -535,7 +535,7 @@ export class App {
       h('div', { class: 'prices' }, entry.row, sl.row, tp.row),
       times,
       h('div', { class: 'rr-row' }, rrLabel, rr),
-      h('p', { class: 'rr-hint', 'data-testid': 'rr-hint' }, '✎ 숫자를 고치거나 차트의 빨간 1:x 칩을 누르면 TP 이동'),
+      h('p', { class: 'rr-hint', 'data-testid': 'rr-hint' }, '✎ 빨간 숫자를 고치거나 차트의 1:x 칩을 누르면 TP 이동'),
       reasons,
       sizing.box,
       h('div', { class: 'why' }, h('p', { class: 'why-title' }, '자동 제안 근거'), slWhy, tpWhy),

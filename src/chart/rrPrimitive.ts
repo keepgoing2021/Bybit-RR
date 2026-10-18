@@ -147,7 +147,7 @@ export class RRBoxPrimitive implements ISeriesPrimitive<Time> {
         ctx.fillRect(g.loss.x, g.loss.y, g.loss.w, g.loss.h);
       }
 
-      // 손익비 점선: 선은 수익 쪽 초록, 누를 수 있다는 게 보이도록 오른쪽 끝 숫자만 빨간 칩 (마우스를 올리면 진하게)
+      // 손익비 점선: 선·'1:'은 수익 쪽 초록, 손익비 숫자(x)만 빨강. 오른쪽 끝 칩이 누르는 자리 (마우스를 올리면 진하게)
       for (const p of g.presets) {
         if (m.tp !== null && Math.abs(p.price - m.tp) < 1e-9) continue; // 지금 TP 자리는 TP 선·이름표가 이미 있다
         const hot = m.hoverPreset === p.id;
@@ -161,7 +161,7 @@ export class RRBoxPrimitive implements ISeriesPrimitive<Time> {
         ctx.stroke();
         ctx.setLineDash([]);
         ctx.globalAlpha = m.closed ? 0.55 : 1;
-        rrChip(ctx, hot ? `${p.label} → TP` : p.label, g.x2 - 3, p.y, hot);
+        rrChip(ctx, p.label, g.x2 - 3, p.y, hot);
       }
       ctx.globalAlpha = m.closed ? 0.55 : 1;
 
@@ -235,25 +235,40 @@ function handle(ctx: Ctx, r: { x: number; y: number; w: number; h: number }, col
   ctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1);
 }
 
-/** 손익비 점선 이름표: 오른쪽 정렬 빨간 칩 */
-function rrChip(ctx: Ctx, text: string, right: number, y: number, hot: boolean): void {
+/** 손익비 점선 이름표 '1:x': 오른쪽 정렬 칩. '1:'(과 '→ TP')은 초록, x만 빨강 */
+function rrChip(ctx: Ctx, label: string, right: number, y: number, hot: boolean): void {
+  const head = label.slice(0, 2); // '1:'
+  const num = label.slice(2);
+  const tail = hot ? ' → TP' : '';
   ctx.font = `700 11px ${THEME.font}`;
-  const w = ctx.measureText(text).width + 12;
+  const wHead = ctx.measureText(head).width;
+  const wNum = ctx.measureText(num).width;
+  const wTail = tail ? ctx.measureText(tail).width : 0;
+  const w = wHead + wNum + wTail + 12;
   const h = 16;
   const left = right - w;
-  ctx.fillStyle = hot ? THEME.loss : 'rgba(240, 97, 109, 0.82)';
+  ctx.fillStyle = hot ? '#123A2C' : THEME.chipDark;
   roundRect(ctx, left, y - h / 2, w, h, 4);
   ctx.fill();
-  if (hot) {
-    ctx.strokeStyle = '#FFFFFF';
-    ctx.lineWidth = 1;
-    roundRect(ctx, left + 0.5, y - h / 2 + 0.5, w - 1, h - 1, 4);
-    ctx.stroke();
-  }
-  ctx.fillStyle = '#FFFFFF';
+  ctx.strokeStyle = THEME.profit;
+  ctx.lineWidth = hot ? 1.5 : 1;
+  ctx.globalAlpha = hot ? 1 : 0.7;
+  roundRect(ctx, left + 0.5, y - h / 2 + 0.5, w - 1, h - 1, 4);
+  ctx.stroke();
+  ctx.globalAlpha = 1;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
-  ctx.fillText(text, left + 6, y + 0.5);
+  let x = left + 6;
+  ctx.fillStyle = THEME.profit;
+  ctx.fillText(head, x, y + 0.5);
+  x += wHead;
+  ctx.fillStyle = THEME.loss;
+  ctx.fillText(num, x, y + 0.5);
+  x += wNum;
+  if (tail) {
+    ctx.fillStyle = THEME.profit;
+    ctx.fillText(tail, x, y + 0.5);
+  }
 }
 
 function chip(

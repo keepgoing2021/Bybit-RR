@@ -438,6 +438,8 @@ export class ChartView {
       el.style.cursor = h ? 'ns-resize' : p !== null ? 'pointer' : body ? 'grab' : '';
       el.title = preset ? `누르면 TP를 손익비 ${preset.label} 자리(${preset.price})로 옮깁니다` : '';
       if (h !== this.hover || p !== this.hoverPreset) {
+        // 칩 위에서는 가로 십자선이 글자를 가로지르지 않게 잠시 숨긴다
+        if ((p !== null) !== (this.hoverPreset !== null)) this.chart.applyOptions({ crosshair: { horzLine: { visible: p === null, labelVisible: p === null } } });
         this.hover = h;
         this.hoverPreset = p;
         this.rebuildOverlay();

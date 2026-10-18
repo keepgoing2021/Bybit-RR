@@ -448,7 +448,9 @@ test('RR looks editable: red box with a pencil, and chart chips say what a click
   const edit = page.getByTestId('rr-edit');
   await expect(edit).toContainText('✎');
   await expect(page.getByTestId('rr-hint')).toContainText('1:x 칩');
+  expect(await edit.locator('.edit-icon').evaluate((el) => getComputedStyle(el).color)).toBe('rgb(255, 255, 255)');
   expect(await page.getByTestId('rr-input').evaluate((el) => getComputedStyle(el).color)).toBe('rgb(240, 97, 109)');
+  expect(await edit.locator('.rr-head').evaluate((el) => getComputedStyle(el).color)).toBe('rgb(255, 255, 255)');
   expect(await edit.evaluate((el) => getComputedStyle(el).borderTopStyle)).toBe('solid');
   await expect.poll(async () => (await visiblePresets(page)).shown.length).toBeGreaterThan(0);
   const { g, r, shown } = await visiblePresets(page);
