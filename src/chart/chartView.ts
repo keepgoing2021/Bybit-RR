@@ -1,6 +1,7 @@
 import {
   CandlestickSeries,
   ColorType,
+  LineSeries,
   CrosshairMode,
   LineStyle,
   TickMarkType,
@@ -11,6 +12,7 @@ import {
   type Time,
   type UTCTimestamp,
 } from 'lightweight-charts';
+import { MA_LINES, sma, smaAt } from '../core/ma';
 import { decimalsOf, snapToTick } from '../core/price';
 import type { Candle, Side } from '../core/types';
 import { CountdownPrimitive, type CountdownState } from './countdownPrimitive';
@@ -67,6 +69,7 @@ export class ChartView {
   private readonly series: ISeriesApi<'Candlestick'>;
   private readonly prim = new RRBoxPrimitive();
   private readonly countdown = new CountdownPrimitive();
+  private readonly ma: { period: number; label: string; color: string; series: ISeriesApi<'Line'>; value: HTMLElement }[];
   private readonly drag: DragController;
   private readonly mover: BoxMoveController;
   private candles: readonly Candle[] = [];
@@ -116,6 +119,28 @@ export class ChartView {
     this.series.attachPrimitive(this.prim);
     this.series.attachPrimitive(this.countdown);
 
+    // 이동평균선 (MA20, MA100). 값은 왼쪽 위 범례에 표시하고 가격축 라벨은 끈다 (엔트리·SL·TP 라벨과 겹치지 않게)
+    const legend = document.createElement('div');
+    legend.className = 'ma-legend';
+    legend.dataset.testid = 'ma-legend';
+    this.ma = MA_LINES.map((m) => {
+      const item = document.createElement('span');
+      item.style.color = m.color;
+      const value = document.createElement('span');
+      value.className = 'num';
+      item.append(`${m.label} `, value);
+      legend.append(item);
+      const series = this.chart.addSeries(LineSeries, {
+        color: m.color,
+        lineWidth: 2,
+        priceLineVisible: false,
+        lastValueVisible: false,
+        crosshairMarkerVisible: false,
+      });
+      return { period: m.period, label: m.label, color: m.color, series, value };
+    });
+    container.append(legend);
+
     this.drag = new DragController({
       getGeometry: () => (this.overlay?.draggable ? this.prim.computeGeometry() : null),
       yToPrice: (y) => this.series.coordinateToPrice(y),
@@ -146,13 +171,16 @@ export class ChartView {
 
   setPriceFormat(tickSize: number): void {
     this.tickSize = tickSize;
-    this.series.applyOptions({ priceFormat: { type: 'price', precision: decimalsOf(tickSize), minMove: tickSize } });
+    const priceFormat = { type: 'price' as const, precision: decimalsOf(tickSize), minMove: tickSize };
+    this.series.applyOptions({ priceFormat });
+    for (const m of this.ma) m.series.applyOptions({ priceFormat });
   }
 
   setCandles(candles: readonly Candle[], tfMs: number, resetView: boolean): void {
     this.candles = candles;
     this.tfMs = tfMs;
     this.series.setData(candles.map(toBar));
+    this.setMaData();
     if (resetView) this.resetView();
     this.rebuildOverlay();
   }
@@ -172,9 +200,49 @@ export class ChartView {
   /** 캔들 저장소가 이미 반영한 값을 차트에 반영한다 */
   upsertCandle(c: Candle, kind: 'append' | 'update' | 'insert', all: readonly Candle[]): void {
     this.candles = all;
-    if (kind === 'insert') this.series.setData(all.map(toBar));
-    else this.series.update(toBar(c), kind === 'update');
+    if (kind === 'insert') {
+      this.series.setData(all.map(toBar));
+      this.setMaData();
+    } else {
+      this.series.update(toBar(c), kind === 'update');
+      this.updateMaFrom(c.time);
+    }
     if (kind !== 'update') this.rebuildOverlay();
+  }
+
+  private setMaData(): void {
+    for (const m of this.ma) m.series.setData(sma(this.candles, m.period).map((p) => ({ time: (p.time / 1000) as UTCTimestamp, value: p.value })));
+    this.renderMaLegend();
+  }
+
+  /** time 봉부터 끝까지의 MA만 다시 계산 (보통 마지막 1~2봉) */
+  private updateMaFrom(time: number): void {
+    const all = this.candles;
+    let i = all.length - 1;
+    while (i > 0 && all[i].time > time) i--;
+    for (const m of this.ma) {
+      for (let k = i; k < all.length; k++) {
+        const p = smaAt(all, k, m.period);
+        if (p) m.series.update({ time: (p.time / 1000) as UTCTimestamp, value: p.value }, true);
+      }
+    }
+    this.renderMaLegend();
+  }
+
+  private renderMaLegend(): void {
+    for (const m of this.ma) {
+      const last = smaAt(this.candles, this.candles.length - 1, m.period);
+      m.value.textContent = last ? last.value.toFixed(decimalsOf(this.tickSize)) : '—';
+    }
+  }
+
+  /** 검증용: 각 이동평균선의 마지막 점 (차트에 들어간 값) */
+  getMaLast(): { label: string; time: number; value: number }[] {
+    return this.ma.flatMap((m) => {
+      const d = m.series.data();
+      const last = d[d.length - 1] as { time: number; value: number } | undefined;
+      return last ? [{ label: m.label, time: Number(last.time) * 1000, value: last.value }] : [];
+    });
   }
 
   setOverlay(o: OverlayInput | null): void {

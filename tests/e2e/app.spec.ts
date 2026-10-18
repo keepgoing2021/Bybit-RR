@@ -15,6 +15,8 @@ type Debug = {
   getHighlight(): { from: number; to: number; label: string } | null;
   isPriceAutoScale(): boolean;
   getOverlayLabels(): { profit: string | null; loss: string | null; center: string } | null;
+  getMaLast(): { label: string; time: number; value: number }[];
+  getRecentCloses(n: number): number[];
   getLiveSnapshot(): { lastCandle: { time: number; confirmed: boolean } | null; lastPrice: { price: number; time: number } | null };
 };
 declare global {
@@ -495,4 +497,43 @@ test('split entries ask for the capital first', async ({ page }) => {
   await validLong(page);
   await expect(page.getByTestId('sizing-reason')).toContainText('운영자산');
   await expect(page.getByTestId('sizing-table')).toBeHidden();
+});
+
+test('MA20 and MA100 lines follow the live candle', async ({ page }) => {
+  await open(page, { speed: 60, tf: '1' });
+  await expect(page.getByTestId('ma-legend')).toContainText('MA20');
+  await expect(page.getByTestId('ma-legend')).toContainText('MA100');
+  const check = async () => {
+    const [ma, closes, snap] = await page.evaluate(() => [
+      window.__rrDebug.getMaLast(), window.__rrDebug.getRecentCloses(100), window.__rrDebug.getLiveSnapshot(),
+    ] as const);
+    const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
+    expect(ma.map((m) => m.label)).toEqual(['MA20', 'MA100']);
+    expect(ma[0].time).toBe(snap.lastCandle!.time);
+    expect(ma[1].time).toBe(snap.lastCandle!.time);
+    return { ma20: ma[0].value, ma100: ma[1].value, exp20: mean(closes.slice(-20)), exp100: mean(closes), t: ma[0].time };
+  };
+  // 실시간으로 값이 바뀌는 중이라 같은 순간에 읽은 값끼리 비교한다
+  const a = await check();
+  expect(a.ma20).toBeCloseTo(a.exp20, 6);
+  expect(a.ma100).toBeCloseTo(a.exp100, 6);
+  // 배속 60: 1초에 1분봉 하나 → 새 봉에서도 MA가 따라온다
+  await expect.poll(async () => (await check()).t, { timeout: 10_000 }).toBeGreaterThan(a.t);
+  const b = await check();
+  expect(b.ma20).toBeCloseTo(b.exp20, 6);
+});
+
+test('capital and split inputs live in the top bar, even before a scenario exists', async ({ page }) => {
+  await open(page, { tf: '15' });
+  const bar = page.locator('header.topbar');
+  for (const id of ['sizing-capital', 'sizing-risk', 'sizing-splits', 'sizing-weights']) await expect(bar.getByTestId(id)).toBeVisible();
+  await bar.getByTestId('sizing-capital').fill('5000');
+  await bar.getByTestId('sizing-capital').press('Enter');
+  await bar.getByTestId('sizing-splits').selectOption('5');
+  await page.getByTestId('btn-long').click();
+  await expect.poll(() => scenario(page)).not.toBeNull();
+  const s = (await scenario(page))!;
+  await setLevel(page, 'sl', (s.entry - 10).toFixed(1));
+  await expect(page.locator('.panel').getByTestId('sizing-row')).toHaveCount(5);
+  await expect(page.locator('.panel').getByTestId('sizing-capital')).toHaveCount(0);
 });

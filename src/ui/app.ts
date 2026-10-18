@@ -420,6 +420,7 @@ export class App {
     const demoBadge = h('span', { class: 'demo-badge', 'data-testid': 'demo-badge' }, '데모 데이터 (실제 시세 아님)');
 
     const field = (label: string, control: HTMLElement) => h('label', { class: 'field' }, h('span', {}, label), control);
+    const sizing = this.buildSizing(field);
     const topbar = h(
       'header',
       { class: 'topbar' },
@@ -431,6 +432,7 @@ export class App {
       field('TP 기준', htf),
       h('div', { class: 'sides' }, long, short),
       h('div', { class: 'status' }, status, statusReason),
+      sizing.bar,
       demoBadge,
     );
 
@@ -491,7 +493,6 @@ export class App {
     };
     const sl = level('sl', '손절 SL');
     const tp = level('tp', '목표 TP');
-    const sizing = this.buildSizing();
     const restore = h('button', { type: 'button', 'data-testid': 'btn-restore' }, '자동 설정으로 복원');
     const close = h('button', { type: 'button', 'data-testid': 'btn-close' }, '시나리오 종료');
     const del = h('button', { type: 'button', class: 'danger', 'data-testid': 'btn-delete' }, '삭제');
@@ -626,8 +627,8 @@ export class App {
     };
   }
 
-  /** 분할 진입: 운영자산·손실 한도·분할 수·비중을 받아 분할별 금액을 보여준다 */
-  private buildSizing() {
+  /** 분할 진입: 입력(운영자산·손실 한도·분할 수·비중)은 상단 바, 분할별 금액표는 패널 */
+  private buildSizing(field: (label: string, control: HTMLElement) => HTMLElement) {
     const capital = h('input', {
       'data-testid': 'sizing-capital', inputmode: 'decimal', autocomplete: 'off', placeholder: '예: 10000', 'aria-label': '운영자산 (USDT)',
     });
@@ -660,15 +661,20 @@ export class App {
     const note = h(
       'p',
       { class: 'note' },
-      '2차부터는 엔트리~SL 거리를 분할 수로 나눈 가격입니다. 모든 분할이 체결된 뒤 SL에 맞아도 손실이 운영자산의 위 %를 넘지 않게 나눴습니다. 금액은 레버리지 전 포지션 규모이며 증거금 = 금액 ÷ 레버리지. 수량은 거래소 주문 단위로 내림, 수수료·슬리피지 미반영.',
+      '2차부터는 엔트리~SL 거리를 분할 수로 나눈 가격입니다. 모든 분할이 체결된 뒤 SL에 맞아도 손실이 운영자산의 "손절 시 손실 %"(상단)를 넘지 않게 나눴습니다. 금액은 레버리지 전 포지션 규모이며 증거금 = 금액 ÷ 레버리지. 수량은 거래소 주문 단위로 내림, 수수료·슬리피지 미반영.',
     );
-    const field = (label: string, control: HTMLElement) => h('label', { class: 'setting' }, h('span', {}, label), control);
+    const bar = h(
+      'div',
+      { class: 'sizing-bar', 'data-testid': 'sizing-bar' },
+      field('운영자산 (USDT)', capital),
+      field('손절 시 손실 %', risk),
+      field('분할 진입', splits),
+      field('비중', weights),
+    );
     const box = h(
       'section',
       { class: 'sizing', 'data-testid': 'sizing' },
       h('div', { class: 'level-head' }, h('span', { class: 'level-name' }, '분할 진입')),
-      h('div', { class: 'settings-grid' },
-        field('운영자산 (USDT)', capital), field('손절 시 손실 (자산 %)', risk), field('분할', splits), field('비중', weights)),
       reason,
       table,
       summary,
@@ -683,11 +689,24 @@ export class App {
         weightMode: weights.value,
       });
       saveSizing(this.d.storage, this.sizing);
+      this.renderSizingControls(true);
       this.renderNow(true);
     };
     for (const c of [capital, risk, splits, weights]) c.addEventListener('change', apply);
     capital.addEventListener('keydown', (e) => e.key === 'Enter' && capital.blur());
-    return { box, capital, risk, splits, weights, linear, reason, table, body, summary, sum };
+    return { bar, box, capital, risk, splits, weights, linear, reason, table, body, summary, sum };
+  }
+
+  /** 상단 바의 분할 진입 입력칸을 저장된 값으로 맞춘다 (시나리오가 없어도 보인다) */
+  private renderSizingControls(force: boolean): void {
+    const z = this.el.sizing;
+    const cfg = this.sizing;
+    if (force || document.activeElement !== z.capital) z.capital.value = cfg.capital === null ? '' : String(cfg.capital);
+    if (force || document.activeElement !== z.risk) z.risk.value = String(cfg.riskPct);
+    z.splits.value = String(cfg.splits);
+    z.weights.value = cfg.weightMode;
+    setText(z.linear, `${cfg.splits === 5 ? '1:2:3:4:5' : cfg.splits === 3 ? '1:2:3' : '1'} 점점 크게`);
+    z.weights.disabled = cfg.splits === 1;
   }
 
   private sizingPlan(s: Scenario): { plan: SizingPlan | null; reason: string | null } {
@@ -699,16 +718,8 @@ export class App {
     return r.ok ? { plan: r.plan, reason: null } : { plan: null, reason: r.reason };
   }
 
-  private renderSizing(s: Scenario, force: boolean): SizingPlan | null {
+  private renderSizing(s: Scenario): SizingPlan | null {
     const z = this.el.sizing;
-    const cfg = this.sizing;
-    if (force || document.activeElement !== z.capital) z.capital.value = cfg.capital === null ? '' : String(cfg.capital);
-    if (force || document.activeElement !== z.risk) z.risk.value = String(cfg.riskPct);
-    z.splits.value = String(cfg.splits);
-    z.weights.value = cfg.weightMode;
-    setText(z.linear, `${cfg.splits === 5 ? '1:2:3:4:5' : cfg.splits === 3 ? '1:2:3' : '1'} 점점 크게`);
-    z.weights.disabled = cfg.splits === 1;
-
     const { plan, reason } = this.sizingPlan(s);
     show(z.reason, reason !== null);
     setText(z.reason, reason ?? '');
@@ -806,6 +817,7 @@ export class App {
     e.sltf.value = pickable ? this.currentSlTf() : this.ui.timeframe;
     e.sltf.disabled = !pickable;
     e.sltf.title = pickable ? '' : "지금 SL 방식은 차트 시간봉을 씁니다. 설정의 'SL 방식'이 직전 마감 봉일 때만 바꿀 수 있습니다";
+    this.renderSizingControls(false);
     const demo = this.provider?.isDemo ?? false;
     show(e.demoBadge, demo);
     show(e.demoTools, demo);
@@ -892,7 +904,7 @@ export class App {
     }
     e.restore.disabled = s.status !== 'active';
     e.close.disabled = s.status !== 'active';
-    const plan = this.renderSizing(s, force);
+    const plan = this.renderSizing(s);
 
     if (!onChart) {
       this.chart.setOverlay(null);
@@ -950,6 +962,8 @@ export class App {
       getCountdown: () => this.countdown,
       getHighlight: () => this.chart.getHighlight(),
       getOverlayLabels: () => this.chart.getOverlayLabels(),
+      getMaLast: () => this.chart.getMaLast(),
+      getRecentCloses: (n: number) => this.store.all().slice(-n).map((c) => c.close),
       /** 마지막 캔들과 최신 가격을 같은 순간에 읽는다 */
       getLiveSnapshot: () => ({ lastCandle: this.store.last() ?? null, lastPrice: this.feed.lastPrice }),
       priceToClientY: (p: number) => this.chart.priceToClientY(p),

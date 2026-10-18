@@ -135,7 +135,8 @@ export class RRBoxPrimitive implements ISeriesPrimitive<Time> {
         if (xa !== null && xb !== null) {
           ctx.fillStyle = THEME.highlight;
           ctx.fillRect(xa - barSpacing / 2, 0, Math.max(xb - xa, 1), mediaSize.height);
-          chip(ctx, m.highlight.label, (xa + xb) / 2 - barSpacing / 2, 16, THEME.chipDark, THEME.entry, mediaSize.width);
+          // 맨 위 줄은 이동평균 범례 자리라 한 줄 아래에 둔다
+          chip(ctx, m.highlight.label, (xa + xb) / 2 - barSpacing / 2, 40, THEME.chipDark, THEME.entry, mediaSize.width);
         }
       }
 

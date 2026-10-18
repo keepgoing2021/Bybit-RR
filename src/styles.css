@@ -575,14 +575,6 @@ button.danger {
   border-left: 3px solid var(--entry);
 }
 
-.sizing .settings-grid {
-  margin: 0;
-}
-
-.sizing .setting {
-  grid-template-columns: 1fr 160px;
-}
-
 .sizing .metrics dt {
   white-space: nowrap;
 }
@@ -615,4 +607,42 @@ button.danger {
 
 .sizing-table tr.too-small td {
   color: var(--warning, #f5a524);
+}
+
+.ma-legend {
+  position: absolute;
+  top: 8px;
+  left: 10px;
+  z-index: 3;
+  display: flex;
+  gap: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  pointer-events: none;
+}
+
+/* 상단 바의 분할 진입 입력 */
+.sizing-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+  padding-left: 14px;
+  border-left: 1px solid var(--line);
+  min-width: 0;
+}
+
+@media (max-width: 900px) {
+  .sizing-bar {
+    padding-left: 0;
+    border-left: none;
+  }
+}
+
+.sizing-bar [data-testid='sizing-capital'] {
+  width: 120px;
+}
+
+.sizing-bar [data-testid='sizing-risk'] {
+  width: 70px;
 }
