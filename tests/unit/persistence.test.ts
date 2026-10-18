@@ -114,14 +114,17 @@ describe('sizing persistence', () => {
 });
 
 describe('box shift persistence', () => {
-  it('keeps the box shift and accepts scenarios saved before it existed', () => {
+  it('keeps the box shift in bars and still accepts older saves (ms shift or none)', () => {
     const st = memoryStorage();
-    const withShift = { ...state(), scenario: { ...state().scenario!, boxShiftMs: 900_000 } };
-    saveState(st, withShift);
+    saveState(st, { ...state(), scenario: { ...state().scenario!, boxShiftBars: 2 } });
+    expect(loadState(st)?.scenario?.boxShiftBars).toBe(2);
+    saveState(st, { ...state(), scenario: { ...state().scenario!, boxShiftMs: 900_000 } });
     expect(loadState(st)?.scenario?.boxShiftMs).toBe(900_000);
     const legacy = { ...state() };
     delete (legacy.scenario as { boxShiftMs?: number }).boxShiftMs;
     saveState(st, legacy);
     expect(loadState(st)?.scenario).not.toBeNull();
+    saveState(st, { ...state(), scenario: { ...state().scenario!, boxShiftBars: -1 } });
+    expect(loadState(st)?.scenario).toBeNull();
   });
 });

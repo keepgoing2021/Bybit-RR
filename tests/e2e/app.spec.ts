@@ -6,6 +6,7 @@ import type { Scenario } from '../../src/core/scenario';
 type Debug = {
   getScenario(): Scenario | null;
   getLastCopied(): string | null;
+  timeToX(ms: number): number | null;
   priceToClientY(p: number): number | null;
   getRenderedGeometry(): BoxGeometry | null;
   computeExpectedGeometry(): BoxGeometry | null;
@@ -428,7 +429,7 @@ test('dragging the box body moves it sideways without touching prices or the cha
   expect(moved.x1 - g.x1).toBeLessThan(120);
   expect(moved.x2 - moved.x1).toBeCloseTo(g.x2 - g.x1, 0);
   const s1 = (await scenario(page))!;
-  expect(s1.boxShiftMs).toBeGreaterThan(0);
+  expect(s1.boxShiftBars).toBeGreaterThan(s0.boxShiftBars!);
   expect(s1.entry).toBe(s0.entry);
   expect(s1.applied).toEqual(s0.applied);
   expect(await visibleRange(page)).toEqual(rangeBefore);
@@ -436,6 +437,25 @@ test('dragging the box body moves it sideways without touching prices or the cha
   await page.reload();
   await waitLive(page);
   await expect.poll(async () => (await rendered(page))?.x1 ?? 0).toBeCloseTo(moved.x1, 0);
+});
+
+test('a new calculation starts the box 2 bars right of the entry bar, also after changing timeframe', async ({ page }) => {
+  await open(page, { tf: '15' });
+  await page.getByTestId('btn-long').click();
+  await expect.poll(() => scenario(page)).not.toBeNull();
+  const s = (await scenario(page))!;
+  expect(s.boxShiftBars).toBe(2);
+  const offsetInBars = async (tfMin: number) => {
+    const g = (await rendered(page))!;
+    const bar = Math.floor(s.priceTime / (tfMin * 60_000)) * tfMin * 60_000; // 진입이 속한 봉
+    const [x0, x1] = await page.evaluate(([a, b]) => [window.__rrDebug.timeToX(a), window.__rrDebug.timeToX(b)], [bar - tfMin * 60_000, bar]);
+    return (g.x1 - x1!) / (x1! - x0!);
+  };
+  await expect.poll(() => offsetInBars(15)).toBeCloseTo(2, 1);
+  await page.getByTestId('tf').selectOption('1');
+  await waitLive(page);
+  await expect.poll(async () => (await rendered(page)) !== null).toBe(true);
+  await expect.poll(() => offsetInBars(1)).toBeCloseTo(2, 1);
 });
 
 test('the box stops before it leaves the visible chart', async ({ page }) => {

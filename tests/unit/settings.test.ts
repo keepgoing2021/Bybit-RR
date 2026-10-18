@@ -13,6 +13,7 @@ describe('DEFAULT_SETTINGS', () => {
       swingBars: 2,
       tpMode: 'latest',
       boxExtendBars: 10,
+      boxOffsetBars: 2,
       staleAfterSec: 15,
       maxPriceAgeSec: 60,
     });
@@ -29,6 +30,8 @@ describe('sanitizeSettings', () => {
     expect(s.boxExtendBars).toBe(200);
     expect(sanitizeSettings({ slLowestBars: 0 }).slLowestBars).toBe(1);
     expect(sanitizeSettings({ slLowestBars: 9999 }).slLowestBars).toBe(500);
+    expect(sanitizeSettings({ boxOffsetBars: 99 }).boxOffsetBars).toBe(50);
+    expect(sanitizeSettings({ boxOffsetBars: -1 }).boxOffsetBars).toBe(0);
   });
 
   it('falls back to defaults for unknown enum values and garbage', () => {

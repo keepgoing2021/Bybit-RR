@@ -8,7 +8,7 @@ import { presetLevels } from '../core/presets';
 import { computeMetrics, formatRR, type Metrics } from '../core/metrics';
 import { loadSettings, loadSizing, loadState, saveSettings, saveSizing, saveState, type StorageLike, type UiSelection } from '../core/persistence';
 import { decimalsOf, formatPrice } from '../core/price';
-import { createScenario, restoreAuto, setBoxShift, setEntry, setLevel, type Scenario } from '../core/scenario';
+import { boxShiftOf, createScenario, restoreAuto, setBoxShift, setEntry, setLevel, type Scenario } from '../core/scenario';
 import { DEFAULT_SETTINGS, sanitizeSettings, type AnalysisSettings } from '../core/settings';
 import { DEFAULT_SIZING, planSizing, sanitizeSizing, type SizingPlan, type SizingSettings } from '../core/sizing';
 import { barEnd, defaultHigherTf, defaultSlTf, higherTimeframes, slTimeframes, TIMEFRAMES, tfMs } from '../core/timeframe';
@@ -60,6 +60,7 @@ const SETTING_FIELDS: { key: keyof AnalysisSettings; label: string; options?: [s
     options: [['latest', '가장 최근 확정 스윙'], ['beyondEntry', '엔트리 너머의 가장 최근 스윙']],
   },
   { key: 'boxExtendBars', label: '박스 오른쪽 연장 (봉)' },
+  { key: 'boxOffsetBars', label: '박스 시작 위치 (진입 봉에서 오른쪽으로 봉 수)' },
   { key: 'staleAfterSec', label: '연결 지연 판정 (초)' },
   { key: 'maxPriceAgeSec', label: '가격 유효 시간 (초)' },
 ];
@@ -125,9 +126,9 @@ export class App {
         this.renderNow();
       },
       onDragEnd: () => this.persist(),
-      onBoxMove: (shiftMs, done) => {
+      onBoxMove: (bars, done) => {
         if (!this.scenario) return;
-        this.scenario = setBoxShift(this.scenario, shiftMs);
+        this.scenario = setBoxShift(this.scenario, bars);
         this.renderNow();
         if (done) this.persist();
       },
@@ -337,7 +338,7 @@ export class App {
     if (settings.slMode === 'prevCandle' && !slRes.candles) {
       auto.sl = { ...auto.sl, timeframe: slTf, reason: `유효한 자동 SL 없음: SL 기준 시간봉 데이터 조회 실패 (${slRes.error})` };
     }
-    this.scenario = createScenario({
+    const created = createScenario({
       id: newId(),
       symbol,
       timeframe,
@@ -348,6 +349,8 @@ export class App {
       auto,
       settings,
     });
+    // 박스는 진입 봉에서 몇 봉 오른쪽에서 시작해 최근 캔들을 가리지 않는다
+    this.scenario = setBoxShift(created, settings.boxOffsetBars);
     this.creating = false;
     this.persist();
     this.renderAll();
@@ -890,7 +893,7 @@ export class App {
         : null,
       presets: presetLevels(s.side, s.entry, s.tickSize),
       splits: plan ? plan.tranches.slice(1).map((t) => ({ price: t.price, label: `${t.n}차 ${(t.share * 100).toFixed(0)}%` })) : [],
-      shiftMs: s.boxShiftMs ?? 0,
+      shiftBars: boxShiftOf(s),
       swing: s.auto.tp.swing && s.auto.tp.timeframe
         ? { time: s.auto.tp.swing.time, price: s.auto.tp.swing.price, label: `TP 기준 ${tfName(s.auto.tp.timeframe)} 스윙` }
         : null,
@@ -914,6 +917,7 @@ export class App {
       getCountdown: () => this.countdown,
       getHighlight: () => this.chart.getHighlight(),
       getOverlayLabels: () => this.chart.getOverlayLabels(),
+      timeToX: (ms: number) => this.chart.timeToX(ms),
       getMaLast: () => this.chart.getMaLast(),
       getRecentCloses: (n: number) => this.store.all().slice(-n).map((c) => c.close),
       /** 마지막 캔들과 최신 가격을 같은 순간에 읽는다 */

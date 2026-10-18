@@ -38,8 +38,8 @@ export interface OverlayInput {
   slCandle: { time: number; durationMs: number; label: string } | null;
   /** 엔트리 ±% 점선 (진행 중 시나리오만) */
   presets: PresetLevel[];
-  /** 박스를 오른쪽으로 옮긴 양 (ms) */
-  shiftMs: number;
+  /** 박스를 진입 봉에서 오른쪽으로 옮긴 봉 수 */
+  shiftBars: number;
   swing: { time: number; price: number; label: string } | null;
   /** 2차 이후 분할 진입 가격선 (진행 중 시나리오만) */
   splits: SplitLine[];
@@ -49,8 +49,8 @@ export interface ChartViewCallbacks {
   onDrag(which: DragTarget, price: number): void;
   /** ±% 점선을 눌렀을 때 */
   onPreset(which: DragTarget, price: number): void;
-  /** 박스를 좌우로 옮길 때 (done: 손을 뗐을 때) */
-  onBoxMove(shiftMs: number, done: boolean): void;
+  /** 박스를 좌우로 옮길 때 (봉 수, done: 손을 뗐을 때) */
+  onBoxMove(shiftBars: number, done: boolean): void;
   onDragEnd(which: DragTarget): void;
   formatTime(ms: number): string;
 }
@@ -152,9 +152,9 @@ export class ChartView {
     this.mover = new BoxMoveController({
       getGeometry: () => (this.overlay ? this.prim.computeGeometry() : null),
       xToLogical: (x) => this.chart.timeScale().coordinateToLogical(x),
-      getShiftBars: () => Math.round((this.overlay?.shiftMs ?? 0) / this.tfMs),
-      onMove: (bars) => this.cb.onBoxMove(bars * this.tfMs, false),
-      onMoveEnd: (bars) => this.cb.onBoxMove(bars * this.tfMs, true),
+      getShiftBars: () => this.overlay?.shiftBars ?? 0,
+      onMove: (bars) => this.cb.onBoxMove(bars, false),
+      onMoveEnd: (bars) => this.cb.onBoxMove(bars, true),
       setChartInteraction: (on) => this.chart.applyOptions({ handleScroll: on, handleScale: on }),
       // 박스 왼쪽 끝이 차트 오른쪽 끝에서 60px 안쪽까지만 가도록
       maxShiftBars: () => {
@@ -163,7 +163,7 @@ export class ChartView {
         const from = g ? ts.coordinateToLogical(g.x1) : null;
         const to = ts.coordinateToLogical(ts.width() - 60);
         if (from === null || to === null) return null;
-        return Math.round((this.overlay?.shiftMs ?? 0) / this.tfMs) + Math.floor(to - from);
+        return (this.overlay?.shiftBars ?? 0) + Math.floor(to - from);
       },
     });
     this.bindPointer();
@@ -254,6 +254,11 @@ export class ChartView {
     this.countdown.set(state);
   }
 
+  /** 검증용: 캔들 시작 시각의 차트 안 x 좌표 */
+  timeToX(ms: number): number | null {
+    return this.chart.timeScale().timeToCoordinate((ms / 1000) as UTCTimestamp);
+  }
+
   getOverlayLabels(): OverlayInput['labels'] | null {
     return this.overlay?.labels ?? null;
   }
@@ -325,7 +330,7 @@ export class ChartView {
       return;
     }
     const last = this.candles.length - 1;
-    const shift = o.shiftMs / this.tfMs;
+    const shift = o.shiftBars;
     const end = (o.endTime === null ? last + o.extendBars : this.logicalForTime(o.endTime) ?? last) + shift;
     const swingLogical = o.swing ? this.logicalForTime(o.swing.time) : null;
     const model: OverlayModel = {

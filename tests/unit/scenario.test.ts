@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { computeMetrics } from '../../src/core/metrics';
-import { closeScenario, restoreAuto, setBoxShift, setEntry, setLevel, type Scenario } from '../../src/core/scenario';
+import { boxShiftOf, closeScenario, restoreAuto, setBoxShift, setEntry, setLevel, type Scenario } from '../../src/core/scenario';
 import { makeScenario } from './helpers/scenario';
 
 const rrOf = (s: Scenario) =>
@@ -82,21 +82,30 @@ describe('closeScenario', () => {
 });
 
 describe('setBoxShift', () => {
-  it('moves only where the box is drawn', () => {
-    const s = setBoxShift(makeScenario(), 45 * 60_000);
-    expect(s.boxShiftMs).toBe(45 * 60_000);
+  it('moves only where the box is drawn, in whole bars', () => {
+    const s = setBoxShift(makeScenario(), 3);
+    expect(s.boxShiftBars).toBe(3);
     expect(s.entry).toBe(100);
     expect(s.applied).toEqual({ sl: 98, tp: 106 });
     expect(s.source).toEqual({ sl: 'auto', tp: 'auto' });
+    expect(setBoxShift(makeScenario(), 2.6).boxShiftBars).toBe(3);
   });
 
-  it('never goes left of the entry time', () => {
-    expect(setBoxShift(makeScenario(), -5).boxShiftMs).toBe(0);
+  it('never goes left of the entry bar', () => {
+    expect(setBoxShift(makeScenario(), -5).boxShiftBars).toBe(0);
   });
 
   it('also works on a closed scenario', () => {
     const closed = closeScenario(makeScenario(), { price: 103, time: 5_000 });
-    expect(setBoxShift(closed, 1_000).boxShiftMs).toBe(1_000);
+    expect(setBoxShift(closed, 4).boxShiftBars).toBe(4);
+  });
+});
+
+describe('boxShiftOf', () => {
+  it('uses bars when set, converts the old millisecond shift with the creation timeframe, else 0', () => {
+    expect(boxShiftOf({ ...makeScenario(), boxShiftBars: 2 })).toBe(2);
+    expect(boxShiftOf({ ...makeScenario(), boxShiftMs: 45 * 60_000 })).toBe(3); // 15분봉 3봉
+    expect(boxShiftOf(makeScenario())).toBe(0);
   });
 });
 

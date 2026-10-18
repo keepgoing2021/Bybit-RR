@@ -27,6 +27,8 @@ export interface AnalysisSettings {
   tpMode: TpMode;
   /** 박스 오른쪽 끝: 최신 봉에서 몇 봉 앞까지 */
   boxExtendBars: number;
+  /** 새 계산의 박스 시작: 진입 봉에서 오른쪽으로 몇 봉 (캔들을 가리지 않게) */
+  boxOffsetBars: number;
   /** 이 시간 동안 웹소켓 메시지가 없으면 연결 지연(stale) */
   staleAfterSec: number;
   /** 최신 가격의 나이가 이보다 크면 시나리오 생성 차단 */
@@ -43,6 +45,7 @@ export const DEFAULT_SETTINGS: AnalysisSettings = {
   swingBars: 2,
   tpMode: 'latest',
   boxExtendBars: 10,
+  boxOffsetBars: 2,
   staleAfterSec: 15,
   maxPriceAgeSec: 60,
 };
@@ -56,6 +59,7 @@ export const SETTING_RANGES: Record<NumericKey, [number, number]> = {
   slBufferTicks: [0, 10000],
   swingBars: [1, 20],
   boxExtendBars: [0, 200],
+  boxOffsetBars: [0, 50],
   staleAfterSec: [3, 300],
   maxPriceAgeSec: [5, 3600],
 };
