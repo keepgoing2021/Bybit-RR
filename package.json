@@ -1,0 +1,26 @@
+{
+  "name": "bybit-rr-tool",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Bybit USDT 무기한 선물용 손익비(RR) 시나리오 차트 툴",
+  "engines": { "node": ">=20.19" },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "e2e": "playwright test",
+    "check:bybit": "node scripts/check-bybit.mjs"
+  },
+  "dependencies": {
+    "lightweight-charts": "5.2.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.1",
+    "typescript": "7.0.2",
+    "vite": "8.3.4",
+    "vitest": "5.0.5"
+  }
+}
