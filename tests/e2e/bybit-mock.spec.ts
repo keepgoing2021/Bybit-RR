@@ -99,3 +99,28 @@ test.describe('failure handling', () => {
     await expect(page.getByTestId('feed-status')).toHaveAttribute('data-state', 'live');
   });
 });
+
+test.describe('live candle', () => {
+  test.afterEach(async ({ request }) => {
+    await request.post(`${MOCK}/mock/reset`);
+  });
+
+  test('last candle follows trades between slow kline pushes', async ({ page, request }) => {
+    await request.post(`${MOCK}/mock/kline-every?ms=5000`);
+    await openBybit(page);
+    await page.waitForTimeout(1_000);
+    type Snap = { lastCandle: { close: number; high: number; low: number } | null; lastPrice: { price: number } | null };
+    const samples: Snap[] = [];
+    for (let i = 0; i < 6; i++) {
+      samples.push(await page.evaluate(() =>
+        (window as unknown as { __rrDebug: { getLiveSnapshot(): unknown } }).__rrDebug.getLiveSnapshot(),
+      ) as Snap);
+      await page.waitForTimeout(300);
+    }
+    for (const s of samples) {
+      expect(s.lastCandle!.close).toBe(s.lastPrice!.price);
+      expect(s.lastCandle!.high).toBeGreaterThanOrEqual(s.lastPrice!.price);
+      expect(s.lastCandle!.low).toBeLessThanOrEqual(s.lastPrice!.price);
+    }
+  });
+});

@@ -6,9 +6,9 @@
 
 | 명령 | 결과 |
 |---|---|
-| `npx vitest run` | 20개 파일, 159개 테스트 통과 |
+| `npx vitest run` | 21개 파일, 165개 테스트 통과 |
 | `npm run build` (타입 검사 + 빌드) | 오류 없음 |
-| `PW_CHROMIUM_PATH=… npx playwright test` | 16개 통과 (데모 11, 가짜 Bybit 5) |
+| `PW_CHROMIUM_PATH=… npx playwright test` | 17개 통과 (데모 11, 가짜 Bybit 6) |
 | `node scripts/check-bybit.mjs` (실제 Bybit) | 7개 항목 모두 FAIL — 네트워크 차단(ENOTFOUND). 앱 결함이 아니라 환경 제약 |
 | `BYBIT_REST=… BYBIT_WS=… node scripts/check-bybit.mjs` (가짜 Bybit) | 7개 PASS, 종료 코드 0 — 스크립트의 성공 경로 확인 |
 
@@ -25,6 +25,7 @@
 | 차트 조작 후 도형 좌표 일치 | E2E `geometry matches coordinates after zoom and scroll`. 좌표 재계산을 막으면 실패하는 것 확인(뮤테이션 검사) | 통과 |
 | 데이터 연결 중단과 재연결 | `socket.test.ts` (백오프 1s→2s, 최대값, 재구독, 무응답 감시), E2E 데모 끊김, E2E 가짜 Bybit 강제 종료 후 재연결·재구독 | 통과 (데모·가짜 서버) |
 | 새로고침 후 복원 | `persistence.test.ts`, E2E `reload restores scenario and manual edits` | 통과 |
+| 실시간 차트 추종 (kline 푸시 사이에도 마지막 캔들이 체결가를 따라감) | `liveCandle.test.ts`, E2E `last candle follows trades between slow kline pushes` (가짜 서버 kline 5초 간격). 수정 전 같은 테스트가 실패하는 것 확인 | 통과 (가짜 서버) |
 | 자동 제안값 복원 | `scenario.test.ts › restoreAuto …`, E2E `restore auto returns creation values` | 통과 |
 
 ## 실패 상황 처리

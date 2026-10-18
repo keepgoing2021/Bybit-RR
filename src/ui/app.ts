@@ -2,13 +2,14 @@ import { ChartView, type OverlayInput } from '../chart/chartView';
 import { CONFIG } from '../config';
 import { analyzeAutoLevels } from '../core/analysis';
 import { captureEntry, evaluateFreshness, type FeedSnapshot, type Freshness } from '../core/freshness';
+import { applyTrade } from '../core/liveCandle';
 import { computeMetrics, formatRR, type Metrics } from '../core/metrics';
 import { loadSettings, loadState, saveSettings, saveState, type StorageLike, type UiSelection } from '../core/persistence';
 import { formatPrice } from '../core/price';
 import { closeScenario, createScenario, restoreAuto, setLevel, type Scenario } from '../core/scenario';
 import { DEFAULT_SETTINGS, sanitizeSettings, type AnalysisSettings } from '../core/settings';
 import { defaultHigherTf, higherTimeframes, TIMEFRAMES, tfMs } from '../core/timeframe';
-import type { Side, SymbolInfo, Timeframe } from '../core/types';
+import type { PriceTick, Side, SymbolInfo, Timeframe } from '../core/types';
 import type { SocketState } from '../data/bybit/socket';
 import { CandleStore } from '../data/candleStore';
 import type { FeedListener, MarketDataProvider } from '../data/provider';
@@ -155,12 +156,16 @@ export class App {
         if (!live()) return;
         const kind = this.store.upsert(c);
         this.chart.upsertCandle(c, kind, this.store.all());
+        // kline 값은 최신 체결보다 늦을 수 있으므로 진행 중 캔들에 최신 체결가를 다시 반영한다
+        const lp = this.feed.lastPrice;
+        if (!c.confirmed && lp && lp.time >= c.time) this.applyTradeToCandle(lp, tf);
       },
       onPrice: (t) => {
         if (!live()) return;
         if (!this.feed.lastPrice || t.time >= this.feed.lastPrice.time) {
           this.feed.lastPrice = t;
           this.lastPriceBySymbol.set(symbol, { price: t.price, time: t.time });
+          this.applyTradeToCandle(t, tf);
           this.scheduleRender();
         }
       },
@@ -187,6 +192,14 @@ export class App {
           .catch((e) => this.toast(`재연결 후 캔들 보충 실패: ${errText(e)}`));
       },
     };
+  }
+
+  /** kline 푸시(1~60초 간격) 사이에도 마지막 캔들이 체결가를 따라가게 한다 */
+  private applyTradeToCandle(t: PriceTick, tf: Timeframe): void {
+    const r = applyTrade(this.store.last(), t, tfMs(tf));
+    if (!r) return;
+    const kind = this.store.upsert(r.candle);
+    this.chart.upsertCandle(r.candle, kind, this.store.all());
   }
 
   private freshness(): Freshness {
@@ -709,6 +722,8 @@ export class App {
       getVisibleRange: () => this.chart.getVisibleRange(),
       getCandleCount: () => this.store.all().length,
       getLastPrice: () => this.feed.lastPrice?.price ?? null,
+      /** 마지막 캔들과 최신 가격을 같은 순간에 읽는다 */
+      getLiveSnapshot: () => ({ lastCandle: this.store.last() ?? null, lastPrice: this.feed.lastPrice }),
       priceToClientY: (p: number) => this.chart.priceToClientY(p),
       getFeedStatus: () => this.freshness().status,
     };

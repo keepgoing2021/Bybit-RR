@@ -2,7 +2,8 @@
 // REST: GET /v5/market/instruments-info, GET /v5/market/kline
 // WS:   /v5/public/linear — subscribe/ping 응답, publicTrade·tickers·kline 푸시
 // 시험용: POST /mock/drop (모든 웹소켓 강제 종료), GET /mock/stats,
-//        POST /mock/fail?route=instruments|kline[&interval=60] (해당 REST를 HTTP 403으로), POST /mock/reset
+//        POST /mock/fail?route=instruments|kline[&interval=60] (해당 REST를 HTTP 403으로), POST /mock/reset,
+//        POST /mock/kline-every?ms=5000 (kline 푸시 간격. Bybit 문서상 1~60초)
 import http from 'node:http';
 import { WebSocketServer } from 'ws';
 
@@ -37,6 +38,7 @@ function candle(sym, interval, start, until) {
 
 const stats = { connections: 0, subscribes: [], pings: 0 };
 const failures = { instruments: false, klineIntervals: new Set() };
+const cadence = { klineEveryMs: 200 };
 const sockets = new Set();
 
 const server = http.createServer((req, res) => {
@@ -56,7 +58,12 @@ const server = http.createServer((req, res) => {
     if (route === 'kline') failures.klineIntervals.add(url.searchParams.get('interval'));
     return json({ ok: true });
   }
+  if (url.pathname === '/mock/kline-every' && req.method === 'POST') {
+    cadence.klineEveryMs = Number(url.searchParams.get('ms') ?? 200);
+    return json({ ok: true });
+  }
   if (url.pathname === '/mock/reset' && req.method === 'POST') {
+    cadence.klineEveryMs = 200;
     failures.instruments = false;
     failures.klineIntervals.clear();
     return json({ ok: true });
@@ -107,15 +114,18 @@ wss.on('connection', (ws) => {
   sockets.add(ws);
   const topics = new Set();
   const lastStart = new Map();
+  let lastKlineAt = 0;
   const timer = setInterval(() => {
     const now = Date.now();
+    const sendKline = now - lastKlineAt >= cadence.klineEveryMs;
+    if (sendKline) lastKlineAt = now;
     for (const topic of topics) {
       const [kind, a, b] = topic.split('.');
       if (kind === 'publicTrade' && SYMBOLS[a]) {
         ws.send(JSON.stringify({ topic, type: 'snapshot', ts: now, data: [{ T: now - 3, s: a, S: 'Buy', v: '0.01', p: fmt(a, price(a, now)), L: 'PlusTick', i: String(now), BT: false, seq: now }] }));
       } else if (kind === 'tickers' && SYMBOLS[a]) {
         ws.send(JSON.stringify({ topic, type: 'delta', ts: now, cs: now, data: { symbol: a, markPrice: fmt(a, price(a, now)) } }));
-      } else if (kind === 'kline' && SYMBOLS[b] && INTERVAL_MS[a]) {
+      } else if (kind === 'kline' && sendKline && SYMBOLS[b] && INTERVAL_MS[a]) {
         const dur = INTERVAL_MS[a];
         const start = Math.floor(now / dur) * dur;
         const prev = lastStart.get(topic);
