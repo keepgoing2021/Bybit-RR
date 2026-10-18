@@ -8,7 +8,7 @@ import { loadSettings, loadState, saveSettings, saveState, type StorageLike, typ
 import { formatPrice } from '../core/price';
 import { closeScenario, createScenario, restoreAuto, setLevel, type Scenario } from '../core/scenario';
 import { DEFAULT_SETTINGS, sanitizeSettings, type AnalysisSettings } from '../core/settings';
-import { defaultHigherTf, higherTimeframes, TIMEFRAMES, tfMs } from '../core/timeframe';
+import { defaultHigherTf, defaultSlTf, higherTimeframes, slTimeframes, TIMEFRAMES, tfMs } from '../core/timeframe';
 import type { PriceTick, Side, SymbolInfo, Timeframe } from '../core/types';
 import type { SocketState } from '../data/bybit/socket';
 import { CandleStore } from '../data/candleStore';
@@ -34,7 +34,12 @@ const DEFAULT_UI: Record<SourceKind, UiSelection> = {
 };
 
 const SETTING_FIELDS: { key: keyof AnalysisSettings; label: string; options?: [string, string][] }[] = [
-  { key: 'lookback', label: '급격한 캔들 탐색 범위 (봉)' },
+  {
+    key: 'slMode',
+    label: 'SL 방식',
+    options: [['prevCandle', 'SL 기준 시간봉의 직전 마감 봉'], ['spike', '차트 시간봉의 가장 급격한 캔들']],
+  },
+  { key: 'lookback', label: '급격한 캔들 탐색 범위 (봉, 급격한 캔들 방식)' },
   { key: 'atrPeriod', label: 'ATR 기간' },
   { key: 'atrMethod', label: 'ATR 계산 방식', options: [['wilder', 'Wilder (TradingView 기본)'], ['sma', '단순 평균']] },
   { key: 'slBufferTicks', label: 'SL 버퍼 (틱)' },
@@ -226,6 +231,7 @@ export class App {
       return;
     }
     const { symbol, timeframe, htf } = this.ui;
+    const slTf = this.currentSlTf();
     const tickSize = this.tickSize;
     const settings = this.settings;
     const ltfCandles = this.store.all().slice();
@@ -233,26 +239,35 @@ export class App {
 
     this.creating = true;
     this.renderStatus();
-    let htfCandles = null;
-    let htfError: string | null = null;
-    if (htf) {
+    // 상위 시간봉 데이터는 클릭 시점에 받는다 (기준 시각 이후 캔들은 분석에서 걸러짐)
+    const fetchTf = async (tf: Timeframe | null, limit: number) => {
+      if (!tf) return { candles: null, error: null };
+      if (tf === timeframe) return { candles: ltfCandles, error: null };
       try {
-        htfCandles = (await provider.fetchCandles(symbol, htf, CONFIG.historyLimit)).candles;
+        return { candles: (await provider.fetchCandles(symbol, tf, limit)).candles, error: null };
       } catch (e) {
-        htfError = errText(e);
+        return { candles: null, error: errText(e) };
       }
-    }
+    };
+    const [htfRes, slRes] = await Promise.all([
+      fetchTf(htf, CONFIG.historyLimit),
+      fetchTf(settings.slMode === 'prevCandle' ? slTf : null, 10),
+    ]);
     const auto = analyzeAutoLevels({
       side,
       entry: cap.price,
       cutoff: cap.priceTime,
       tickSize,
       ltf: { timeframe, candles: ltfCandles },
-      htf: htf && htfCandles ? { timeframe: htf, candles: htfCandles } : null,
+      htf: htf && htfRes.candles ? { timeframe: htf, candles: htfRes.candles } : null,
+      slTf: slRes.candles ? { timeframe: slTf, candles: slRes.candles } : null,
       settings,
     });
-    if (htf && !htfCandles) {
-      auto.tp = { ...auto.tp, timeframe: htf, reason: `유효한 자동 TP 없음: 상위 시간봉 데이터 조회 실패 (${htfError})` };
+    if (htf && !htfRes.candles) {
+      auto.tp = { ...auto.tp, timeframe: htf, reason: `유효한 자동 TP 없음: 상위 시간봉 데이터 조회 실패 (${htfRes.error})` };
+    }
+    if (settings.slMode === 'prevCandle' && !slRes.candles) {
+      auto.sl = { ...auto.sl, timeframe: slTf, reason: `유효한 자동 SL 없음: SL 기준 시간봉 데이터 조회 실패 (${slRes.error})` };
     }
     this.scenario = createScenario({
       id: newId(),
@@ -268,6 +283,11 @@ export class App {
     this.creating = false;
     this.persist();
     this.renderAll();
+  }
+
+  private currentSlTf(): Timeframe {
+    const allowed = slTimeframes(this.ui.timeframe);
+    return this.ui.slTf && allowed.includes(this.ui.slTf) ? this.ui.slTf : defaultSlTf(this.ui.timeframe);
   }
 
   private closeActive(): void {
@@ -327,6 +347,7 @@ export class App {
     const tf = sel('tf');
     tf.append(...TIMEFRAMES.map((t) => h('option', { value: t }, tfName(t))));
     const htf = sel('htf');
+    const sltf = sel('sltf');
     const long = h('button', { class: 'side long', 'data-testid': 'btn-long', type: 'button' }, 'LONG');
     const short = h('button', { class: 'side short', 'data-testid': 'btn-short', type: 'button' }, 'SHORT');
     const status = h('span', { class: 'pill', 'data-testid': 'feed-status', 'data-state': 'connecting' }, '연결 중');
@@ -342,6 +363,7 @@ export class App {
       field('종목', symbol),
       symbolList,
       field('차트', tf),
+      field('SL 기준', sltf),
       field('TP 기준', htf),
       h('div', { class: 'sides' }, long, short),
       h('div', { class: 'status' }, status, statusReason),
@@ -489,8 +511,13 @@ export class App {
     tf.addEventListener('change', () => {
       const t = tf.value as Timeframe;
       this.ui.timeframe = t;
+      this.ui.slTf = defaultSlTf(t); // 차트 시간봉을 바꾸면 SL 기준도 한 단계 위 기본값으로
       if (!this.ui.htf || !higherTimeframes(t).includes(this.ui.htf)) this.ui.htf = defaultHigherTf(t);
       void this.loadMarket();
+    });
+    sltf.addEventListener('change', () => {
+      this.ui.slTf = sltf.value as Timeframe;
+      this.persist();
     });
     htf.addEventListener('change', () => {
       this.ui.htf = (htf.value || null) as Timeframe | null;
@@ -534,7 +561,7 @@ export class App {
     dialog.addEventListener('keydown', (e) => e.key === 'Escape' && this.closeDialog());
 
     return {
-      source, symbol, symbolList, tf, htf, long, short, status, statusReason, demoBadge,
+      source, symbol, symbolList, tf, htf, sltf, long, short, status, statusReason, demoBadge,
       loadError, otherBanner, otherText, chart, empty, card, sideChip, title, stateChip, entry, times, rr, reasons, m,
       sl, tp, restore, close, del, settingsInputs, demoTools, dialog, dialogText, dlgCancel, toast,
     };
@@ -548,6 +575,7 @@ export class App {
     this.settings = sanitizeSettings(raw);
     saveSettings(this.d.storage, this.settings);
     this.renderSettings();
+    this.renderTopbar();
     this.renderNow();
   }
 
@@ -596,6 +624,10 @@ export class App {
     const highers = higherTimeframes(this.ui.timeframe);
     e.htf.replaceChildren(h('option', { value: '' }, '없음'), ...highers.map((t) => h('option', { value: t }, tfName(t))));
     e.htf.value = this.ui.htf ?? '';
+    e.sltf.replaceChildren(...slTimeframes(this.ui.timeframe).map((t) => h('option', { value: t }, tfName(t))));
+    e.sltf.value = this.currentSlTf();
+    e.sltf.disabled = this.settings.slMode !== 'prevCandle';
+    e.sltf.title = e.sltf.disabled ? "설정의 'SL 방식'이 급격한 캔들일 때는 쓰지 않습니다" : '';
     const demo = this.provider?.isDemo ?? false;
     show(e.demoBadge, demo);
     show(e.demoTools, demo);
@@ -703,7 +735,7 @@ export class App {
       extendBars: this.settings.boxExtendBars,
       draggable: s.status === 'active',
       labels: { profit, loss, center, centerValid: m.valid },
-      slCandleTime: s.timeframe === this.ui.timeframe && s.auto.sl.candle ? s.auto.sl.candle.time : null,
+      slCandle: s.auto.sl.candle ? { time: s.auto.sl.candle.time, durationMs: tfMs(s.auto.sl.timeframe) } : null,
       swing: s.auto.tp.swing && s.auto.tp.timeframe
         ? { time: s.auto.tp.swing.time, price: s.auto.tp.swing.price, label: `TP 기준 ${tfName(s.auto.tp.timeframe)} 스윙` }
         : null,

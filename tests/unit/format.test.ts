@@ -8,7 +8,7 @@ const at = Date.UTC(2026, 9, 18, 5, 15, 7); // KST 10월 18일 14:15:07
 const sl = (over: Partial<AutoSL> = {}): AutoSL => ({
   price: 98.5, candidatePrice: 98.5, status: 'ok', reason: null,
   candle: { time: Date.UTC(2026, 9, 18, 5, 15), open: 1, high: 2, low: 0.5, close: 1, volume: 1, confirmed: true },
-  score: 3.214, atr: 1, timeframe: '15', bufferTicks: 0, ...over,
+  score: 3.214, atr: 1, timeframe: '15', bufferTicks: 0, method: 'spike', ...over,
 });
 
 const tp = (over: Partial<AutoTP> = {}): AutoTP => ({
@@ -52,6 +52,14 @@ describe('slRationale', () => {
       .toBe('유효한 자동 SL 없음: X (선정 캔들 15분봉 10월 18일 14:15)');
     expect(slRationale(sl({ status: 'unavailable', price: null, candle: null, reason: '유효한 자동 SL 없음: 데이터 부족' }), 'LONG', TZ))
       .toBe('유효한 자동 SL 없음: 데이터 부족');
+  });
+});
+
+describe('slRationale — previous higher-timeframe candle', () => {
+  it('names the timeframe, the candle and the edge', () => {
+    const a = sl({ method: 'prevCandle', timeframe: '720', score: null, atr: null });
+    expect(slRationale(a, 'LONG', TZ)).toBe('SL: 12시간봉 직전 마감 봉 저가 (10월 18일 14:15 캔들)');
+    expect(slRationale({ ...a, bufferTicks: 2 }, 'SHORT', TZ)).toBe('SL: 12시간봉 직전 마감 봉 고가 + 버퍼 2틱 (10월 18일 14:15 캔들)');
   });
 });
 

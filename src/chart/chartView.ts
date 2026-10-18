@@ -30,7 +30,8 @@ export interface OverlayInput {
   extendBars: number;
   draggable: boolean;
   labels: OverlayModel['labels'];
-  slCandleTime: number | null;
+  /** SL 선정 캔들의 기간 (SL 기준 시간봉이 더 크면 차트 여러 봉에 걸친다) */
+  slCandle: { time: number; durationMs: number } | null;
   swing: { time: number; price: number; label: string } | null;
 }
 
@@ -185,9 +186,13 @@ export class ChartView {
     return lo;
   }
 
-  private exactLogical(t: number): number | null {
-    const i = this.logicalForTime(t);
-    return i !== null && Number.isInteger(i) && i >= 0 && i < this.candles.length && this.candles[i].time === t ? i : null;
+  /** [시작 봉, 끝 다음 봉) 논리 범위. 차트에 보이는 데이터 밖이면 null */
+  private highlightRange(c: OverlayInput['slCandle']): { from: number; to: number } | null {
+    if (!c) return null;
+    const from = this.logicalForTime(c.time);
+    const to = this.logicalForTime(c.time + c.durationMs);
+    if (from === null || to === null || to < 0) return null;
+    return { from, to: Math.max(to, from + 1) };
   }
 
   private rebuildOverlay(): void {
@@ -210,7 +215,7 @@ export class ChartView {
       endLogical: Math.max(end, start + 1),
       closed: o.endTime !== null,
       labels: o.labels,
-      highlightLogical: o.slCandleTime === null ? null : this.exactLogical(o.slCandleTime),
+      highlight: this.highlightRange(o.slCandle),
       swing: o.swing && swingLogical !== null && swingLogical >= 0 ? { logical: swingLogical, price: o.swing.price, label: o.swing.label } : null,
       active: this.dragging ?? this.hover,
     };

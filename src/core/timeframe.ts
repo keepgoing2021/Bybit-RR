@@ -37,6 +37,34 @@ export function defaultHigherTf(tf: Timeframe): Timeframe | null {
   return DEFAULT_HIGHER[tf];
 }
 
+/**
+ * SL 기준 시간봉 기본값: 차트보다 한 단계 위. 15분→4시간, 4시간→12시간, 1일→1주는 사용자 지정.
+ * 주봉은 더 큰 시간봉이 없어 직전 주봉을 쓴다.
+ */
+const DEFAULT_SL: Record<Timeframe, Timeframe> = {
+  '1': '15',
+  '3': '15',
+  '5': '60',
+  '15': '240',
+  '30': '240',
+  '60': '240',
+  '120': '720',
+  '240': '720',
+  '360': 'D',
+  '720': 'D',
+  D: 'W',
+  W: 'W',
+};
+
+export function defaultSlTf(tf: Timeframe): Timeframe {
+  return DEFAULT_SL[tf];
+}
+
+/** SL 기준으로 고를 수 있는 시간봉: 차트 시간봉과 그 위 */
+export function slTimeframes(tf: Timeframe): Timeframe[] {
+  return TIMEFRAMES.filter((t) => tfMs(t) >= tfMs(tf));
+}
+
 export function higherTimeframes(tf: Timeframe): Timeframe[] {
   return TIMEFRAMES.filter((t) => tfMs(t) > tfMs(tf));
 }

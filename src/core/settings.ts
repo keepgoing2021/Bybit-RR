@@ -2,7 +2,11 @@ import type { AtrMethod } from './atr';
 import type { TpMode } from './swing';
 
 /** 확정된 전략이 아닌 MVP 초기 가정값. 설정 패널에서 바꿀 수 있다. */
+export type SlMode = 'prevCandle' | 'spike';
+
 export interface AnalysisSettings {
+  /** SL 방식: SL 기준 시간봉의 직전 마감 봉(기본) / 차트 시간봉의 가장 급격한 캔들 */
+  slMode: SlMode;
   /** 급격한 캔들 탐색 범위 (직전 확정 캔들 수) */
   lookback: number;
   atrPeriod: number;
@@ -21,6 +25,7 @@ export interface AnalysisSettings {
 }
 
 export const DEFAULT_SETTINGS: AnalysisSettings = {
+  slMode: 'prevCandle',
   lookback: 50,
   atrPeriod: 14,
   atrMethod: 'wilder',
@@ -32,7 +37,7 @@ export const DEFAULT_SETTINGS: AnalysisSettings = {
   maxPriceAgeSec: 60,
 };
 
-type NumericKey = Exclude<keyof AnalysisSettings, 'atrMethod' | 'tpMode'>;
+type NumericKey = Exclude<keyof AnalysisSettings, 'atrMethod' | 'tpMode' | 'slMode'>;
 
 export const SETTING_RANGES: Record<NumericKey, [number, number]> = {
   lookback: [5, 500],
@@ -57,5 +62,6 @@ export function sanitizeSettings(raw: unknown): AnalysisSettings {
   }
   if (src.atrMethod === 'wilder' || src.atrMethod === 'sma') out.atrMethod = src.atrMethod;
   if (src.tpMode === 'latest' || src.tpMode === 'beyondEntry') out.tpMode = src.tpMode;
+  if (src.slMode === 'prevCandle' || src.slMode === 'spike') out.slMode = src.slMode;
   return out;
 }

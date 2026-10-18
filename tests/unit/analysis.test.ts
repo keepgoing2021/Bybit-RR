@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { analyzeAutoLevels, type AnalyzeInput } from '../../src/core/analysis';
 import { DEFAULT_SETTINGS } from '../../src/core/settings';
+
+const SPIKE = { ...DEFAULT_SETTINGS, slMode: 'spike' as const };
 import type { Candle } from '../../src/core/types';
 import { fromHighs, MIN, ranged } from './helpers/candles';
 
@@ -22,7 +24,8 @@ function input(over: Partial<AnalyzeInput> = {}): AnalyzeInput {
     tickSize: 0.1,
     ltf: { timeframe: '1', candles: ltfWithSpike() },
     htf: null,
-    settings: DEFAULT_SETTINGS,
+    slTf: null,
+    settings: SPIKE,
     ...over,
   };
 }
@@ -35,16 +38,17 @@ describe('analyzeAutoLevels — SL', () => {
     expect(r.sl.candle?.time).toBe(20 * MIN);
     expect(r.sl.score).toBe(3);
     expect(r.sl.timeframe).toBe('1');
+    expect(r.sl.method).toBe('spike');
   });
 
   it('buffer 3 ticks lowers LONG SL by 3 ticks', () => {
-    const r = analyzeAutoLevels(input({ settings: { ...DEFAULT_SETTINGS, slBufferTicks: 3 } }));
+    const r = analyzeAutoLevels(input({ settings: { ...SPIKE, slBufferTicks: 3 } }));
     expect(r.sl.price).toBe(98.2);
     expect(r.sl.bufferTicks).toBe(3);
   });
 
   it('SHORT SL is the spike high plus buffer', () => {
-    const r = analyzeAutoLevels(input({ side: 'SHORT', settings: { ...DEFAULT_SETTINGS, slBufferTicks: 2 } }));
+    const r = analyzeAutoLevels(input({ side: 'SHORT', settings: { ...SPIKE, slBufferTicks: 2 } }));
     expect(r.sl.price).toBe(101.7);
   });
 
@@ -117,5 +121,58 @@ describe('analyzeAutoLevels — TP', () => {
     expect(r.tp.status).toBe('unavailable');
     expect(r.tp.price).toBeNull();
     expect(r.tp.timeframe).toBeNull();
+  });
+});
+
+describe('analyzeAutoLevels — SL from the previous higher-timeframe candle', () => {
+  const H4 = 240 * MIN;
+  // 4시간봉 3개: [0,4h) [4h,8h) [8h,12h)
+  const h4: Candle[] = [
+    { time: 0, open: 100, high: 104, low: 97, close: 101, volume: 1, confirmed: true },
+    { time: H4, open: 101, high: 103, low: 98.4, close: 100, volume: 1, confirmed: true },
+    { time: 2 * H4, open: 100, high: 102, low: 99, close: 100.5, volume: 1, confirmed: false },
+  ];
+  const prevInput = (over: Partial<AnalyzeInput> = {}) =>
+    input({ settings: DEFAULT_SETTINGS, slTf: { timeframe: '240', candles: h4 }, cutoff: 2 * H4 + 30 * MIN, ...over });
+
+  it('LONG SL is the low of the last candle that closed before the entry', () => {
+    const r = analyzeAutoLevels(prevInput());
+    expect(r.sl.status).toBe('ok');
+    expect(r.sl.method).toBe('prevCandle');
+    expect(r.sl.timeframe).toBe('240');
+    expect(r.sl.candle?.time).toBe(H4);
+    expect(r.sl.price).toBe(98.4);
+    expect(r.sl.score).toBeNull();
+  });
+
+  it('SHORT SL is that candle high plus buffer', () => {
+    const r = analyzeAutoLevels(prevInput({ side: 'SHORT', settings: { ...DEFAULT_SETTINGS, slBufferTicks: 2 } }));
+    expect(r.sl.price).toBe(103.2);
+  });
+
+  it('a candle still in progress at the entry is never used', () => {
+    const r = analyzeAutoLevels(prevInput({ cutoff: 2 * H4 - 1 }));
+    expect(r.sl.candle?.time).toBe(0);
+    expect(r.sl.price).toBe(97);
+  });
+
+  it('LONG SL at or above entry is invalid and not replaced', () => {
+    const r = analyzeAutoLevels(prevInput({ entry: 98 }));
+    expect(r.sl.status).toBe('invalid');
+    expect(r.sl.price).toBeNull();
+    expect(r.sl.candidatePrice).toBe(98.4);
+    expect(r.sl.reason).toContain('유효한 자동 SL 없음');
+  });
+
+  it('no closed candle on the SL timeframe gives unavailable', () => {
+    const r = analyzeAutoLevels(prevInput({ cutoff: H4 - 1 }));
+    expect(r.sl.status).toBe('unavailable');
+    expect(r.sl.reason).toContain('데이터 부족');
+  });
+
+  it('missing SL timeframe data gives unavailable with the reason', () => {
+    const r = analyzeAutoLevels(prevInput({ slTf: null }));
+    expect(r.sl.status).toBe('unavailable');
+    expect(r.sl.reason).toContain('SL 기준 시간봉');
   });
 });

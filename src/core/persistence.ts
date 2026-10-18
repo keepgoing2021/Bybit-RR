@@ -17,6 +17,8 @@ export interface UiSelection {
   symbol: string;
   timeframe: Timeframe;
   htf: Timeframe | null;
+  /** SL 기준 시간봉 (없으면 차트 시간봉 기준 기본값) */
+  slTf?: Timeframe;
 }
 
 export interface PersistedState {
@@ -101,7 +103,8 @@ function isUiSelection(v: unknown): boolean {
     (v.provider === 'bybit' || v.provider === 'demo') &&
     typeof v.symbol === 'string' &&
     isTf(v.timeframe) &&
-    (v.htf === null || isTf(v.htf))
+    (v.htf === null || isTf(v.htf)) &&
+    (v.slTf === undefined || isTf(v.slTf))
   );
 }
 

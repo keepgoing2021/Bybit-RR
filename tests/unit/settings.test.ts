@@ -4,6 +4,7 @@ import { DEFAULT_SETTINGS, sanitizeSettings } from '../../src/core/settings';
 describe('DEFAULT_SETTINGS', () => {
   it('matches the MVP assumptions in the spec', () => {
     expect(DEFAULT_SETTINGS).toEqual({
+      slMode: 'prevCandle',
       lookback: 50,
       atrPeriod: 14,
       atrMethod: 'wilder',
@@ -28,14 +29,15 @@ describe('sanitizeSettings', () => {
   });
 
   it('falls back to defaults for unknown enum values and garbage', () => {
-    expect(sanitizeSettings({ atrMethod: 'ema', tpMode: 'nearest' })).toEqual(DEFAULT_SETTINGS);
+    expect(sanitizeSettings({ atrMethod: 'ema', tpMode: 'nearest', slMode: 'ema' })).toEqual(DEFAULT_SETTINGS);
     expect(sanitizeSettings(null)).toEqual(DEFAULT_SETTINGS);
     expect(sanitizeSettings('x')).toEqual(DEFAULT_SETTINGS);
     expect(sanitizeSettings({ lookback: 'abc' }).lookback).toBe(50);
   });
 
   it('keeps valid values', () => {
-    const s = sanitizeSettings({ ...DEFAULT_SETTINGS, atrMethod: 'sma', tpMode: 'beyondEntry', lookback: 80 });
+    const s = sanitizeSettings({ ...DEFAULT_SETTINGS, atrMethod: 'sma', tpMode: 'beyondEntry', lookback: 80, slMode: 'spike' });
+    expect(s.slMode).toBe('spike');
     expect(s.atrMethod).toBe('sma');
     expect(s.tpMode).toBe('beyondEntry');
     expect(s.lookback).toBe(80);

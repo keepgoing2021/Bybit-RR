@@ -48,6 +48,9 @@ export function slRationale(a: AutoSL, side: Side, timeZone?: string): string {
   }
   const edge = side === 'LONG' ? '저가' : '고가';
   const buffer = a.bufferTicks > 0 ? ` ${side === 'LONG' ? '−' : '+'} 버퍼 ${a.bufferTicks}틱` : '';
+  if (a.method === 'prevCandle') {
+    return `SL: ${tfName(a.timeframe)} 직전 마감 봉 ${edge}${buffer} (${formatTime(a.candle.time, timeZone)} 캔들)`;
+  }
   const score = a.score === null ? '' : ` (고저폭이 직전 ATR의 ${a.score.toFixed(2)}배)`;
   return `SL: ${tfName(a.timeframe)} ${formatTime(a.candle.time, timeZone)} 캔들 ${edge}${buffer}${score}`;
 }

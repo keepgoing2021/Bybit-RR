@@ -19,6 +19,8 @@ export interface AutoSL {
   atr: number | null;
   timeframe: Timeframe;
   bufferTicks: number;
+  /** prevCandle: SL 기준 시간봉의 직전 마감 봉 / spike: 차트 시간봉의 가장 급격한 캔들 */
+  method: 'prevCandle' | 'spike';
 }
 
 export interface AutoTP {
@@ -43,6 +45,8 @@ export interface AnalyzeInput {
   tickSize: number;
   ltf: { timeframe: Timeframe; candles: Candle[] };
   htf: { timeframe: Timeframe; candles: Candle[] } | null;
+  /** SL 기준 시간봉 캔들 (prevCandle 방식에서 사용) */
+  slTf: { timeframe: Timeframe; candles: Candle[] } | null;
   settings: AnalysisSettings;
 }
 
@@ -55,8 +59,30 @@ export function analyzeAutoLevels(i: AnalyzeInput): AutoLevels {
 }
 
 function analyzeSL(i: AnalyzeInput): AutoSL {
-  const { side, entry, cutoff, tickSize, ltf, settings } = i;
-  const base: AutoSL = {
+  return i.settings.slMode === 'spike' ? analyzeSpikeSL(i) : analyzePrevCandleSL(i);
+}
+
+/** 선정 캔들의 꼬리 끝(+버퍼)을 SL 후보로 만들고, 엔트리 반대편이 아니면 무효 처리 */
+function finishSL(i: AnalyzeInput, base: AutoSL, candle: Candle, extra: Partial<AutoSL>): AutoSL {
+  const { side, entry, tickSize, settings } = i;
+  const buffer = settings.slBufferTicks * tickSize;
+  const candidate = snapToTick(side === 'LONG' ? candle.low - buffer : candle.high + buffer, tickSize);
+  const withCandle = { ...base, ...extra, candle, candidatePrice: candidate };
+  const valid = side === 'LONG' ? candidate < entry : candidate > entry;
+  if (!valid) {
+    const what = side === 'LONG' ? '저가' : '고가';
+    const cmp = side === 'LONG' ? '이상' : '이하';
+    return {
+      ...withCandle,
+      status: 'invalid',
+      reason: `유효한 자동 SL 없음: 선정 캔들 ${what}(버퍼 포함) ${formatPrice(candidate, tickSize)}이(가) 엔트리 ${formatPrice(entry, tickSize)} ${cmp}`,
+    };
+  }
+  return { ...withCandle, price: candidate, status: 'ok' };
+}
+
+function emptySL(i: AnalyzeInput, timeframe: Timeframe, method: AutoSL['method']): AutoSL {
+  return {
     price: null,
     candidatePrice: null,
     status: 'unavailable',
@@ -64,10 +90,31 @@ function analyzeSL(i: AnalyzeInput): AutoSL {
     candle: null,
     score: null,
     atr: null,
-    timeframe: ltf.timeframe,
-    bufferTicks: settings.slBufferTicks,
+    timeframe,
+    bufferTicks: i.settings.slBufferTicks,
+    method,
   };
+}
 
+/** SL 기준 시간봉에서 엔트리 시점 직전에 마감된 봉 1개의 저가(LONG)·고가(SHORT) */
+function analyzePrevCandleSL(i: AnalyzeInput): AutoSL {
+  if (!i.slTf) {
+    return { ...emptySL(i, i.ltf.timeframe, 'prevCandle'), reason: '유효한 자동 SL 없음: SL 기준 시간봉 데이터 없음' };
+  }
+  const { timeframe, candles } = i.slTf;
+  const base = emptySL(i, timeframe, 'prevCandle');
+  const closed = candles.filter((c) => isClosedBy(c, timeframe, i.cutoff));
+  const prev = closed[closed.length - 1];
+  if (!prev) {
+    return { ...base, reason: '유효한 자동 SL 없음: 데이터 부족 (SL 기준 시간봉에 마감된 봉 없음)' };
+  }
+  return finishSL(i, base, prev, {});
+}
+
+/** 차트 시간봉에서 가장 급격한 캔들 (이전 기본 방식) */
+function analyzeSpikeSL(i: AnalyzeInput): AutoSL {
+  const { cutoff, ltf, settings } = i;
+  const base = emptySL(i, ltf.timeframe, 'spike');
   const closed = ltf.candles.filter((c) => isClosedBy(c, ltf.timeframe, cutoff));
   const spike = selectSpikeCandle(closed, {
     lookback: settings.lookback,
@@ -80,22 +127,7 @@ function analyzeSL(i: AnalyzeInput): AutoSL {
       reason: `유효한 자동 SL 없음: 데이터 부족 (확정 캔들 ${closed.length}개, ATR ${settings.atrPeriod} 계산에 최소 ${settings.atrPeriod + 1}개 필요)`,
     };
   }
-
-  const buffer = settings.slBufferTicks * tickSize;
-  const candidate = snapToTick(side === 'LONG' ? spike.candle.low - buffer : spike.candle.high + buffer, tickSize);
-  const withSpike = { ...base, candle: spike.candle, score: spike.score, atr: spike.atr, candidatePrice: candidate };
-  const valid = side === 'LONG' ? candidate < entry : candidate > entry;
-
-  if (!valid) {
-    const what = side === 'LONG' ? '저가' : '고가';
-    const cmp = side === 'LONG' ? '이상' : '이하';
-    return {
-      ...withSpike,
-      status: 'invalid',
-      reason: `유효한 자동 SL 없음: 선정 캔들 ${what}(버퍼 포함) ${formatPrice(candidate, tickSize)}이(가) 엔트리 ${formatPrice(entry, tickSize)} ${cmp}`,
-    };
-  }
-  return { ...withSpike, price: candidate, status: 'ok' };
+  return finishSL(i, base, spike.candle, { score: spike.score, atr: spike.atr });
 }
 
 function analyzeTP(i: AnalyzeInput): AutoTP {

@@ -218,3 +218,30 @@ test('switching symbol hides scenario', async ({ page }) => {
   await expect(page.getByTestId('other-symbol-banner')).toBeHidden();
   await expect.poll(() => rendered(page)).not.toBeNull();
 });
+
+test('SL timeframe defaults one frame up and follows the chart timeframe', async ({ page }) => {
+  await open(page, { tf: '15' });
+  const sltf = page.getByTestId('sltf');
+  await expect(sltf).toHaveValue('240');
+  await page.getByTestId('tf').selectOption('240');
+  await waitLive(page);
+  await expect(sltf).toHaveValue('720');
+  await page.getByTestId('tf').selectOption('D');
+  await waitLive(page);
+  await expect(sltf).toHaveValue('W');
+  await sltf.selectOption('D'); // 사용자가 바꾼 값은 새로고침 뒤에도 유지
+  await page.reload();
+  await waitLive(page);
+  await expect(page.getByTestId('sltf')).toHaveValue('D');
+});
+
+test('LONG uses the previous closed candle of the SL timeframe', async ({ page }) => {
+  await open(page, { tf: '15' });
+  await page.getByTestId('btn-long').click();
+  await expect.poll(() => scenario(page)).not.toBeNull();
+  const s = (await scenario(page))!;
+  const H4 = 4 * 3600_000;
+  expect(s.auto.sl.timeframe).toBe('240');
+  expect(s.auto.sl.candle!.time).toBe(Math.floor(s.priceTime / H4) * H4 - H4);
+  await expect(page.getByTestId('sl-rationale')).toContainText('4시간봉 직전 마감 봉');
+});

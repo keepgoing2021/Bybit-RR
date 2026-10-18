@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { defaultHigherTf, higherTimeframes, isClosedBy, tfLabel, tfMs, TIMEFRAMES } from '../../src/core/timeframe';
+import { defaultHigherTf, defaultSlTf, higherTimeframes, isClosedBy, slTimeframes, tfLabel, tfMs, TIMEFRAMES } from '../../src/core/timeframe';
 import type { Candle } from '../../src/core/types';
 
 const candle = (time: number, confirmed = true): Candle => ({
@@ -65,5 +65,35 @@ describe('isClosedBy', () => {
 
   it('is false for a candle the feed has not marked confirmed', () => {
     expect(isClosedBy(candle(0, false), '1', 120_000)).toBe(false);
+  });
+});
+
+describe('defaultSlTf', () => {
+  it('uses the user-specified pairs', () => {
+    expect(defaultSlTf('15')).toBe('240');
+    expect(defaultSlTf('240')).toBe('720');
+    expect(defaultSlTf('D')).toBe('W');
+  });
+
+  it('fills the remaining timeframes one step up', () => {
+    expect(defaultSlTf('1')).toBe('15');
+    expect(defaultSlTf('3')).toBe('15');
+    expect(defaultSlTf('5')).toBe('60');
+    expect(defaultSlTf('30')).toBe('240');
+    expect(defaultSlTf('60')).toBe('240');
+    expect(defaultSlTf('120')).toBe('720');
+    expect(defaultSlTf('360')).toBe('D');
+    expect(defaultSlTf('720')).toBe('D');
+  });
+
+  it('weekly falls back to the previous weekly candle', () => {
+    expect(defaultSlTf('W')).toBe('W');
+  });
+});
+
+describe('slTimeframes', () => {
+  it('offers the chart timeframe and everything above it', () => {
+    expect(slTimeframes('240')).toEqual(['240', '360', '720', 'D', 'W']);
+    expect(slTimeframes('W')).toEqual(['W']);
   });
 });
