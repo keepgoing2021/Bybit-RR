@@ -16,12 +16,14 @@ import { boxShiftOf, createScenario, restoreAuto, setBoxShift, setEntry, setLeve
 import { DEFAULT_SETTINGS, sanitizeSettings, type AnalysisSettings } from '../core/settings';
 import {
   DEFAULT_SIZING,
-  linearRatio,
   MAX_SPLITS,
-  parseWeights,
+  parseSplitCount,
   planSizing,
   ratioLabel,
+  readWeightsInput,
+  resizeSplits,
   sanitizeSizing,
+  weightsText,
   type SizingPlan,
   type SizingSettings,
 } from '../core/sizing';
@@ -776,21 +778,21 @@ export class App {
       'data-testid': 'sizing-capital', inputmode: 'decimal', autocomplete: 'off', placeholder: '예: 10000', 'aria-label': '운영자산 (USDT)',
     });
     const risk = h('input', { 'data-testid': 'sizing-risk', type: 'number', step: '0.1', min: '0.1', max: '10', 'aria-label': '손절 시 손실 (%)' });
-    const splits = h('select', { 'data-testid': 'sizing-splits' });
-    for (let n = 1; n <= MAX_SPLITS; n++) splits.append(h('option', { value: String(n) }, n === 1 ? '1회 진입' : `${n}분할`));
-    // 비중: 예시 두 가지 + 기타(직접 입력)
-    const weights = h('select', { 'data-testid': 'sizing-weights' });
-    const linear = h('option', { value: 'linear' });
-    weights.append(linear, h('option', { value: 'equalRisk' }, '분할별 손실 균등'), h('option', { value: 'custom' }, '기타 (직접 입력)'));
-    const custom = h('input', {
-      'data-testid': 'sizing-weights-custom',
-      class: 'weights-custom',
-      autocomplete: 'off',
-      placeholder: '예: 1:1:2',
-      'aria-label': '분할 비중 직접 입력',
-      title: '1:1:2 또는 20/30/50처럼 입력 · 칸 수가 분할 수 · 2~10칸',
+    // 분할 수·비중은 직접 적는다. 예시 두 가지(점점 크게·손실 균등)는 비중 이름 옆 작은 버튼
+    const splits = h('input', {
+      'data-testid': 'sizing-splits', type: 'number', min: '1', max: String(MAX_SPLITS), step: '1', inputmode: 'numeric',
+      'aria-label': '분할 수', title: `1~${MAX_SPLITS} (1 = 한 번에 진입)`,
     });
-    const weightsField = h('span', { class: 'weights-field' }, weights, custom);
+    const splitsField = h('label', { class: 'field' }, h('span', {}, '분할 진입'), h('span', { class: 'with-unit' }, splits, h('span', { class: 'unit' }, '분할')));
+    const weights = h('input', {
+      'data-testid': 'sizing-weights', autocomplete: 'off', spellcheck: 'false', placeholder: '예: 1:1:2', 'aria-label': '분할 비중',
+      title: `1:1:2나 20/30/50처럼 적으면 칸 수가 분할 수 · '균등'을 적으면 분할별 손실 균등 · 최대 ${MAX_SPLITS}칸`,
+    });
+    const preset = (id: string, label: string, title: string) =>
+      h('button', { type: 'button', class: 'weights-preset', 'data-testid': `sizing-weights-${id}`, title }, label);
+    const linear = preset('linear', '점점 크게', '1:2:…:N (뒤로 갈수록 크게)');
+    const equal = preset('equal', '손실 균등', '분할마다 SL 손실이 같게');
+    const weightsField = h('div', { class: 'field' }, h('span', { class: 'weights-head' }, '비중', linear, equal), weights);
     const reason = h('p', { class: 'muted small', 'data-testid': 'sizing-reason' });
     const body = h('tbody');
     const table = h(
@@ -831,8 +833,8 @@ export class App {
       { class: 'sizing-bar', 'data-testid': 'sizing-bar' },
       field('운영자산 (USDT)', capital),
       field('손절 시 손실 %', risk),
-      field('분할 진입', splits),
-      field('비중', weightsField),
+      splitsField,
+      weightsField,
     );
     const box = h(
       'section',
@@ -843,52 +845,46 @@ export class App {
       summary,
       note,
     );
-    const apply = (src: 'capital' | 'risk' | 'splits' | 'weights' | 'custom') => {
+    const apply = (src: 'capital' | 'risk' | 'splits' | 'weights' | 'linear' | 'equal') => {
       const cap = Number(capital.value.replace(/[,\s]/g, ''));
       const prev = this.sizing;
-      let n = Number(splits.value);
-      let mode = weights.value;
-      let cw = prev.customWeights;
-      if (src === 'custom') {
-        const parsed = parseWeights(custom.value);
-        if (!parsed || parsed.length < 2) {
-          this.toast(`비중은 1:1:2나 20/30/50처럼 0보다 큰 숫자 2~${MAX_SPLITS}칸으로 입력하세요.`);
+      let next: SizingSettings = { ...prev };
+      if (src === 'splits') {
+        const n = parseSplitCount(splits.value);
+        if (n === null) {
+          this.toast(`분할 수는 1~${MAX_SPLITS} 사이 정수로 적으세요 (1 = 한 번에 진입).`);
           this.renderSizingControls(true);
           return;
         }
-        cw = parsed;
-        n = parsed.length;
-      } else if (src === 'weights' && mode === 'custom') {
-        // 기타를 고르면 지금 분할 수 그대로 시작: 전에 넣은 비율이 같은 칸 수면 그것, 아니면 1:2:…:N
-        cw = prev.customWeights.length === n ? prev.customWeights : linearRatio(n);
-      } else if (src === 'splits' && mode === 'custom') {
-        // 직접 입력 중에 분할 수를 바꾸면 비율을 자르거나 마지막 값으로 채운다. 1회 진입이면 비중이 필요 없다
-        if (n === 1) mode = 'linear';
-        else cw = Array.from({ length: n }, (_, k) => prev.customWeights[Math.min(k, prev.customWeights.length - 1)] ?? 1);
+        next = resizeSplits(prev, n);
+      } else if (src === 'weights') {
+        const r = readWeightsInput(weights.value, prev.splits);
+        if (!r) {
+          this.toast(`비중은 1:1:2나 20/30/50처럼 0보다 큰 숫자로 적으세요 (최대 ${MAX_SPLITS}칸, '균등' = 분할별 손실 균등).`);
+          this.renderSizingControls(true);
+          return;
+        }
+        next = { ...prev, ...r };
+      } else if (src === 'linear' || src === 'equal') {
+        next = { ...prev, weightMode: src === 'linear' ? 'linear' : 'equalRisk' };
       }
       this.sizing = sanitizeSizing({
+        ...next,
         capital: capital.value.trim() === '' ? null : cap,
         riskPct: risk.value.trim() === '' ? undefined : Number(risk.value),
-        splits: n,
-        weightMode: mode,
-        customWeights: cw,
-        showAvgLine: prev.showAvgLine,
       });
       saveSizing(this.d.storage, this.sizing);
       this.renderSizingControls(true);
       this.renderNow(true);
-      if (src === 'weights' && mode === 'custom') {
-        custom.focus();
-        custom.select();
-      }
     };
     capital.addEventListener('change', () => apply('capital'));
     risk.addEventListener('change', () => apply('risk'));
     splits.addEventListener('change', () => apply('splits'));
     weights.addEventListener('change', () => apply('weights'));
-    custom.addEventListener('change', () => apply('custom'));
-    for (const c of [capital, custom]) c.addEventListener('keydown', (e) => e.key === 'Enter' && c.blur());
-    return { bar, box, capital, risk, splits, weights, linear, custom, reason, table, body, summary, sum, avgShow };
+    linear.addEventListener('click', () => apply('linear'));
+    equal.addEventListener('click', () => apply('equal'));
+    for (const c of [capital, splits, weights]) c.addEventListener('keydown', (e) => e.key === 'Enter' && c.blur());
+    return { bar, box, capital, risk, splits, weights, linear, equal, reason, table, body, summary, sum, avgShow };
   }
 
   /** 상단 바의 분할 진입 입력칸을 저장된 값으로 맞춘다 (시나리오가 없어도 보인다) */
@@ -897,13 +893,12 @@ export class App {
     const cfg = this.sizing;
     if (force || document.activeElement !== z.capital) z.capital.value = cfg.capital === null ? '' : String(cfg.capital);
     if (force || document.activeElement !== z.risk) z.risk.value = String(cfg.riskPct);
-    z.splits.value = String(cfg.splits);
-    z.weights.value = cfg.weightMode;
-    setText(z.linear, `${ratioLabel(cfg.splits)} 점점 크게`);
-    z.weights.disabled = cfg.splits === 1;
-    const isCustom = cfg.weightMode === 'custom';
-    show(z.custom, isCustom);
-    if (isCustom && (force || document.activeElement !== z.custom)) z.custom.value = cfg.customWeights.map(String).join(':');
+    if (force || document.activeElement !== z.splits) z.splits.value = String(cfg.splits);
+    if (force || document.activeElement !== z.weights) z.weights.value = weightsText(cfg);
+    // 지금 쓰는 예시 버튼 표시 (직접 입력한 비율이면 둘 다 꺼짐)
+    z.linear.classList.toggle('active', cfg.weightMode === 'linear');
+    z.equal.classList.toggle('active', cfg.weightMode === 'equalRisk');
+    z.linear.title = `${ratioLabel(Math.max(cfg.splits, 2))} (뒤로 갈수록 크게)`;
     z.avgShow.checked = cfg.showAvgLine;
   }
 

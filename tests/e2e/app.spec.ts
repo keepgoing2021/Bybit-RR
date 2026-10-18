@@ -630,7 +630,7 @@ test('split entries: 3 or 5 splits between entry and SL, loss at SL capped at th
     expect(sp.y).toBeLessThan(g.ySl!);
   }
 
-  await page.getByTestId('sizing-splits').selectOption('5');
+  await typeIn(page, 'sizing-splits', '5');
   await expect(page.getByTestId('sizing-row')).toHaveCount(5);
   expect(await prices()).toEqual(expected(5));
   await expect.poll(async () => (await rendered(page))?.splits.length ?? 0).toBe(4);
@@ -647,100 +647,115 @@ test('split entries: 3 or 5 splits between entry and SL, loss at SL capped at th
   await expect(page.getByTestId('sizing-row')).toHaveCount(5);
 });
 
-test('split count 1–10 and custom weights (기타): the ratio count becomes the split count', async ({ page }) => {
+/** 상단 바 입력칸에 적고 Enter */
+async function typeIn(page: Page, testid: string, text: string) {
+  const el = page.getByTestId(testid);
+  await el.fill(text);
+  await el.press('Enter');
+}
+
+test('split count and weights are typed: count 1–10, weights as a ratio (count follows) or the two examples', async ({ page }) => {
   await open(page, { tf: '15' });
-  const s = await validLong(page); // SL = 엔트리 − 10
-  await page.getByTestId('sizing-capital').fill('10000');
-  await page.getByTestId('sizing-capital').press('Enter');
+  await validLong(page); // SL = 엔트리 − 10
+  await typeIn(page, 'sizing-capital', '10000');
   const splits = page.getByTestId('sizing-splits');
   const weights = page.getByTestId('sizing-weights');
-  const custom = page.getByTestId('sizing-weights-custom');
+  const linear = page.getByTestId('sizing-weights-linear');
+  const equal = page.getByTestId('sizing-weights-equal');
   const rows = page.getByTestId('sizing-row');
+  const toast = page.getByTestId('toast');
   const shares = async () => (await rows.locator('td:nth-child(1) span').allTextContents()).map((t) => Number(t.replace('%', '')));
   const money = async () => (await rows.locator('td:nth-child(3)').allTextContents()).map((t) => Number(t.replace(/,/g, '')));
   const lossAtSl = async () =>
     Number((await page.getByTestId('sizing-loss').textContent())!.match(/−([\d,.]+)/)![1].replace(/,/g, ''));
 
-  // 분할 수는 1~10 전부 고를 수 있다
-  expect(await splits.locator('option').allTextContents()).toEqual(['1회 진입', ...Array.from({ length: 9 }, (_, k) => `${k + 2}분할`)]);
-  await splits.selectOption('4');
+  // 길게 펼쳐지는 목록 없이 적는 칸 두 개
+  await expect(page.locator('.sizing-bar select')).toHaveCount(0);
+  expect(await splits.getAttribute('type')).toBe('number');
+  await expect(splits).toHaveValue('3');
+  await expect(weights).toHaveValue('1:2:3');
+  await expect(linear).toHaveClass(/active/);
+  await expect(equal).not.toHaveClass(/active/);
+
+  // 분할 수를 적으면 점점 크게가 그 수에 맞게 1:2:…:N
+  await typeIn(page, 'sizing-splits', '4');
   await expect(rows).toHaveCount(4);
-  await expect(weights.locator('option[value="linear"]')).toHaveText('1:2:3:4 점점 크게');
+  await expect(weights).toHaveValue('1:2:3:4');
   expect(await shares()).toEqual([10, 20, 30, 40]);
-  await splits.selectOption('10');
+  await typeIn(page, 'sizing-splits', '10');
   await expect(rows).toHaveCount(10);
-  await expect(weights.locator('option[value="linear"]')).toHaveText('1:2:…:10 점점 크게');
+  await expect(weights).toHaveValue('1:2:3:4:5:6:7:8:9:10');
   expect(await lossAtSl()).toBeLessThanOrEqual(100);
   await expect.poll(async () => (await rendered(page))?.splits.length ?? 0).toBe(9);
+  for (const bad of ['0', '11', '2.5']) {
+    await typeIn(page, 'sizing-splits', bad);
+    await expect(toast).toContainText('분할 수는 1~10');
+    await expect(splits).toHaveValue('10');
+    await expect(rows).toHaveCount(10);
+  }
 
-  // 예시 두 가지 + 기타. 직접 입력 칸은 기타일 때만 보인다
-  expect(await weights.locator('option').allTextContents()).toEqual(['1:2:…:10 점점 크게', '분할별 손실 균등', '기타 (직접 입력)']);
-  await expect(custom).toBeHidden();
-  await splits.selectOption('3');
-  await weights.selectOption('custom');
-  await expect(custom).toBeVisible();
-  await expect(custom).toHaveValue('1:2:3'); // 지금 분할 수 그대로 시작
-  await expect(custom).toBeFocused();
-
-  // 1:1:2 → 25/25/50
-  await custom.fill('1:1:2');
-  await custom.press('Enter');
+  // 비율을 적으면 칸 수가 분할 수
+  await typeIn(page, 'sizing-weights', '1:1:2');
   await expect.poll(shares).toEqual([25, 25, 50]);
   await expect(splits).toHaveValue('3');
+  await expect(linear).not.toHaveClass(/active/);
+  await expect(equal).not.toHaveClass(/active/);
   const m = await money();
   expect(m[0] / m[2]).toBeCloseTo(0.5, 2);
   expect(await lossAtSl()).toBeLessThanOrEqual(100);
   expect(await lossAtSl()).toBeGreaterThan(99);
-
-  // 20/30/50 처럼 써도 되고, 칸 수가 분할 수가 된다
-  await custom.fill('10/20/30/40/0.5');
-  await custom.press('Enter');
+  await typeIn(page, 'sizing-weights', '10/20/30/40/0.5');
   await expect(rows).toHaveCount(5);
   await expect(splits).toHaveValue('5');
-  await expect(custom).toHaveValue('10:20:30:40:0.5');
-  await custom.fill('20/30/50');
-  await custom.press('Enter');
+  await expect(weights).toHaveValue('10:20:30:40:0.5');
+  await typeIn(page, 'sizing-weights', '20/30/50');
   await expect(rows).toHaveCount(3);
-  await expect(splits).toHaveValue('3');
+  await expect(weights).toHaveValue('20:30:50');
   expect(await shares()).toEqual([20, 30, 50]);
   await expect.poll(async () => (await rendered(page))?.splits.map((x) => x.label) ?? []).toEqual(['2차 30%', '3차 50%']);
 
-  // 잘못 쓰면 알려주고 그대로 둔다
-  for (const bad of ['1:0:2', 'a:b', '5', Array(11).fill(1).join(':')]) {
-    await custom.fill(bad);
-    await custom.press('Enter');
-    await expect(page.getByTestId('toast')).toContainText('비중은 1:1:2나 20/30/50처럼');
-    await expect(custom).toHaveValue('20:30:50');
+  // 잘못 적으면 알려주고 그대로
+  for (const bad of ['1:0:2', 'a:b', '', Array(11).fill(1).join(':')]) {
+    await typeIn(page, 'sizing-weights', bad);
+    await expect(toast).toContainText('비중은 1:1:2나 20/30/50처럼');
+    await expect(weights).toHaveValue('20:30:50');
     expect(await shares()).toEqual([20, 30, 50]);
   }
 
-  // 직접 입력 중에 분할 수를 늘리면 마지막 값으로 채우고, 줄이면 자른다
-  await splits.selectOption('4');
-  await expect(custom).toHaveValue('20:30:50:50');
+  // 비율을 쓰는 중에 분할 수만 바꾸면 자르거나 마지막 값으로 채운다
+  await typeIn(page, 'sizing-splits', '4');
+  await expect(weights).toHaveValue('20:30:50:50');
   await expect(rows).toHaveCount(4);
-  await splits.selectOption('2');
-  await expect(custom).toHaveValue('20:30');
+  await typeIn(page, 'sizing-splits', '2');
+  await expect(weights).toHaveValue('20:30');
   expect(await shares()).toEqual([40, 60]);
 
-  // 새로고침 뒤에도 남는다
+  // 예시 두 가지: 버튼 또는 '균등'·'1:2:…:N'을 직접 적기
+  await equal.click();
+  await expect(weights).toHaveValue('손실 균등');
+  await expect(equal).toHaveClass(/active/);
+  await expect(rows).toHaveCount(2);
+  await linear.click();
+  await expect(weights).toHaveValue('1:2');
+  await expect(linear).toHaveClass(/active/);
+  await typeIn(page, 'sizing-weights', '균등');
+  await expect(weights).toHaveValue('손실 균등');
+  await typeIn(page, 'sizing-weights', '1:2:3:4');
+  await expect(linear).toHaveClass(/active/);
+  await expect(splits).toHaveValue('4');
+
+  // 새로고침해도 남는다
+  await typeIn(page, 'sizing-weights', '1:1:2');
   await page.reload();
   await waitLive(page);
-  await expect(weights).toHaveValue('custom');
-  await expect(custom).toHaveValue('20:30');
-  await expect(splits).toHaveValue('2');
+  await expect(weights).toHaveValue('1:1:2');
+  await expect(splits).toHaveValue('3');
+  await expect.poll(shares).toEqual([25, 25, 50]);
 
-  // 예시로 돌아가면 칸은 숨고, 다시 기타를 고르면 같은 칸 수의 이전 비율이 돌아온다
-  await weights.selectOption('equalRisk');
-  await expect(custom).toBeHidden();
-  await weights.selectOption('custom');
-  await expect(custom).toHaveValue('20:30');
-
-  // 1회 진입이면 비중이 필요 없다
-  await splits.selectOption('1');
+  // 1 = 한 번에 진입
+  await typeIn(page, 'sizing-splits', '1');
   await expect(rows).toHaveCount(1);
-  await expect(weights).toBeDisabled();
-  await expect(custom).toBeHidden();
-  void s;
+  await expect(weights).toHaveValue('1');
 });
 
 test('changing the capital keeps the average-line toggle off', async ({ page }) => {
@@ -792,7 +807,7 @@ test('capital and split inputs live in the top bar, even before a scenario exist
   for (const id of ['sizing-capital', 'sizing-risk', 'sizing-splits', 'sizing-weights']) await expect(bar.getByTestId(id)).toBeVisible();
   await bar.getByTestId('sizing-capital').fill('5000');
   await bar.getByTestId('sizing-capital').press('Enter');
-  await bar.getByTestId('sizing-splits').selectOption('5');
+  await typeIn(page, 'sizing-splits', '5');
   await page.getByTestId('btn-long').click();
   await expect.poll(() => scenario(page)).not.toBeNull();
   const s = (await scenario(page))!;
@@ -837,7 +852,7 @@ test('average entry at each fill stage: table column, emphasized all-filled row,
   expect(lines[1].y).toBeCloseTo(y, 0);
 
   // 5분할 → 2·3·4차 체결 시 + 전부 체결 시
-  await page.getByTestId('sizing-splits').selectOption('5');
+  await typeIn(page, 'sizing-splits', '5');
   await expect.poll(async () => (await rendered(page))?.avgLines.map((l) => l.label.split(' ')[0]) ?? []).toEqual(['2차', '3차', '4차', '전부']);
 
   // 끄고 켜기 (새로고침해도 유지)
@@ -854,7 +869,7 @@ test('average entry at each fill stage: table column, emphasized all-filled row,
   await page.getByTestId('sizing-avg-toggle').check();
   await expect.poll(() => finalAvgY(page)).not.toBeNull();
 
-  await page.getByTestId('sizing-splits').selectOption('1'); // 1회 진입이면 평단 = 진입가라 선을 그리지 않는다
+  await typeIn(page, 'sizing-splits', '1'); // 1회 진입이면 평단 = 진입가라 선을 그리지 않는다
   await expect.poll(() => finalAvgY(page)).toBeNull();
 });
 

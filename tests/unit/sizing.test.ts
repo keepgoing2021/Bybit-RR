@@ -1,15 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_SIZING,
+  EQUAL_RISK_WORD,
   linearRatio,
   MAX_SPLITS,
+  parseSplitCount,
   parseWeights,
   planSizing,
   ratioLabel,
+  readWeightsInput,
+  resizeSplits,
   sanitizeSizing,
   splitPrices,
   splitShares,
+  weightsText,
   type SizingInput,
+  type SizingSettings,
 } from '../../src/core/sizing';
 
 const base = (over: Partial<SizingInput> = {}): SizingInput => ({
@@ -226,5 +232,40 @@ describe('ratio helpers', () => {
     expect(ratioLabel(1)).toBe('1');
     expect(ratioLabel(5)).toBe('1:2:3:4:5');
     expect(ratioLabel(8)).toBe('1:2:…:8');
+  });
+});
+
+describe('typed split count and weights (top-bar inputs)', () => {
+  const cfg = (over: Partial<SizingSettings> = {}): SizingSettings => ({ ...DEFAULT_SIZING, ...over });
+
+  it('split count: whole numbers 1 to 10 only', () => {
+    expect(['1', ' 4 ', '10'].map(parseSplitCount)).toEqual([1, 4, 10]);
+    for (const t of ['', '0', '11', '2.5', '-3', 'a', '3분할']) expect(parseSplitCount(t)).toBeNull();
+  });
+
+  it('the weights box shows the ratio in use', () => {
+    expect(weightsText(cfg({ splits: 4 }))).toBe('1:2:3:4');
+    expect(weightsText(cfg({ splits: 1 }))).toBe('1');
+    expect(weightsText(cfg({ weightMode: 'equalRisk' }))).toBe(EQUAL_RISK_WORD);
+    expect(weightsText(cfg({ weightMode: 'custom', customWeights: [20, 30, 50] }))).toBe('20:30:50');
+  });
+
+  it('reading the weights box: ratio count becomes the split count; 1:2:…:n is the linear example; 균등 is equal risk', () => {
+    expect(readWeightsInput('1:1:2', 5)).toEqual({ weightMode: 'custom', customWeights: [1, 1, 2], splits: 3 });
+    expect(readWeightsInput('20/30/50', 5)).toEqual({ weightMode: 'custom', customWeights: [20, 30, 50], splits: 3 });
+    expect(readWeightsInput('1:2:3:4', 3)).toEqual({ weightMode: 'linear', splits: 4 });
+    expect(readWeightsInput('7', 3)).toEqual({ weightMode: 'linear', splits: 1 });
+    expect(readWeightsInput('손실 균등', 4)).toEqual({ weightMode: 'equalRisk', splits: 4 });
+    expect(readWeightsInput('균등', 2)).toEqual({ weightMode: 'equalRisk', splits: 2 });
+    for (const t of ['', '1:0', 'abc', Array(11).fill(1).join(':')]) expect(readWeightsInput(t, 3)).toBeNull();
+  });
+
+  it('changing only the split count keeps the weighting style', () => {
+    expect(resizeSplits(cfg({ splits: 3 }), 5)).toMatchObject({ weightMode: 'linear', splits: 5 });
+    expect(resizeSplits(cfg({ weightMode: 'equalRisk' }), 2)).toMatchObject({ weightMode: 'equalRisk', splits: 2 });
+    const c = cfg({ weightMode: 'custom', customWeights: [20, 30, 50], splits: 3 });
+    expect(resizeSplits(c, 4)).toMatchObject({ weightMode: 'custom', customWeights: [20, 30, 50, 50], splits: 4 });
+    expect(resizeSplits(c, 2)).toMatchObject({ weightMode: 'custom', customWeights: [20, 30], splits: 2 });
+    expect(resizeSplits(c, 1)).toMatchObject({ weightMode: 'linear', splits: 1, customWeights: [20, 30, 50] });
   });
 });

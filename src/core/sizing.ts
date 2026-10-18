@@ -202,3 +202,47 @@ export function linearRatio(n: number): number[] {
 export function ratioLabel(n: number): string {
   return n <= 5 ? linearRatio(n).join(':') : `1:2:…:${n}`;
 }
+
+/** 분할 수 칸 입력 → 1~MAX_SPLITS 정수, 아니면 null */
+export function parseSplitCount(text: string): number | null {
+  const t = text.trim();
+  if (!/^\d+$/.test(t)) return null;
+  const n = Number(t);
+  return n >= 1 && n <= MAX_SPLITS ? n : null;
+}
+
+/** 비중 칸에 적는 '분할별 손실 균등' 단어 ('균등'만 적어도 된다) */
+export const EQUAL_RISK_WORD = '손실 균등';
+
+/** 비중 칸에 보여줄 글: 점점 크게 = 1:2:…:N, 손실 균등 = '손실 균등', 직접 입력 = 그 비율 */
+export function weightsText(s: SizingSettings): string {
+  if (s.weightMode === 'equalRisk') return EQUAL_RISK_WORD;
+  if (s.weightMode === 'custom') return s.customWeights.map(String).join(':');
+  return linearRatio(s.splits).join(':');
+}
+
+/**
+ * 비중 칸 입력 읽기. '균등'이 들어가면 분할별 손실 균등(분할 수 그대로),
+ * 비율이면 칸 수 = 분할 수이고 1:2:…:n과 같으면 '점점 크게', 아니면 직접 입력. 잘못된 글은 null
+ */
+export function readWeightsInput(
+  text: string,
+  splits: number,
+): Pick<SizingSettings, 'weightMode' | 'splits'> & { customWeights?: number[] } | null {
+  if (/균등/.test(text)) return { weightMode: 'equalRisk', splits };
+  const w = parseWeights(text);
+  if (!w) return null;
+  if (w.length === 1 || w.every((x, k) => x === k + 1)) return { weightMode: 'linear', splits: w.length };
+  return { weightMode: 'custom', customWeights: w, splits: w.length };
+}
+
+/**
+ * 분할 수만 바꾸기. 점점 크게·손실 균등은 그대로 n분할,
+ * 직접 입력한 비율은 자르거나 마지막 값으로 채운다 (1회 진입이면 비율이 필요 없어 점점 크게로)
+ */
+export function resizeSplits(s: SizingSettings, n: number): SizingSettings {
+  if (s.weightMode !== 'custom') return { ...s, splits: n };
+  if (n === 1) return { ...s, splits: 1, weightMode: 'linear' };
+  const cw = s.customWeights;
+  return { ...s, splits: n, customWeights: Array.from({ length: n }, (_, k) => cw[Math.min(k, cw.length - 1)] ?? 1) };
+}
