@@ -30,10 +30,10 @@ export interface OverlayModel {
   /** TP 선정 스윙 지점 */
   swing: { logical: number; price: number; label: string } | null;
   active: 'sl' | 'tp' | null;
-  /** 엔트리 ±% 점선 */
+  /** 손익비 점선 */
   presets: PresetLevel[];
-  /** 마우스가 올라간 점선의 % */
-  hoverPreset: number | null;
+  /** 마우스가 올라간 점선 id */
+  hoverPreset: string | null;
   /** 2차 이후 분할 진입 가격선 */
   splits: SplitLine[];
 }
@@ -149,12 +149,12 @@ export class RRBoxPrimitive implements ISeriesPrimitive<Time> {
         ctx.fillRect(g.loss.x, g.loss.y, g.loss.w, g.loss.h);
       }
 
-      // 엔트리 ±% 점선 (누르면 그 가격으로 설정)
+      // 손익비 점선 (누르면 TP를 그 손익비로)
       ctx.font = `600 11px ${THEME.font}`;
       ctx.textAlign = 'right';
       ctx.textBaseline = 'bottom';
       for (const p of g.presets) {
-        const hot = m.hoverPreset === p.pct;
+        const hot = m.hoverPreset === p.id;
         const color = p.target === 'tp' ? THEME.profit : THEME.loss;
         ctx.globalAlpha = (m.closed ? 0.55 : 1) * (hot ? 1 : 0.5);
         ctx.strokeStyle = color;
@@ -166,7 +166,7 @@ export class RRBoxPrimitive implements ISeriesPrimitive<Time> {
         ctx.stroke();
         ctx.setLineDash([]);
         ctx.fillStyle = color;
-        ctx.fillText(`${p.pct > 0 ? '+' : '−'}${Math.abs(p.pct)}%`, g.x2 - 4, p.y - 2);
+        ctx.fillText(p.label, g.x2 - 4, p.y - 2);
       }
       ctx.globalAlpha = m.closed ? 0.55 : 1;
 

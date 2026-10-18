@@ -15,7 +15,7 @@ export interface BoxInput {
   startLogical: number;
   /** 박스 오른쪽 끝 (최신 봉 + 연장 봉 수) */
   endLogical: number;
-  /** ±% 점선 (누르면 그 가격으로 SL/TP 설정) */
+  /** 손익비 점선 (누르면 그 가격으로 TP 설정). 엔트리에서 바깥쪽 순서 */
   presets?: PresetLevel[];
   /** 2차 이후 분할 진입 가격선 */
   splits?: SplitLine[];
@@ -78,10 +78,7 @@ export function computeBoxGeometry(i: BoxInput, m: CoordMapper): BoxGeometry | n
     profit: band(yTp),
     loss: band(ySl),
     handles: { sl: handle(ySl), tp: handle(yTp) },
-    presets: (i.presets ?? []).flatMap((p) => {
-      const y = m.priceToY(p.price);
-      return y === null ? [] : [{ ...p, y }];
-    }),
+    presets: spaced(i.presets ?? [], m, yEntry),
     splits: (i.splits ?? []).flatMap((p) => {
       const y = m.priceToY(p.price);
       return y === null ? [] : [{ ...p, y }];
@@ -89,7 +86,22 @@ export function computeBoxGeometry(i: BoxInput, m: CoordMapper): BoxGeometry | n
   };
 }
 
-/** 박스 가로 범위 안에서 ±% 점선 위인지 (가장 가까운 것) */
+/** 점선 사이 최소 간격 (px). 이보다 가까우면 이름표가 겹치므로 그 점선은 그리지 않는다 */
+export const PRESET_MIN_GAP = 14;
+
+function spaced(presets: PresetLevel[], m: CoordMapper, yEntry: number): (PresetLevel & { y: number })[] {
+  const out: (PresetLevel & { y: number })[] = [];
+  let last = yEntry;
+  for (const p of presets) {
+    const y = m.priceToY(p.price);
+    if (y === null || Math.abs(y - last) < PRESET_MIN_GAP) continue;
+    out.push({ ...p, y });
+    last = y;
+  }
+  return out;
+}
+
+/** 박스 가로 범위 안에서 점선 위인지 (가장 가까운 것) */
 export function hitTestPreset(g: BoxGeometry, x: number, y: number, tol = 4): (PresetLevel & { y: number }) | null {
   if (x < g.x1 || x > g.x2) return null;
   let best: (PresetLevel & { y: number }) | null = null;

@@ -4,7 +4,7 @@ import { analyzeAutoLevels, type AutoSL } from '../core/analysis';
 import { captureEntry, evaluateFreshness, type FeedSnapshot, type Freshness } from '../core/freshness';
 import { barRemainingMs, formatCountdown } from '../core/countdown';
 import { applyTrade } from '../core/liveCandle';
-import { presetLevels } from '../core/presets';
+import { parseRR, rrLevels, tpForRR } from '../core/presets';
 import { computeMetrics, formatRR, type Metrics } from '../core/metrics';
 import { loadSettings, loadSizing, loadState, saveSettings, saveSizing, saveState, type StorageLike, type UiSelection } from '../core/persistence';
 import { decimalsOf, formatPrice } from '../core/price';
@@ -389,6 +389,27 @@ export class App {
     this.renderNow(true);
   }
 
+  /** 손익비 입력 → TP = 진입 ± 손익비 × 손절폭 (사용자가 직접 정하는 TP. 자동 제안은 역산하지 않는다) */
+  private applyRR(raw: string): void {
+    const s = this.scenario;
+    if (!s) return;
+    const rr = parseRR(raw);
+    if (rr === null) {
+      this.toast('손익비는 0보다 큰 숫자로 입력하세요 (예: 1.5).');
+      this.renderNow(true);
+      return;
+    }
+    const tp = tpForRR(s.side, s.entry, s.applied.sl, rr, s.tickSize);
+    if (tp === null) {
+      this.toast(`손익비로 TP를 정하려면 SL을 진입가 ${s.side === 'LONG' ? '아래' : '위'}에 먼저 두세요.`);
+      this.renderNow(true);
+      return;
+    }
+    this.scenario = setLevel(s, 'tp', tp);
+    this.persist();
+    this.renderNow(true);
+  }
+
   private persist(): void {
     saveState(this.d.storage, { version: 1, scenario: this.scenario, ui: this.ui });
   }
@@ -476,7 +497,19 @@ export class App {
     const title = h('span', { class: 'scenario-title' });
     const del = h('button', { type: 'button', class: 'link', 'data-testid': 'btn-clear' }, '지우기');
     const times = h('p', { class: 'muted small', 'data-testid': 'entry-time' });
-    const rr = h('span', { class: 'rr num', 'data-testid': 'rr' });
+    // 손익비는 결과이자 입력: 고치면 TP가 그 손익비 자리로 간다
+    const rrInput = h('input', {
+      class: 'rr num', 'data-testid': 'rr-input', inputmode: 'decimal', autocomplete: 'off', placeholder: '—', 'aria-label': '손익비 1:X 의 X',
+    });
+    const rr = h('label', { class: 'rr-edit', title: '숫자를 고치면 TP가 그 손익비로 움직입니다' }, h('span', { class: 'rr num' }, '1:'), rrInput);
+    rrInput.addEventListener('change', () => this.applyRR(rrInput.value));
+    rrInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') rrInput.blur();
+      if (e.key === 'Escape') {
+        rrInput.blur();
+        this.renderNow(true);
+      }
+    });
     const rrLabel = h('span', { class: 'muted' }, '손익비');
     const reasons = h('ul', { class: 'reasons', 'data-testid': 'reasons' });
     const priceRow = (which: 'entry' | 'sl' | 'tp', name: string) => {
@@ -597,7 +630,7 @@ export class App {
 
     return {
       source, picker, tf, htf, sltf, long, short, status, statusReason, demoBadge,
-      loadError, chart, empty, card, sideChip, title, entry, times, rr, rrLabel, reasons,
+      loadError, chart, empty, card, sideChip, title, entry, times, rr, rrInput, rrLabel, reasons,
       sl, tp, slWhy, tpWhy, sizing, restore, del, settingsInputs, demoTools, toast,
     };
   }
@@ -844,7 +877,7 @@ export class App {
         ? `지정가로 계산 (누를 때 시장가 ${fp(s.capturedEntry ?? s.entry)})`
         : `${formatClock(s.priceTime)} ${s.priceSource === 'trade' ? '체결가' : '티커 가격'}로 계산`,
     );
-    setText(e.rr, m.rr === null ? '—' : formatRR(m.rr));
+    if (force || document.activeElement !== e.rrInput) e.rrInput.value = m.rr === null ? '' : formatRR(m.rr).slice(2);
     setText(e.rrLabel, this.sizing.splits > 1 ? '손익비 (1차만 체결 시)' : '손익비');
     e.rr.dataset.valid = String(m.valid);
     e.reasons.replaceChildren(...m.reasons.map((r) => h('li', {}, r)));
@@ -891,7 +924,7 @@ export class App {
             label: slBandLabel(s.auto.sl, s.side),
           }
         : null,
-      presets: presetLevels(s.side, s.entry, s.tickSize),
+      presets: rrLevels(s.side, s.entry, s.applied.sl, s.tickSize),
       splits: plan ? plan.tranches.slice(1).map((t) => ({ price: t.price, label: `${t.n}차 ${(t.share * 100).toFixed(0)}%` })) : [],
       shiftBars: boxShiftOf(s),
       swing: s.auto.tp.swing && s.auto.tp.timeframe

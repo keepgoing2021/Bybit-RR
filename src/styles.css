@@ -450,7 +450,29 @@ button.copy:hover {
   line-height: 1.1;
 }
 
-.rr[data-valid='false'] {
+.rr-edit {
+  display: inline-flex;
+  align-items: baseline;
+  cursor: text;
+}
+
+.rr-edit input.rr {
+  width: 4.2ch;
+  padding: 0 2px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px dotted var(--muted);
+  border-radius: 0;
+  color: var(--text);
+  text-align: left;
+}
+
+.rr-edit input.rr:focus {
+  outline: none;
+  border-bottom: 1px solid var(--entry);
+}
+
+.rr-edit[data-valid='false'] .rr {
   color: var(--muted);
 }
 

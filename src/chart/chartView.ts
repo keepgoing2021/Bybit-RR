@@ -36,7 +36,7 @@ export interface OverlayInput {
   labels: OverlayModel['labels'];
   /** SL 선정 캔들의 기간 (SL 기준 시간봉이 더 크면 차트 여러 봉에 걸친다) */
   slCandle: { time: number; durationMs: number; label: string } | null;
-  /** 엔트리 ±% 점선 (진행 중 시나리오만) */
+  /** 손익비 점선 (누르면 TP 설정) */
   presets: PresetLevel[];
   /** 박스를 진입 봉에서 오른쪽으로 옮긴 봉 수 */
   shiftBars: number;
@@ -78,7 +78,7 @@ export class ChartView {
   private overlay: OverlayInput | null = null;
   private lines: { entry: IPriceLine | null; sl: IPriceLine | null; tp: IPriceLine | null } = { entry: null, sl: null, tp: null };
   private hover: DragTarget | null = null;
-  private hoverPreset: number | null = null;
+  private hoverPreset: string | null = null;
   private dragging: DragTarget | null = null;
   private readonly cleanup: (() => void)[] = [];
 
@@ -435,7 +435,7 @@ export class ChartView {
         return;
       }
       const h = this.drag.hover(x, y);
-      const p = h ? null : this.presetAt(x, y)?.pct ?? null;
+      const p = h ? null : this.presetAt(x, y)?.id ?? null;
       const body = !h && p === null && this.overlay !== null && this.mover.hover(x, y);
       el.style.cursor = h ? 'ns-resize' : p !== null ? 'pointer' : body ? 'grab' : '';
       if (h !== this.hover || p !== this.hoverPreset) {

@@ -64,25 +64,26 @@ describe('hitTest', () => {
   });
 });
 
-describe('percent preset lines', () => {
-  const presets = [
-    { pct: 3, price: 103, target: 'tp' as const },
-    { pct: -1, price: 99, target: 'sl' as const },
-  ];
+describe('RR preset lines', () => {
+  // 엔트리 100 (y 100), SL 98 → 1R = 20px. 1:1 y80, 1:1.3 y74, 1:1.5 y70, 1:1.7 y66, 1:2 y60, 1:2.5 y50, 1:3 y40
+  const lvl = (rr: number) => ({ id: `rr-${rr}`, label: `1:${rr}`, price: 100 + 2 * rr, target: 'tp' as const });
+  const presets = [1, 1.3, 1.5, 1.7, 2, 2.5, 3].map(lvl);
   const g = computeBoxGeometry({ ...longBox, presets }, mapper)!;
 
-  it('places each preset at its price inside the box', () => {
-    expect(g.presets).toEqual([
-      { pct: 3, price: 103, target: 'tp', y: 70 },
-      { pct: -1, price: 99, target: 'sl', y: 110 },
-    ]);
+  it('drops lines closer than 14px to the previous one so labels never overlap', () => {
+    expect(g.presets.map((p) => p.label)).toEqual(['1:1', '1:1.7', '1:2.5']);
+    expect(g.presets.map((p) => p.y)).toEqual([80, 66, 50].map((y) => expect.closeTo(y, 9)));
   });
 
-  it('hits a preset line within 4px inside the box span', () => {
-    expect(hitTestPreset(g, 150, 72)?.pct).toBe(3);
-    expect(hitTestPreset(g, 150, 107)?.pct).toBe(-1);
-    expect(hitTestPreset(g, 150, 75)).toBeNull();
-    expect(hitTestPreset(g, 250, 70)).toBeNull();
+  it('shows every line when there is room', () => {
+    const wide = computeBoxGeometry({ ...longBox, sl: 90, presets: [1, 1.3, 1.5].map((rr) => ({ ...lvl(rr), price: 100 + 10 * rr })) }, mapper)!;
+    expect(wide.presets.map((p) => p.label)).toEqual(['1:1', '1:1.3', '1:1.5']);
+  });
+
+  it('hits a visible line within 4px inside the box span', () => {
+    expect(hitTestPreset(g, 150, 68)?.id).toBe('rr-1.7');
+    expect(hitTestPreset(g, 150, 73)).toBeNull();
+    expect(hitTestPreset(g, 250, 66)).toBeNull();
   });
 
   it('a box without presets has none', () => {

@@ -57,7 +57,7 @@ async function validLong(page: Page): Promise<Scenario> {
   const s = (await scenario(page))!;
   await setLevel(page, 'sl', (s.entry - 10).toFixed(1));
   await setLevel(page, 'tp', (s.entry + 30).toFixed(1));
-  await expect(page.getByTestId('rr')).toHaveText('1:3');
+  await expect(page.getByTestId('rr-input')).toHaveValue('3');
   await expect.poll(() => rendered(page)).not.toBeNull();
   return (await scenario(page))!;
 }
@@ -96,7 +96,7 @@ test('dragging SL updates RR during drag and keeps TP', async ({ page }) => {
   // 대각선으로 끈다: 가드가 없으면 차트가 가로로 이동해 visibleRange가 바뀐다
   await page.mouse.move(x + 120, y + 40, { steps: 6 });
   // 버튼을 누른 채로(드래그 중) 확인
-  await expect(page.getByTestId('rr')).not.toHaveText('1:3');
+  await expect(page.getByTestId('rr-input')).not.toHaveValue('3');
   const during = (await scenario(page))!;
   expect(during.applied.tp).toBe(s.applied.tp);
   expect(during.applied.sl!).toBeLessThan(s.applied.sl!);
@@ -138,7 +138,7 @@ test('SHORT draws profit below entry', async ({ page }) => {
   const s = (await scenario(page))!;
   await setLevel(page, 'sl', (s.entry + 10).toFixed(1));
   await setLevel(page, 'tp', (s.entry - 30).toFixed(1));
-  await expect(page.getByTestId('rr')).toHaveText('1:3');
+  await expect(page.getByTestId('rr-input')).toHaveValue('3');
   const g = (await rendered(page))!;
   expect(g.profit!.y).toBeGreaterThanOrEqual(g.yEntry - 0.5);
   expect(g.loss!.y + g.loss!.h).toBeLessThanOrEqual(g.yEntry + 0.5);
@@ -204,7 +204,7 @@ test('entry can be typed for a limit order; restore goes back to the clicked pri
   await page.getByTestId('entry-input').fill(limit);
   await page.getByTestId('entry-input').press('Enter');
   await expect(page.getByTestId('entry-source')).toHaveText('지정가');
-  await expect(page.getByTestId('rr')).toHaveText('1:7'); // 보상 35 ÷ 위험 5
+  await expect(page.getByTestId('rr-input')).toHaveValue('7'); // 보상 35 ÷ 위험 5
   expect((await scenario(page))!.entry).toBe(Number(limit));
   await expect.poll(async () => (await rendered(page))?.yEntry).toBeCloseTo(
     (await page.evaluate((p) => window.__rrDebug.priceToClientY(p), Number(limit)))! - (await chartRect(page)).top, 0,
@@ -368,33 +368,55 @@ test('price axis shows a countdown to the bar close that ticks down', async ({ p
   expect(b.text).not.toBe(a.text);
 });
 
-test('clicking a percent line sets TP or SL to that level', async ({ page }) => {
+test('RR lines replace the percent lines; clicking one moves TP to that RR', async ({ page }) => {
   await open(page, { tf: '15' });
   await page.getByTestId('btn-long').click();
   await expect.poll(() => scenario(page)).not.toBeNull();
   const s0 = (await scenario(page))!;
-  // 기존 SL·TP 선이 점선 클릭을 가로채지 않도록 화면 밖으로 치운다
-  await setLevel(page, 'sl', (s0.entry * 0.8).toFixed(1));
+  // 1R을 넓게(진입 −1%) 잡아 점선이 다 보이게 하고, TP는 점선 클릭을 가로채지 않게 멀리 둔다
+  const risk = Number((s0.entry * 0.01).toFixed(1));
+  await setLevel(page, 'sl', (s0.entry - risk).toFixed(1));
   await setLevel(page, 'tp', (s0.entry * 1.2).toFixed(1));
-  await expect.poll(async () => (await rendered(page))?.presets.length ?? 0).toBe(6);
+  await expect.poll(async () => (await rendered(page))?.presets.map((p) => p.label) ?? []).toEqual(
+    ['1:1', '1:1.3', '1:1.5', '1:1.7', '1:2', '1:2.5', '1:3'],
+  );
   const g = (await rendered(page))!;
+  expect(g.presets.every((p) => p.target === 'tp')).toBe(true);
   const r = await chartRect(page);
   const x = r.left + (g.x1 + g.x2) / 2;
-  const plus1 = g.presets.find((p) => p.pct === 1)!;
-  const minus1 = g.presets.find((p) => p.pct === -1)!;
-  expect(plus1.target).toBe('tp');
-  expect(minus1.target).toBe('sl');
-  expect(plus1.y).toBeGreaterThan(0);
-  expect(minus1.y).toBeLessThan(r.height);
-
+  const rr15 = g.presets.find((p) => p.label === '1:1.5')!;
   const rangeBefore = await visibleRange(page);
-  await page.mouse.click(x, r.top + plus1.y);
-  await expect.poll(async () => (await scenario(page))!.applied.tp).toBe(plus1.price);
-  await page.mouse.click(x, r.top + minus1.y);
-  await expect.poll(async () => (await scenario(page))!.applied.sl).toBe(minus1.price);
-  await expect(page.getByTestId('rr')).toHaveText('1:1');
-  expect((await scenario(page))!.entry).toBe(s0.entry);
+  await page.mouse.click(x, r.top + rr15.y);
+  await expect.poll(async () => (await scenario(page))!.applied.tp).toBe(rr15.price);
+  await expect(page.getByTestId('rr-input')).toHaveValue('1.5');
+  const s1 = (await scenario(page))!;
+  expect(s1.entry).toBe(s0.entry);
+  expect(s1.applied.sl).toBe(Number((s0.entry - risk).toFixed(1)));
   expect(await visibleRange(page)).toEqual(rangeBefore); // 클릭이 차트를 움직이지 않음
+});
+
+test('typing an RR moves TP to that RR, keeping entry and SL', async ({ page }) => {
+  await open(page, { tf: '15' });
+  const s = await validLong(page); // SL = 진입 − 10
+  const rr = page.getByTestId('rr-input');
+  await rr.fill('1.7');
+  await rr.press('Enter');
+  await expect.poll(async () => (await scenario(page))!.applied.tp).toBe(Number((s.entry + 17).toFixed(1)));
+  await expect(rr).toHaveValue('1.7');
+  await expect(page.getByTestId('tp-source')).toHaveText('수동');
+  const after = (await scenario(page))!;
+  expect(after.entry).toBe(s.entry);
+  expect(after.applied.sl).toBe(s.applied.sl);
+  await expect.poll(async () => (await rendered(page))?.yTp).toBeCloseTo(
+    (await page.evaluate((p) => window.__rrDebug.priceToClientY(p), after.applied.tp!))! - (await chartRect(page)).top, 0,
+  );
+  await rr.fill('1:2.5'); // 1:X 형태도 받는다
+  await rr.press('Enter');
+  await expect.poll(async () => (await scenario(page))!.applied.tp).toBe(Number((s.entry + 25).toFixed(1)));
+  await rr.fill('abc');
+  await rr.press('Enter');
+  await expect(page.getByTestId('toast')).toContainText('손익비는 0보다 큰 숫자');
+  await expect(rr).toHaveValue('2.5');
 });
 
 test('dragging the box body moves it sideways without touching prices or the chart', async ({ page }) => {
