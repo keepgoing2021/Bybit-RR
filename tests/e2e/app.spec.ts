@@ -2,7 +2,8 @@ import { expect, test, type Page } from '@playwright/test';
 import type { BoxGeometry } from '../../src/chart/geometry';
 import type { Scenario } from '../../src/core/scenario';
 
-// 모든 E2E는 데모 데이터(DEMO-BTC, 호가 단위 0.1)로 실행한다.
+// 이 파일의 E2E는 테스트 전용 화면(tests/harness)에서 가짜 시세(DEMO-BTC, 호가 단위 0.1)로 실행한다.
+// 배포되는 앱에는 가짜 시세가 없다. Bybit 형식 그대로의 시험은 bybit-mock.spec.ts.
 type Debug = {
   getScenario(): Scenario | null;
   getLastCopied(): string | null;
@@ -29,11 +30,11 @@ type Debug = {
   getLiveSnapshot(): { lastCandle: { time: number; confirmed: boolean } | null; lastPrice: { price: number; time: number } | null };
 };
 declare global {
-  interface Window { __rrDebug: Debug }
+  interface Window { __rrDebug: Debug; __rrTest: { disconnect(ms: number): void } }
 }
 
 async function open(page: Page, opts: { speed?: number; tf?: string } = {}) {
-  await page.goto(`/?source=demo&demoSpeed=${opts.speed ?? 1}`);
+  await page.goto(`/tests/harness/index.html?speed=${opts.speed ?? 1}`);
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   if (opts.tf) await page.getByTestId('tf').selectOption(opts.tf);
@@ -175,7 +176,7 @@ test('restore auto returns creation values', async ({ page }) => {
 
 test('disconnect blocks creation and reconnect recovers', async ({ page }) => {
   await open(page, { tf: '15' });
-  await page.getByTestId('btn-disconnect').click();
+  await page.evaluate(() => window.__rrTest.disconnect(6_000));
   await expect(page.getByTestId('feed-status')).toHaveAttribute('data-state', 'disconnected');
   await expect(page.getByTestId('btn-long')).toBeDisabled();
   await expect(page.getByTestId('btn-short')).toBeDisabled();
@@ -305,7 +306,9 @@ test('no TP 기준: TP starts at RR 1:1.5 from the auto SL and can be changed in
   const s = (await scenario(page))!;
   expect(s.auto.sl.status).toBe('ok');
   expect(s.auto.tp.rr).toBe(1.5);
-  expect(s.applied.tp).toBe(Number((s.entry + 1.5 * (s.entry - s.applied.sl!)).toFixed(1)));
+  // 호가 단위(0.1)로 반올림: 손절폭이 홀수 틱이면 1.5배가 정확히 반 틱(.x5)이라 toFixed와 결과가 다를 수 있다
+  const ticks = (p: number) => Math.round(p * 10);
+  expect(Math.round(s.applied.tp! * 10)).toBe(Math.round(ticks(s.entry) + 1.5 * (ticks(s.entry) - ticks(s.applied.sl!))));
   await expect(page.getByTestId('rr-input')).toHaveValue('1.5');
   await expect(page.getByTestId('tp-rationale')).toContainText('기본 손익비 1:1.5');
   await expect(page.locator('.card')).not.toContainText('스윙 고점');

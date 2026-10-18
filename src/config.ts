@@ -22,6 +22,4 @@ export const CONFIG = {
   backoffMaxMs: 30_000,
   /** 열린 소켓에서 이 시간 동안 아무것도 오지 않으면 끊고 다시 연결 */
   socketSilenceMs: 30_000,
-  /** 데모 공급원 가격 갱신 간격 */
-  demoTickMs: 250,
 } as const;

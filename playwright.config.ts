@@ -1,7 +1,8 @@
 import { defineConfig } from '@playwright/test';
 
 /**
- * E2E는 데모 데이터로 실행한다 (실제 Bybit 연결은 scripts/check-bybit.mjs로 따로 확인).
+ * E2E: app.spec.ts는 테스트 전용 화면(tests/harness, 배속 가짜 시세), bybit-mock.spec.ts는 가짜 Bybit 서버로 실행한다.
+ * 배포되는 앱에는 가짜 시세가 없다. 실제 Bybit 연결은 scripts/check-bybit.mjs로 따로 확인.
  * 브라우저: 기본은 `npx playwright install chromium`으로 설치한 Chromium.
  * PW_CHROMIUM_PATH 환경변수가 있으면 그 실행 파일을 쓴다.
  */

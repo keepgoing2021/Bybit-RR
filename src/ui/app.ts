@@ -34,22 +34,17 @@ import { h, setText, show } from './dom';
 import { formatClock, formatPct, formatTime, slRationale, tfName, tpRationale } from './format';
 import { SymbolPicker } from './symbolPicker';
 
-export type SourceKind = 'bybit' | 'demo';
-
 export interface AppDeps {
   root: HTMLElement;
   storage: StorageLike;
-  createProvider(kind: SourceKind): MarketDataProvider;
+  /** 시세 공급원 (앱은 Bybit. 자동 테스트만 가짜 시세를 넣는다) */
+  createProvider(): MarketDataProvider;
   /** 브라우저 시계 */
   now(): number;
-  /** URL ?source= 로 지정한 공급원 (저장된 선택보다 우선) */
-  sourceOverride: SourceKind | null;
 }
 
-const DEFAULT_UI: Record<SourceKind, UiSelection> = {
-  bybit: { provider: 'bybit', symbol: 'BTCUSDT', timeframe: '15' },
-  demo: { provider: 'demo', symbol: 'DEMO-BTC', timeframe: '15' },
-};
+/** 처음 열 때 종목 (목록에 없으면 목록의 첫 종목) */
+const DEFAULT_UI: UiSelection = { provider: 'bybit', symbol: 'BTCUSDT', timeframe: '15' };
 
 const SETTING_FIELDS: { key: keyof AnalysisSettings; label: string; options?: [string, string][]; step?: string }[] = [
   {
@@ -142,8 +137,7 @@ export class App {
     const saved = loadState(this.d.storage);
     // 계산기라 '종료된 시나리오'는 없다 (이전 버전에서 종료한 것은 버린다)
     this.scenario = saved?.scenario?.status === 'active' ? saved.scenario : null;
-    const source = this.d.sourceOverride ?? saved?.ui?.provider ?? 'bybit';
-    this.ui = saved?.ui && saved.ui.provider === source ? { ...saved.ui } : { ...DEFAULT_UI[source] };
+    this.ui = saved?.ui ? { ...saved.ui } : { ...DEFAULT_UI };
 
     this.el = this.buildDom();
     this.chart = new ChartView(this.el.chart, {
@@ -180,23 +174,15 @@ export class App {
       this.renderStatus();
       this.renderCountdown();
     }, 500);
-    await this.switchProvider(source, true);
+    await this.connect();
   }
 
   // ───────────── 데이터 ─────────────
 
-  private async switchProvider(kind: SourceKind, keepSelection = false): Promise<void> {
+  private async connect(): Promise<void> {
     this.stopWatch?.();
     this.stopWatch = null;
-    if (!keepSelection) {
-      this.ui = { ...DEFAULT_UI[kind], timeframe: this.ui.timeframe };
-      // 다른 데이터 공급원의 계산은 바로 지운다 (종목 목록을 못 받아도 남지 않게)
-      this.scenario = null;
-      this.persist();
-      this.renderNow();
-    }
-    this.ui.provider = kind;
-    this.provider = this.d.createProvider(kind);
+    this.provider = this.d.createProvider();
     this.symbols = [];
     this.loadError = null;
     this.renderTopbar();
@@ -207,7 +193,7 @@ export class App {
       this.symbols = symbols;
     } catch (e) {
       if (seq !== this.seq) return;
-      this.loadError = `종목 목록을 불러오지 못했습니다 (${errText(e)}). 네트워크나 Bybit 접속을 확인하세요. 데이터를 '데모'로 바꾸면 화면은 확인할 수 있습니다.`;
+      this.loadError = `종목 목록을 불러오지 못했습니다 (${errText(e)}). 네트워크나 Bybit 접속을 확인한 뒤 새로고침하세요.`;
       this.renderAll();
       return;
     }
@@ -476,8 +462,6 @@ export class App {
   private buildDom() {
     const root = this.d.root;
     const sel = (testid: string) => h('select', { 'data-testid': testid });
-    const source = sel('source');
-    source.append(h('option', { value: 'bybit' }, 'Bybit 선물 실시간'), h('option', { value: 'demo' }, '데모 데이터'));
     const picker = new SymbolPicker(
       (symbol) => {
         this.ui.symbol = symbol;
@@ -492,7 +476,6 @@ export class App {
     const short = h('button', { class: 'side short', 'data-testid': 'btn-short', type: 'button' }, 'SHORT');
     const status = h('span', { class: 'pill', 'data-testid': 'feed-status', 'data-state': 'connecting' }, '연결 중');
     const statusReason = h('span', { class: 'status-reason' });
-    const demoBadge = h('span', { class: 'demo-badge', 'data-testid': 'demo-badge' }, '데모 데이터 (실제 시세 아님)');
 
     const field = (label: string, control: HTMLElement) => h('label', { class: 'field' }, h('span', {}, label), control);
     const sizing = this.buildSizing(field);
@@ -500,14 +483,12 @@ export class App {
       'header',
       { class: 'topbar' },
       h('div', { class: 'brand' }, 'RR 박스'),
-      field('데이터', source),
       field('종목', picker.root),
       field('차트', tf),
       field('SL 기준', sltf),
       h('div', { class: 'sides' }, long, short),
       h('div', { class: 'status' }, status, statusReason),
       sizing.bar,
-      demoBadge,
     );
 
     const loadError = h('div', { class: 'banner error', 'data-testid': 'load-error', hidden: true });
@@ -609,15 +590,7 @@ export class App {
       resetSettings,
     );
 
-    const disconnect = h('button', { type: 'button', 'data-testid': 'btn-disconnect' }, '연결 끊김 시험 (6초)');
-    const demoTools = h(
-      'section',
-      { class: 'demo-tools', hidden: true },
-      h('p', { class: 'muted small' }, '데모 전용: 데이터 끊김과 재연결 동작을 확인합니다.'),
-      disconnect,
-    );
-
-    const panel = h('aside', { class: 'panel' }, h('section', { class: 'scenario' }, empty, card), settings, demoTools);
+    const panel = h('aside', { class: 'panel' }, h('section', { class: 'scenario' }, empty, card), settings);
     const tools = this.buildDrawTools();
     const chartWrap = h('section', { class: 'chart-wrap', 'data-tools': tools.open ? 'open' : 'closed' }, tools.bar, chart, tools.hint, tools.edit.bar);
     tools.toggle.addEventListener('click', () => {
@@ -639,7 +612,6 @@ export class App {
     root.replaceChildren(topbar, loadError, layout, toast);
 
     // 이벤트
-    source.addEventListener('change', () => void this.switchProvider(source.value as SourceKind));
     tf.addEventListener('change', () => {
       const t = tf.value as Timeframe;
       this.ui.timeframe = t;
@@ -665,7 +637,6 @@ export class App {
       this.renderSettings();
       this.renderNow();
     });
-    disconnect.addEventListener('click', () => this.provider.simulateDisconnect?.(6_000));
     // 선택한 작도나 박스는 Delete(또는 Backspace)로 지우기. 입력칸에서 글자를 지울 때는 무시. Esc는 도구·선택 취소
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
@@ -693,9 +664,9 @@ export class App {
     });
 
     return {
-      source, picker, tf, sltf, long, short, status, statusReason, demoBadge,
+      picker, tf, sltf, long, short, status, statusReason,
       loadError, chart, empty, card, sideChip, title, entry, times, rr, rrInput, rrLabel, reasons,
-      sl, tp, slWhy, tpWhy, sizing, restore, del, settingsInputs, demoTools, toast, tools,
+      sl, tp, slWhy, tpWhy, sizing, restore, del, settingsInputs, toast, tools,
     };
   }
 
@@ -1030,7 +1001,6 @@ export class App {
 
   private renderTopbar(): void {
     const e = this.el;
-    e.source.value = this.ui.provider;
     e.picker.setValue(this.ui.symbol);
     e.tf.value = this.ui.timeframe;
     e.sltf.replaceChildren(...slTimeframes(this.ui.timeframe).map((t) => h('option', { value: t }, tfName(t))));
@@ -1040,10 +1010,6 @@ export class App {
     e.sltf.disabled = !pickable;
     e.sltf.title = pickable ? '' : "지금 SL 방식은 차트 시간봉을 씁니다. 설정의 'SL 방식'이 직전 마감 봉일 때만 바꿀 수 있습니다";
     this.renderSizingControls(false);
-    const demo = this.provider?.isDemo ?? false;
-    show(e.demoBadge, demo);
-    show(e.demoTools, demo);
-    document.body.classList.toggle('is-demo', demo);
     show(e.loadError, this.loadError !== null);
     setText(e.loadError, this.loadError ?? '');
   }
@@ -1056,7 +1022,7 @@ export class App {
     if (!this.el) return;
     const f = this.freshness();
     const labels: Record<Freshness['status'], string> = {
-      live: this.provider?.isDemo ? '데모 실시간' : '실시간',
+      live: '실시간',
       connecting: '연결 중',
       stale: '데이터 지연',
       disconnected: '연결 끊김',

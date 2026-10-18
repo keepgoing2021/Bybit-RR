@@ -22,7 +22,12 @@ export function tpForRR(side: Side, entry: number, sl: number | null, rr: number
   const sign = side === 'LONG' ? 1 : -1;
   const risk = sign * (entry - sl);
   if (!(risk > 0)) return null;
-  return snapToTick(entry + sign * rr * risk, tickSize);
+  // 틱 정수로 계산: 실수 오차로 반 틱(예: 65121.35)이 어떤 때는 내림, 어떤 때는 올림되던 것을 막는다.
+  // 정확히 반 틱이면 엔트리에서 먼 쪽(손익비가 고른 값 이상)으로
+  const entryTicks = Math.round(entry / tickSize);
+  const riskTicks = Math.round(risk / tickSize);
+  const rewardTicks = Math.floor(rr * riskTicks + 0.5 + 1e-9);
+  return snapToTick((entryTicks + sign * rewardTicks) * tickSize, tickSize);
 }
 
 /** 손익비 점선 (1:1 ~ 1:3). SL이 유효하지 않으면 없음 */

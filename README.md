@@ -14,10 +14,7 @@ npm install
 npm run dev
 ```
 
-브라우저에서 http://localhost:5173 을 엽니다.
-
-- 데모 데이터로 보기: http://localhost:5173/?source=demo (화면 위에 "데모 데이터 (실제 시세 아님)" 표시)
-- 상단의 "데이터" 선택으로 Bybit/데모를 바꿀 수 있습니다.
+브라우저에서 http://localhost:5173 을 엽니다. 시세는 항상 Bybit USDT 무기한 선물 실시간입니다(데모 데이터 없음).
 
 ### Bybit 연결 먼저 확인하기
 
@@ -108,11 +105,13 @@ npm run check:bybit -- ETHUSDT # 다른 종목
 
 ```
 src/core/     판단 로직(순수 함수): ATR, 급격한 캔들, 스윙, 자동 선정, RR 계산, 시나리오, 저장, 신선도
-src/data/     공급원: Bybit(REST·웹소켓·재연결), 데모(시드 고정 합성 데이터), 캔들 저장소
+src/data/     공급원: Bybit(REST·웹소켓·재연결), 캔들 저장소
 src/chart/    박스 좌표·히트 판정·드래그(순수), Lightweight Charts 연결
 src/ui/       화면 구성과 상태 연결
 tests/unit/   단위 테스트 (Vitest)
 tests/e2e/    브라우저 테스트 (Playwright) + 가짜 Bybit 서버
+tests/harness/, tests/fixtures/demo/
+              테스트 전용 화면과 배속 가짜 시세 (배포 앱에는 들어가지 않음)
 ```
 
 ## 테스트
@@ -120,7 +119,7 @@ tests/e2e/    브라우저 테스트 (Playwright) + 가짜 Bybit 서버
 ```bash
 npm test                         # 단위 테스트
 npx playwright install chromium  # 처음 한 번
-npm run e2e                      # 브라우저 테스트 (데모 데이터 + 가짜 Bybit 서버)
+npm run e2e                      # 브라우저 테스트 (테스트 전용 가짜 시세 + 가짜 Bybit 서버)
 ```
 
 검증 결과와 직접 확인하지 못한 항목은 [docs/verification.md](docs/verification.md)에 있습니다.

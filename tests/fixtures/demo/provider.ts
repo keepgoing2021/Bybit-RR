@@ -1,8 +1,8 @@
-import { snapToTick } from '../../core/price';
-import { barStart } from '../../core/timeframe';
-import type { Candle, SymbolInfo, Timeframe } from '../../core/types';
-import type { Scheduler } from '../bybit/socket';
-import type { FeedListener, MarketDataProvider } from '../provider';
+import { snapToTick } from '../../../src/core/price';
+import { barStart } from '../../../src/core/timeframe';
+import type { Candle, SymbolInfo, Timeframe } from '../../../src/core/types';
+import type { Scheduler } from '../../../src/data/bybit/socket';
+import type { FeedListener, MarketDataProvider } from '../../../src/data/provider';
 import { DEMO_SYMBOLS, demoCandleAt, demoCandles, demoPrice, demoSymbolInfo } from './generator';
 
 export interface DemoProviderOptions {
@@ -16,10 +16,11 @@ export interface DemoProviderOptions {
 
 const CONNECT_DELAY_MS = 300;
 
-/** 시드 고정 합성 데이터 공급원. 화면에 DEMO 표시가 항상 붙는다. */
+/**
+ * 자동 테스트 전용 시드 고정 합성 시세 (앱에는 들어가지 않는다).
+ * 시간을 배속으로 돌릴 수 있어 새 봉·카운트다운·연결 끊김을 몇 초 안에 시험한다.
+ */
 export class DemoProvider implements MarketDataProvider {
-  readonly kind = 'demo' as const;
-  readonly isDemo = true;
   private stopActive: (() => void) | null = null;
   private disconnectActive: ((ms: number) => void) | null = null;
 

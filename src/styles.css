@@ -241,16 +241,6 @@ button:disabled {
   max-width: 320px;
 }
 
-.demo-badge {
-  margin-left: auto;
-  align-self: center;
-  border: 1px dashed var(--entry);
-  color: var(--entry);
-  border-radius: 6px;
-  padding: 4px 10px;
-  font-size: 12px;
-}
-
 .banner {
   display: flex;
   align-items: center;
@@ -605,15 +595,6 @@ button.danger {
   padding: 4px 6px;
 }
 
-.demo-tools {
-  border-top: 1px dashed var(--line);
-  padding-top: 14px;
-}
-
-.demo-tools p {
-  margin: 0 0 8px;
-}
-
 .toast {
   position: fixed;
   left: 50%;
@@ -643,10 +624,6 @@ button.danger {
   #app {
     height: auto;
     min-height: 100vh;
-  }
-
-  .demo-badge {
-    margin-left: 0;
   }
 }
 

@@ -8,6 +8,16 @@ describe('tpForRR', () => {
     expect(tpForRR('LONG', 4156.23, 3942, 1.3, 0.01)).toBe(4434.73); // 4156.23 + 1.3 × 214.23 = 4434.729
   });
 
+  it('an exact half tick always rounds away from the entry (no floating-point flip-flop)', () => {
+    // 손절폭 27틱 × 1.5 = 40.5틱 → 41틱. 실수로 계산하면 65004.15가 65004.1로 내려가던 경우
+    // (이런 반 틱 400건 중 158건이 내림, 242건이 올림이었다)
+    expect(tpForRR('LONG', 65000.1, 64997.4, 1.5, 0.1)).toBe(65004.2);
+    expect(tpForRR('SHORT', 65000.1, 65002.8, 1.5, 0.1)).toBe(64996);
+    expect(tpForRR('LONG', 100, 97.3, 1.5, 0.1)).toBe(104.1);
+    // 반 틱이 아니면 가장 가까운 틱
+    expect(tpForRR('LONG', 100, 97.3, 1.3, 0.1)).toBe(103.5); // 27 × 1.3 = 35.1틱
+  });
+
   it('needs an SL on the losing side and a positive RR', () => {
     expect(tpForRR('LONG', 100, null, 1.5, 0.01)).toBeNull();
     expect(tpForRR('LONG', 100, 101, 1.5, 0.01)).toBeNull();

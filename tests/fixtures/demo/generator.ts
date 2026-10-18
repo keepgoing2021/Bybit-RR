@@ -1,6 +1,6 @@
-import { snapToTick } from '../../core/price';
-import { barEnd, barStart, prevBarStart } from '../../core/timeframe';
-import type { Candle, Timeframe } from '../../core/types';
+import { snapToTick } from '../../../src/core/price';
+import { barEnd, barStart, prevBarStart } from '../../../src/core/timeframe';
+import type { Candle, Timeframe } from '../../../src/core/types';
 
 /**
  * 데모 데이터: 시드 고정 합성 가격. 실제 시장 데이터가 아니다.

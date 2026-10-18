@@ -6,7 +6,7 @@ import type { Scenario } from '../../src/core/scenario';
 const MOCK = 'http://localhost:5299';
 
 async function openBybit(page: Page) {
-  await page.goto('/?source=bybit');
+  await page.goto('/');
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   await expect(page.getByTestId('feed-status')).toHaveAttribute('data-state', 'live', { timeout: 20_000 });
@@ -15,7 +15,9 @@ async function openBybit(page: Page) {
 
 test('bybit provider loads symbols, candles and live trades through the app', async ({ page, request }) => {
   await openBybit(page);
-  await expect(page.getByTestId('demo-badge')).toBeHidden();
+  // 데모 데이터는 없다: 데이터 선택도, 데모 표시도 없다
+  await expect(page.getByTestId('source')).toHaveCount(0);
+  await expect(page.locator('body')).not.toContainText('데모');
   await expect(page.getByTestId('feed-status')).toHaveText('실시간');
   await expect(page.getByTestId('symbol')).toHaveValue('BTCUSDT');
   await page.getByTestId('symbol').click();
@@ -40,7 +42,9 @@ test('bybit provider loads symbols, candles and live trades through the app', as
   await expect(page.getByTestId('sl-rationale')).toContainText('15분봉 최근 확정 스윙 저점');
   // TP(기본): 자동 SL에서 손익비 1:1.5 자리
   expect(s.auto.tp.rr).toBe(1.5);
-  expect(s.applied.tp).toBeCloseTo(s.entry + 1.5 * (s.entry - s.applied.sl!), 1);
+  // 틱(0.1) 정수로 비교: 손절폭이 홀수 틱이면 1.5배가 반 틱이고, 엔트리에서 먼 쪽으로 반올림한다
+  const t = (p: number) => Math.round(p * 10);
+  expect(t(s.applied.tp!)).toBe(Math.round(t(s.entry) + 1.5 * (t(s.entry) - t(s.applied.sl!))));
 
   const stats = await (await request.get(`${MOCK}/mock/stats`)).json();
   expect(stats.subscribes).toContainEqual(['kline.15.BTCUSDT', 'publicTrade.BTCUSDT', 'tickers.BTCUSDT']);
@@ -63,37 +67,37 @@ test.describe('failure handling', () => {
     await request.post(`${MOCK}/mock/reset`);
   });
 
-  test('shows why Bybit REST failed and still lets you switch to demo', async ({ page, request }) => {
+  test('shows why Bybit REST failed; a reload recovers once Bybit answers again', async ({ page, request }) => {
     await request.post(`${MOCK}/mock/fail?route=instruments`);
-    await page.goto('/?source=bybit');
+    await page.goto('/');
     await page.evaluate(() => localStorage.clear());
     await page.reload();
     await expect(page.getByTestId('load-error')).toBeVisible();
     await expect(page.getByTestId('load-error')).toContainText('종목 목록을 불러오지 못했습니다');
     await expect(page.getByTestId('load-error')).toContainText('403');
+    await expect(page.getByTestId('load-error')).toContainText('새로고침');
     await expect(page.getByTestId('btn-long')).toBeDisabled();
-    await page.getByTestId('source').selectOption('demo');
+    await request.post(`${MOCK}/mock/reset`);
+    await page.reload();
     await expect(page.getByTestId('feed-status')).toHaveAttribute('data-state', 'live', { timeout: 20_000 });
     await expect(page.getByTestId('load-error')).toBeHidden();
   });
+});
 
-  test('switching the data source clears a calculation made on the other source', async ({ page }) => {
-    await page.goto('/?source=demo');
-    await page.evaluate(() => localStorage.clear());
-    await page.reload();
-    await expect(page.getByTestId('btn-long')).toBeEnabled({ timeout: 20_000 });
-    await page.getByTestId('btn-long').click();
-    await page.waitForFunction(() =>
-      (window as unknown as { __rrDebug: { getScenario(): Scenario | null } }).__rrDebug.getScenario(),
-    );
-    await page.getByTestId('source').selectOption('bybit');
-    await expect(page.getByTestId('feed-status')).toHaveAttribute('data-state', 'live', { timeout: 20_000 });
-    await expect(page.getByTestId('symbol')).toHaveValue('BTCUSDT');
-    await expect
-      .poll(() => page.evaluate(() => (window as unknown as { __rrDebug: { getScenario(): Scenario | null } }).__rrDebug.getScenario()))
-      .toBeNull();
-    await expect(page.locator('.empty')).toBeVisible();
-  });
+test('a save made on the removed demo data opens fresh on Bybit', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(() =>
+    localStorage.setItem(
+      'rrtool.v1.state',
+      JSON.stringify({ version: 1, scenario: { id: 'old-demo' }, ui: { provider: 'demo', symbol: 'DEMO-BTC', timeframe: '5' } }),
+    ),
+  );
+  await page.reload();
+  await expect(page.getByTestId('feed-status')).toHaveAttribute('data-state', 'live', { timeout: 20_000 });
+  await expect(page.getByTestId('symbol')).toHaveValue('BTCUSDT');
+  await expect(page.getByTestId('tf')).toHaveValue('15');
+  expect(await page.evaluate(() => (window as unknown as { __rrDebug: { getScenario(): Scenario | null } }).__rrDebug.getScenario())).toBeNull();
+  await expect(page.locator('.empty')).toBeVisible();
 });
 
 test.describe('live candle', () => {

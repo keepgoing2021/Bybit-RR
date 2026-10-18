@@ -3,8 +3,8 @@ import { atrSeries } from '../../src/core/atr';
 import { snapToTick } from '../../src/core/price';
 import { tfMs } from '../../src/core/timeframe';
 import type { PriceTick } from '../../src/core/types';
-import { demoCandles, DEMO_SYMBOLS } from '../../src/data/demo/generator';
-import { DemoProvider } from '../../src/data/demo/provider';
+import { demoCandles, DEMO_SYMBOLS } from '../fixtures/demo/generator';
+import { DemoProvider } from '../fixtures/demo/provider';
 import type { SocketState } from '../../src/data/bybit/socket';
 import { FakeScheduler } from './helpers/fakes';
 
@@ -71,10 +71,6 @@ describe('DemoProvider', () => {
     });
     return { p, scheduler, prices, states, messages, stop, reconnected: () => reconnected };
   }
-
-  it('is marked as demo', () => {
-    expect(setup().p.isDemo).toBe(true);
-  });
 
   it('watch emits prices on schedule after connecting', () => {
     const s = setup();

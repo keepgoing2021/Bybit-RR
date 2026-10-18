@@ -17,7 +17,8 @@ export interface StorageLike {
 }
 
 export interface UiSelection {
-  provider: 'bybit' | 'demo';
+  /** 시세 공급원. 예전 버전의 'demo'(데모 데이터)는 불러올 때 버린다 */
+  provider: 'bybit';
   symbol: string;
   timeframe: Timeframe;
   /** 이전 버전의 TP 기준 (쓰지 않음) */
@@ -69,6 +70,8 @@ export function loadState(storage: StorageLike): PersistedState | null {
     return null;
   }
   if (!isObject(parsed) || parsed.version !== 1) return null;
+  // 데모 데이터는 없어졌다: 데모로 보던 종목·계산은 버리고 Bybit 기본 화면으로 연다
+  if (isObject(parsed.ui) && parsed.ui.provider === 'demo') return { version: 1, scenario: null, ui: null };
   return {
     version: 1,
     scenario: isScenario(parsed.scenario) ? (parsed.scenario as Scenario) : null,
@@ -144,7 +147,7 @@ const isSource = (v: unknown) => v === 'auto' || v === 'manual';
 function isUiSelection(v: unknown): boolean {
   return (
     isObject(v) &&
-    (v.provider === 'bybit' || v.provider === 'demo') &&
+    v.provider === 'bybit' &&
     typeof v.symbol === 'string' &&
     isTf(v.timeframe) &&
     (v.htf === undefined || v.htf === null || isTf(v.htf)) &&

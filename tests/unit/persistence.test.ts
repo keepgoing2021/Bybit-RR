@@ -36,6 +36,12 @@ describe('state persistence', () => {
     expect(loadState(st)).toEqual(state());
   });
 
+  it('a save made on the removed demo data opens fresh on Bybit (no demo symbol, no demo calculation)', () => {
+    const st = memoryStorage();
+    st.setItem(STATE_KEY, JSON.stringify({ ...state(), ui: { provider: 'demo', symbol: 'DEMO-BTC', timeframe: '15' } }));
+    expect(loadState(st)).toEqual({ version: 1, scenario: null, ui: null });
+  });
+
   it('returns null when nothing is stored', () => {
     expect(loadState(memoryStorage())).toBeNull();
   });

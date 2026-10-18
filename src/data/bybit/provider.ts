@@ -29,8 +29,6 @@ const PINNED = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT'];
 
 /** Bybit V5 USDT 무기한 선물(category=linear) 퍼블릭 시세 */
 export class BybitProvider implements MarketDataProvider {
-  readonly kind = 'bybit' as const;
-  readonly isDemo = false;
   private active: ReconnectingSocket | null = null;
   private preferred = 0;
 
