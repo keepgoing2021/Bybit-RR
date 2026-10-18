@@ -8,7 +8,7 @@ import { presetLevels } from '../core/presets';
 import { computeMetrics, formatRR, type Metrics } from '../core/metrics';
 import { loadSettings, loadSizing, loadState, saveSettings, saveSizing, saveState, type StorageLike, type UiSelection } from '../core/persistence';
 import { decimalsOf, formatPrice } from '../core/price';
-import { closeScenario, createScenario, restoreAuto, setBoxShift, setLevel, type Scenario } from '../core/scenario';
+import { createScenario, restoreAuto, setBoxShift, setEntry, setLevel, type Scenario } from '../core/scenario';
 import { DEFAULT_SETTINGS, sanitizeSettings, type AnalysisSettings } from '../core/settings';
 import { DEFAULT_SIZING, planSizing, sanitizeSizing, type SizingPlan, type SizingSettings } from '../core/sizing';
 import { barEnd, defaultHigherTf, defaultSlTf, higherTimeframes, slTimeframes, TIMEFRAMES, tfMs } from '../core/timeframe';
@@ -101,8 +101,8 @@ export class App {
   private creating = false;
   private renderQueued = false;
   private toastTimer: number | null = null;
-  private readonly lastPriceBySymbol = new Map<string, { price: number; time: number }>();
   private countdown: { text: string; remainingMs: number } | null = null;
+  private lastCopied: string | null = null;
   private chart!: ChartView;
   private el!: ReturnType<App['buildDom']>;
 
@@ -112,7 +112,8 @@ export class App {
     this.settings = loadSettings(this.d.storage);
     this.sizing = loadSizing(this.d.storage);
     const saved = loadState(this.d.storage);
-    this.scenario = saved?.scenario ?? null;
+    // 계산기라 '종료된 시나리오'는 없다 (이전 버전에서 종료한 것은 버린다)
+    this.scenario = saved?.scenario?.status === 'active' ? saved.scenario : null;
     const source = this.d.sourceOverride ?? saved?.ui?.provider ?? 'bybit';
     this.ui = saved?.ui && saved.ui.provider === source ? { ...saved.ui } : { ...DEFAULT_UI[source] };
 
@@ -150,7 +151,13 @@ export class App {
   private async switchProvider(kind: SourceKind, keepSelection = false): Promise<void> {
     this.stopWatch?.();
     this.stopWatch = null;
-    if (!keepSelection) this.ui = { ...DEFAULT_UI[kind], timeframe: this.ui.timeframe, htf: this.ui.htf };
+    if (!keepSelection) {
+      this.ui = { ...DEFAULT_UI[kind], timeframe: this.ui.timeframe, htf: this.ui.htf };
+      // 다른 데이터 공급원의 계산은 바로 지운다 (종목 목록을 못 받아도 남지 않게)
+      this.scenario = null;
+      this.persist();
+      this.renderNow();
+    }
     this.ui.provider = kind;
     this.provider = this.d.createProvider(kind);
     this.symbols = [];
@@ -181,6 +188,8 @@ export class App {
     this.socketState = 'idle';
     this.loadError = null;
     const { symbol, timeframe } = this.ui;
+    // 종목을 바꾸면 이전 종목의 계산은 지운다
+    if (this.scenario && this.scenario.symbol !== symbol) this.scenario = null;
     this.tickSize = this.symbols.find((s) => s.symbol === symbol)?.tickSize ?? 0.01;
     this.chart.setPriceFormat(this.tickSize);
     this.chart.setCandles([], tfMs(timeframe), true);
@@ -215,7 +224,6 @@ export class App {
         if (!live()) return;
         if (!this.feed.lastPrice || t.time >= this.feed.lastPrice.time) {
           this.feed.lastPrice = t;
-          this.lastPriceBySymbol.set(symbol, { price: t.price, time: t.time });
           this.applyTradeToCandle(t, tf);
           this.renderCountdown(); // 가격 라벨과 같은 순간에 색·위치를 맞춘다
           this.scheduleRender();
@@ -276,20 +284,18 @@ export class App {
     });
   }
 
-  // ───────────── 시나리오 ─────────────
+  // ───────────── 계산 ─────────────
 
+  /** LONG/SHORT: 누를 때마다 그 순간 가격으로 새로 계산한다 (이전 계산은 대체) */
   private async onSide(side: Side): Promise<void> {
-    if (this.scenario?.status === 'active') {
-      this.openDialog();
-      return;
-    }
+    if (this.creating) return;
     // 클릭 순간의 최신 수신 가격을 가장 먼저 고정한다
     const cap = captureEntry(this.feed, this.d.now(), {
       staleAfterMs: this.settings.staleAfterSec * 1000,
       maxPriceAgeMs: this.settings.maxPriceAgeSec * 1000,
     });
     if (!cap.ok) {
-      this.toast(`시나리오를 만들 수 없습니다: ${cap.reason}`);
+      this.toast(`계산할 수 없습니다: ${cap.reason}`);
       return;
     }
     const { symbol, timeframe, htf } = this.ui;
@@ -352,26 +358,20 @@ export class App {
     return this.ui.slTf && allowed.includes(this.ui.slTf) ? this.ui.slTf : defaultSlTf(this.ui.timeframe);
   }
 
-  private closeActive(): void {
-    const s = this.scenario;
-    if (!s || s.status !== 'active') return;
-    const last = this.lastPriceBySymbol.get(s.symbol);
-    if (!last) this.toast('종료 시점 가격을 알 수 없어 엔트리 가격으로 기록했습니다.');
-    this.scenario = closeScenario(s, last ?? { price: s.entry, time: s.priceTime });
-    this.persist();
-    this.renderAll();
-  }
-
-  private deleteScenario(): void {
+  private clearCalc(): void {
     this.scenario = null;
     this.persist();
     this.renderAll();
   }
 
-  private applyInput(which: 'sl' | 'tp', raw: string): void {
+  private applyInput(which: 'entry' | 'sl' | 'tp', raw: string): void {
     if (!this.scenario) return;
     const text = raw.trim().replace(/,/g, '');
     if (text === '') {
+      if (which === 'entry') {
+        this.renderNow(true);
+        return;
+      }
       this.scenario = setLevel(this.scenario, which, null);
     } else {
       const v = Number(text);
@@ -380,7 +380,7 @@ export class App {
         this.renderNow(true);
         return;
       }
-      this.scenario = setLevel(this.scenario, which, v);
+      this.scenario = which === 'entry' ? setEntry(this.scenario, v) : setLevel(this.scenario, which, v);
     }
     this.persist();
     this.renderNow(true);
@@ -391,8 +391,30 @@ export class App {
   }
 
   private metricsFor(s: Scenario): Metrics {
-    const current = s.status === 'closed' ? s.closed!.price : this.lastPriceBySymbol.get(s.symbol)?.price ?? null;
-    return computeMetrics({ side: s.side, entry: s.entry, sl: s.applied.sl, tp: s.applied.tp, current, tickSize: s.tickSize });
+    return computeMetrics({ side: s.side, entry: s.entry, sl: s.applied.sl, tp: s.applied.tp, current: null, tickSize: s.tickSize });
+  }
+
+  /** 주문표 숫자 복사 (Bybit 주문창에 붙여 넣기) */
+  private copy(value: string): void {
+    this.lastCopied = value;
+    const done = () => this.toast(`복사했습니다: ${value}`);
+    const fallback = () => {
+      const ta = h('textarea', {}) as HTMLTextAreaElement;
+      ta.value = value;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.append(ta);
+      ta.select();
+      try {
+        document.execCommand('copy');
+        done();
+      } catch {
+        this.toast(`복사하지 못했습니다. 직접 입력하세요: ${value}`);
+      }
+      ta.remove();
+    };
+    if (navigator.clipboard?.writeText) navigator.clipboard.writeText(value).then(done, fallback);
+    else fallback();
   }
 
   // ───────────── 화면 ─────────────
@@ -437,43 +459,29 @@ export class App {
     );
 
     const loadError = h('div', { class: 'banner error', 'data-testid': 'load-error', hidden: true });
-    const otherText = h('span');
-    const otherGo = h('button', { type: 'button', class: 'link' }, '그 종목 보기');
-    const otherBanner = h('div', { class: 'banner', 'data-testid': 'other-symbol-banner', hidden: true }, otherText, otherGo);
 
     const chart = h('div', { class: 'chart', 'data-testid': 'chart' });
 
-    // 패널
+    // 패널: 계산기 (진입·손절·목표 → 손익비 → 분할 주문표)
     const empty = h(
       'div',
       { class: 'empty' },
-      h('p', {}, 'LONG 또는 SHORT를 누르면 그 순간의 최신 체결가를 엔트리로 고정하고, 가격 구조로 SL과 TP를 제안합니다.'),
-      h('p', { class: 'muted' }, 'SL과 TP는 차트에서 끌거나 아래 칸에 입력해 고칠 수 있습니다.'),
+      h('p', {}, 'LONG 또는 SHORT를 누르면 그 순간 가격을 진입가로 잡고, 가격 구조로 SL·TP를 제안해 손익비와 분할 주문표를 바로 계산합니다.'),
+      h('p', { class: 'muted' }, '가격은 차트에서 끌거나 아래 칸에 입력해 고칩니다. 다시 누르면 그 순간 가격으로 새로 계산합니다.'),
     );
     const sideChip = h('span', { class: 'side-chip' });
     const title = h('span', { class: 'scenario-title' });
-    const stateChip = h('span', { class: 'state-chip' });
-    const entry = h('span', { class: 'num big-entry', 'data-testid': 'entry-price' });
-    const times = h('p', { class: 'muted small' });
+    const del = h('button', { type: 'button', class: 'link', 'data-testid': 'btn-clear' }, '지우기');
+    const times = h('p', { class: 'muted small', 'data-testid': 'entry-time' });
     const rr = h('span', { class: 'rr num', 'data-testid': 'rr' });
+    const rrLabel = h('span', { class: 'muted' }, '손익비');
     const reasons = h('ul', { class: 'reasons', 'data-testid': 'reasons' });
-    const mk = () => h('dd', { class: 'num' });
-    const m = { reward: mk(), risk: mk(), current: mk(), currentPct: mk(), currentR: mk() };
-    const metrics = h(
-      'dl',
-      { class: 'metrics' },
-      h('dt', {}, '목표 수익률'), m.reward,
-      h('dt', {}, '손절률'), m.risk,
-      h('dt', {}, '현재가'), m.current,
-      h('dt', {}, '현재 손익률'), m.currentPct,
-      h('dt', {}, '현재 R 배수'), m.currentR,
-    );
-    const level = (which: 'sl' | 'tp', name: string) => {
+    const priceRow = (which: 'entry' | 'sl' | 'tp', name: string) => {
       const input = h('input', {
         'data-testid': `${which}-input`, inputmode: 'decimal', autocomplete: 'off', 'aria-label': `${name} 가격`,
       });
+      const pct = h('span', { class: 'num pct', 'data-testid': `${which}-pct` });
       const badge = h('span', { class: 'source-badge', 'data-testid': `${which}-source` });
-      const why = h('p', { class: 'rationale', 'data-testid': `${which}-rationale` });
       input.addEventListener('change', () => this.applyInput(which, input.value));
       input.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') input.blur();
@@ -482,34 +490,27 @@ export class App {
           this.renderNow(true);
         }
       });
-      const box = h(
-        'div',
-        { class: `level ${which}` },
-        h('div', { class: 'level-head' }, h('span', { class: 'level-name' }, name), badge),
-        input,
-        why,
-      );
-      return { box, input, badge, why };
+      const row = h('div', { class: `price-row ${which}` }, h('span', { class: 'price-name' }, name), input, pct, badge);
+      return { row, input, pct, badge };
     };
-    const sl = level('sl', '손절 SL');
-    const tp = level('tp', '목표 TP');
-    const restore = h('button', { type: 'button', 'data-testid': 'btn-restore' }, '자동 설정으로 복원');
-    const close = h('button', { type: 'button', 'data-testid': 'btn-close' }, '시나리오 종료');
-    const del = h('button', { type: 'button', class: 'danger', 'data-testid': 'btn-delete' }, '삭제');
+    const entry = priceRow('entry', '진입');
+    const sl = priceRow('sl', '손절');
+    const tp = priceRow('tp', '목표');
+    const slWhy = h('p', { class: 'rationale', 'data-testid': 'sl-rationale' });
+    const tpWhy = h('p', { class: 'rationale', 'data-testid': 'tp-rationale' });
+    const restore = h('button', { type: 'button', 'data-testid': 'btn-restore' }, '자동값으로 되돌리기');
     const card = h(
       'div',
       { class: 'card', hidden: true },
-      h('div', { class: 'card-head' }, sideChip, title, stateChip),
-      h('div', { class: 'entry-row' }, h('span', { class: 'muted' }, '엔트리'), entry),
+      h('div', { class: 'card-head' }, sideChip, title, del),
+      h('div', { class: 'prices' }, entry.row, sl.row, tp.row),
       times,
-      h('div', { class: 'rr-row' }, h('span', { class: 'muted' }, '손익비'), rr),
+      h('div', { class: 'rr-row' }, rrLabel, rr),
       reasons,
-      metrics,
-      tp.box,
-      sl.box,
       sizing.box,
-      h('div', { class: 'actions' }, restore, close, del),
-      h('p', { class: 'note' }, '가격 기준 수치입니다. 수수료, 슬리피지, 레버리지는 반영하지 않았습니다. 실제 주문이 아닌 가상 시나리오입니다.'),
+      h('div', { class: 'why' }, h('p', { class: 'why-title' }, '자동 제안 근거'), slWhy, tpWhy),
+      h('div', { class: 'actions' }, restore),
+      h('p', { class: 'note' }, '가격 기준 계산입니다. 수수료·슬리피지·펀딩비는 반영하지 않았습니다. 주문은 Bybit에서 직접 넣습니다.'),
     );
 
     const settingsInputs = new Map<keyof AnalysisSettings, HTMLInputElement | HTMLSelectElement>();
@@ -531,7 +532,7 @@ export class App {
       'details',
       { class: 'settings' },
       h('summary', {}, '자동 제안 설정'),
-      h('p', { class: 'muted small' }, '확정된 전략이 아닌 초기 가정값입니다. 바꾼 값은 다음 시나리오부터 적용됩니다.'),
+      h('p', { class: 'muted small' }, '확정된 전략이 아닌 초기 가정값입니다. 바꾼 값은 다음에 LONG/SHORT를 누를 때부터 적용됩니다.'),
       settingsBody,
       resetSettings,
     );
@@ -547,18 +548,9 @@ export class App {
     const panel = h('aside', { class: 'panel' }, h('section', { class: 'scenario' }, empty, card), settings, demoTools);
     const layout = h('main', { class: 'layout' }, h('section', { class: 'chart-wrap' }, chart), panel);
 
-    const dialogText = h('p');
-    const dlgClose = h('button', { type: 'button', 'data-testid': 'dialog-close-scenario' }, '기존 시나리오 종료');
-    const dlgDelete = h('button', { type: 'button', class: 'danger', 'data-testid': 'dialog-delete' }, '기존 시나리오 삭제');
-    const dlgCancel = h('button', { type: 'button', 'data-testid': 'dialog-cancel' }, '취소');
-    const dialog = h(
-      'div',
-      { class: 'backdrop', 'data-testid': 'dialog', hidden: true },
-      h('div', { class: 'dialog', role: 'dialog', 'aria-modal': 'true' }, dialogText, h('div', { class: 'actions' }, dlgClose, dlgDelete, dlgCancel)),
-    );
     const toast = h('div', { class: 'toast', 'data-testid': 'toast', role: 'status', hidden: true });
 
-    root.replaceChildren(topbar, loadError, otherBanner, layout, dialog, toast);
+    root.replaceChildren(topbar, loadError, layout, toast);
 
     // 이벤트
     source.addEventListener('change', () => void this.switchProvider(source.value as SourceKind));
@@ -585,17 +577,7 @@ export class App {
       this.persist();
       this.renderNow(true);
     });
-    close.addEventListener('click', () => this.closeActive());
-    del.addEventListener('click', () => this.deleteScenario());
-    otherGo.addEventListener('click', () => {
-      if (!this.scenario) return;
-      if (!this.symbols.some((s) => s.symbol === this.scenario!.symbol)) {
-        this.toast(`${this.scenario.symbol}은(는) 현재 데이터 공급원에 없는 종목입니다. 상단 '데이터'를 바꿔 보세요.`);
-        return;
-      }
-      this.ui.symbol = this.scenario.symbol;
-      void this.loadMarket();
-    });
+    del.addEventListener('click', () => this.clearCalc());
     resetSettings.addEventListener('click', () => {
       this.settings = { ...DEFAULT_SETTINGS };
       saveSettings(this.d.storage, this.settings);
@@ -603,16 +585,6 @@ export class App {
       this.renderNow();
     });
     disconnect.addEventListener('click', () => this.provider.simulateDisconnect?.(6_000));
-    dlgClose.addEventListener('click', () => {
-      this.closeDialog();
-      this.closeActive();
-    });
-    dlgDelete.addEventListener('click', () => {
-      this.closeDialog();
-      this.deleteScenario();
-    });
-    dlgCancel.addEventListener('click', () => this.closeDialog());
-    dialog.addEventListener('keydown', (e) => e.key === 'Escape' && this.closeDialog());
     // TradingView처럼 Alt+R로 차트 보기 초기화. 한글 입력 상태에서도 되도록 e.code로 본다
     document.addEventListener('keydown', (e) => {
       if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || e.code !== 'KeyR') return;
@@ -622,8 +594,8 @@ export class App {
 
     return {
       source, picker, tf, htf, sltf, long, short, status, statusReason, demoBadge,
-      loadError, otherBanner, otherText, chart, empty, card, sideChip, title, stateChip, entry, times, rr, reasons, m,
-      sl, tp, sizing, restore, close, del, settingsInputs, demoTools, dialog, dialogText, dlgCancel, toast,
+      loadError, chart, empty, card, sideChip, title, entry, times, rr, rrLabel, reasons,
+      sl, tp, slWhy, tpWhy, sizing, restore, del, settingsInputs, demoTools, toast,
     };
   }
 
@@ -646,22 +618,23 @@ export class App {
       h('thead', {}, h('tr', {}, ...['차수', '가격', '금액 USDT', '수량', '비중'].map((t) => h('th', {}, t)))),
       body,
     );
-    const mk = () => h('dd', { class: 'num' });
-    const sum = { total: mk(), lev: mk(), loss: mk(), profit: mk(), avg: mk(), rr: mk() };
+    const mk = (id: string) => h('dd', { class: 'num', 'data-testid': `sizing-${id}` });
+    const sum = { total: mk('total'), lev: mk('lev'), loss: mk('loss'), profit: mk('profit'), avg: mk('avg'), rr: mk('rr') };
     const summary = h(
       'dl',
       { class: 'metrics', 'data-testid': 'sizing-summary' },
       h('dt', {}, '총 포지션'), sum.total,
       h('dt', {}, '필요 레버리지'), sum.lev,
-      h('dt', {}, '손절 시 (전부 체결)'), sum.loss,
-      h('dt', {}, '목표 도달 시 (전부 체결)'), sum.profit,
-      h('dt', {}, '전부 체결 시 평단'), sum.avg,
-      h('dt', {}, '전부 체결 시 손익비'), sum.rr,
+      h('dt', { class: 'group' }, '모두 체결되면'), h('dd', { class: 'group' }),
+      h('dt', {}, '평단'), sum.avg,
+      h('dt', {}, '손절 시'), sum.loss,
+      h('dt', {}, '목표 시'), sum.profit,
+      h('dt', {}, '손익비'), sum.rr,
     );
     const note = h(
       'p',
       { class: 'note' },
-      '2차부터는 엔트리~SL 거리를 분할 수로 나눈 가격입니다. 모든 분할이 체결된 뒤 SL에 맞아도 손실이 운영자산의 "손절 시 손실 %"(상단)를 넘지 않게 나눴습니다. 금액은 레버리지 전 포지션 규모이며 증거금 = 금액 ÷ 레버리지. 수량은 거래소 주문 단위로 내림, 수수료·슬리피지 미반영.',
+      '2차부터 진입~SL을 등간격으로 나눈 가격. 모두 체결된 뒤 SL에 맞아도 손실은 상단의 "손절 시 손실 %" 이하. 금액은 레버리지 전 포지션 규모(증거금 = 금액 ÷ 레버리지), 수량은 주문 단위로 내림.',
     );
     const bar = h(
       'div',
@@ -674,7 +647,7 @@ export class App {
     const box = h(
       'section',
       { class: 'sizing', 'data-testid': 'sizing' },
-      h('div', { class: 'level-head' }, h('span', { class: 'level-name' }, '분할 진입')),
+      h('div', { class: 'level-head' }, h('span', { class: 'level-name' }, '주문표'), h('span', { class: 'muted small' }, '숫자를 누르면 복사')),
       reason,
       table,
       summary,
@@ -718,6 +691,13 @@ export class App {
     return r.ok ? { plan: r.plan, reason: null } : { plan: null, reason: r.reason };
   }
 
+  /** 누르면 복사되는 숫자 (value: 복사할 값, 표시와 다르면 지정. 금액은 쉼표 없이) */
+  private copyCell(text: string, what: string, value = text): HTMLElement {
+    const b = h('button', { type: 'button', class: 'copy', 'data-testid': 'copy', title: `${what} 복사` }, text);
+    b.addEventListener('click', () => this.copy(value));
+    return b;
+  }
+
   private renderSizing(s: Scenario): SizingPlan | null {
     const z = this.el.sizing;
     const { plan, reason } = this.sizingPlan(s);
@@ -734,10 +714,10 @@ export class App {
         const row = h(
           'tr',
           { 'data-testid': 'sizing-row', class: t.tooSmall ? 'too-small' : '' },
-          h('td', {}, `${t.n}차${t.n === 1 ? ' (엔트리)' : ''}`),
-          h('td', { class: 'num' }, formatPrice(t.price, s.tickSize)),
-          h('td', { class: 'num' }, usdt(t.notional)),
-          h('td', { class: 'num' }, t.qty.toFixed(qd)),
+          h('td', {}, `${t.n}차${t.n === 1 ? ' (진입)' : ''}`),
+          h('td', { class: 'num' }, this.copyCell(formatPrice(t.price, s.tickSize), '가격')),
+          h('td', { class: 'num' }, this.copyCell(usdt(t.notional), '금액', t.notional.toFixed(2))),
+          h('td', { class: 'num' }, this.copyCell(t.qty.toFixed(qd), '수량')),
           h('td', { class: 'num' }, `${(t.share * 100).toFixed(1)}%`),
         );
         if (t.tooSmall) row.title = `거래소 최소 주문(수량 ${info?.minQty ?? '?'}, 금액 ${info?.minNotional ?? '?'} USDT) 미만`;
@@ -764,20 +744,6 @@ export class App {
     this.renderSettings();
     this.renderTopbar();
     this.renderNow();
-  }
-
-  private openDialog(): void {
-    const s = this.scenario!;
-    setText(
-      this.el.dialogText,
-      `활성 시나리오(${s.symbol} ${s.side})가 있어 새 시나리오를 만들지 않았습니다. 기존 시나리오를 종료하거나 삭제한 뒤 LONG/SHORT를 다시 누르면, 그 순간의 가격으로 새 엔트리를 잡습니다.`,
-    );
-    show(this.el.dialog, true);
-    this.el.dlgCancel.focus();
-  }
-
-  private closeDialog(): void {
-    show(this.el.dialog, false);
   }
 
   private toast(msg: string): void {
@@ -854,14 +820,9 @@ export class App {
   /** 패널과 차트 박스를 갱신. force면 입력 중인 칸도 덮어쓴다 */
   private renderNow(force = false): void {
     const e = this.el;
-    const s = this.scenario;
+    const s = this.scenario && this.scenario.symbol === this.ui.symbol ? this.scenario : null;
     show(e.empty, !s);
     show(e.card, !!s);
-
-    const onChart = !!s && s.symbol === this.ui.symbol;
-    show(e.otherBanner, !!s && !onChart);
-    if (s && !onChart) setText(e.otherText, `활성 시나리오: ${s.symbol} ${s.side} (지금 보는 종목과 다름)`);
-
     if (!s) {
       this.chart.setOverlay(null);
       return;
@@ -873,48 +834,41 @@ export class App {
 
     e.sideChip.className = `side-chip ${s.side === 'LONG' ? 'long' : 'short'}`;
     setText(e.sideChip, s.side);
-    setText(e.title, `${s.symbol}, ${tfName(s.timeframe)}`);
-    setText(e.stateChip, s.status === 'active' ? '진행 중' : '종료');
-    e.stateChip.dataset.state = s.status;
-    setText(e.entry, formatPrice(s.entry, tick));
+    setText(e.title, `${s.symbol} · ${tfName(s.timeframe)}`);
     setText(
       e.times,
-      `클릭 ${formatClock(s.clickedAt)}, 가격 데이터 ${formatClock(s.priceTime)} (${s.priceSource === 'trade' ? '체결가' : '티커 가격'})`,
+      s.entryManual
+        ? `지정가로 계산 (누를 때 시장가 ${fp(s.capturedEntry ?? s.entry)})`
+        : `${formatClock(s.priceTime)} ${s.priceSource === 'trade' ? '체결가' : '티커 가격'}로 계산`,
     );
     setText(e.rr, m.rr === null ? '—' : formatRR(m.rr));
+    setText(e.rrLabel, this.sizing.splits > 1 ? '손익비 (1차만 체결 시)' : '손익비');
     e.rr.dataset.valid = String(m.valid);
     e.reasons.replaceChildren(...m.reasons.map((r) => h('li', {}, r)));
 
-    setText(e.m.reward, m.rewardPct === null ? '—' : `+${formatPct(m.rewardPct)}`);
-    setText(e.m.risk, m.riskPct === null ? '—' : `−${formatPct(m.riskPct)}`);
-    const cur = s.status === 'closed' ? s.closed!.price : this.lastPriceBySymbol.get(s.symbol)?.price ?? null;
-    setText(e.m.current, `${fp(cur)}${s.status === 'closed' ? ' (종료 시점)' : ''}`);
-    setText(e.m.currentPct, m.currentPct === null ? '—' : formatPct(m.currentPct, true));
-    setText(e.m.currentR, m.currentR === null ? '—' : fmtR(m.currentR));
-
-    for (const which of ['sl', 'tp'] as const) {
-      const row = e[which];
-      const value = s.applied[which];
+    const rows = { entry: e.entry, sl: e.sl, tp: e.tp } as const;
+    const values = { entry: s.entry, sl: s.applied.sl, tp: s.applied.tp };
+    for (const which of ['entry', 'sl', 'tp'] as const) {
+      const row = rows[which];
+      const value = values[which];
       if (force || document.activeElement !== row.input) row.input.value = value === null ? '' : formatPrice(value, tick);
-      row.input.disabled = s.status !== 'active';
-      const manual = s.source[which] === 'manual';
-      setText(row.badge, manual ? '수동 수정' : '자동');
-      row.badge.dataset.source = s.source[which];
-      setText(row.why, which === 'sl' ? slRationale(s.auto.sl, s.side) : tpRationale(s.auto.tp, s.side));
     }
-    e.restore.disabled = s.status !== 'active';
-    e.close.disabled = s.status !== 'active';
+    setText(e.entry.pct, '');
+    setText(e.sl.pct, m.riskPct === null ? '' : `−${formatPct(m.riskPct)}`);
+    setText(e.tp.pct, m.rewardPct === null ? '' : `+${formatPct(m.rewardPct)}`);
+    setText(e.entry.badge, s.entryManual ? '지정가' : '시장가');
+    e.entry.badge.dataset.source = s.entryManual ? 'manual' : 'auto';
+    for (const which of ['sl', 'tp'] as const) {
+      setText(rows[which].badge, s.source[which] === 'manual' ? '수동' : '자동');
+      rows[which].badge.dataset.source = s.source[which];
+    }
+    setText(e.slWhy, slRationale(s.auto.sl, s.side));
+    setText(e.tpWhy, tpRationale(s.auto.tp, s.side));
     const plan = this.renderSizing(s);
 
-    if (!onChart) {
-      this.chart.setOverlay(null);
-      return;
-    }
     const profit = m.rewardDist === null ? null : `목표 +${fp(m.rewardDist)} (${formatPct(m.rewardPct!)})`;
     const loss = m.riskDist === null ? null : `손절 −${fp(m.riskDist)} (${formatPct(m.riskPct!)})`;
-    let center = m.valid ? `손익비 ${formatRR(m.rr!)}` : m.reasons[0] ?? '';
-    if (m.currentR !== null) center += `, 현재 ${fmtR(m.currentR)}`;
-    if (s.status === 'closed') center = `종료, ${center}`;
+    const center = m.valid ? `손익비 ${formatRR(m.rr!)}` : m.reasons[0] ?? '';
 
     const overlay: OverlayInput = {
       side: s.side,
@@ -922,9 +876,9 @@ export class App {
       sl: s.applied.sl,
       tp: s.applied.tp,
       startTime: s.priceTime,
-      endTime: s.status === 'closed' ? s.closed!.time : null,
+      endTime: null,
       extendBars: this.settings.boxExtendBars,
-      draggable: s.status === 'active',
+      draggable: true,
       labels: { profit, loss, center, centerValid: m.valid },
       // SL 캔들보다 큰 시간봉 차트에서는 띠가 실제보다 넓어 보이므로 그리지 않는다
       slCandle: s.auto.sl.candle && tfMs(s.auto.sl.timeframe) >= tfMs(this.ui.timeframe)
@@ -934,11 +888,8 @@ export class App {
             label: slBandLabel(s.auto.sl, s.side),
           }
         : null,
-      presets: s.status === 'active' ? presetLevels(s.side, s.entry, s.tickSize) : [],
-      splits:
-        s.status === 'active' && plan
-          ? plan.tranches.slice(1).map((t) => ({ price: t.price, label: `${t.n}차 ${(t.share * 100).toFixed(0)}%` }))
-          : [],
+      presets: presetLevels(s.side, s.entry, s.tickSize),
+      splits: plan ? plan.tranches.slice(1).map((t) => ({ price: t.price, label: `${t.n}차 ${(t.share * 100).toFixed(0)}%` })) : [],
       shiftMs: s.boxShiftMs ?? 0,
       swing: s.auto.tp.swing && s.auto.tp.timeframe
         ? { time: s.auto.tp.swing.time, price: s.auto.tp.swing.price, label: `TP 기준 ${tfName(s.auto.tp.timeframe)} 스윙` }
@@ -951,6 +902,7 @@ export class App {
   debugApi() {
     return {
       getScenario: () => (this.scenario ? structuredClone(this.scenario) : null),
+      getLastCopied: () => this.lastCopied,
       getMetrics: () => (this.scenario ? this.metricsFor(this.scenario) : null),
       getRenderedGeometry: () => this.chart.getRenderedGeometry(),
       computeExpectedGeometry: () => this.chart.computeExpectedGeometry(),
@@ -970,10 +922,6 @@ export class App {
       getFeedStatus: () => this.freshness().status,
     };
   }
-}
-
-function fmtR(r: number): string {
-  return `${r < 0 ? '−' : '+'}${Math.abs(r).toFixed(2)}R`;
 }
 
 function errText(e: unknown): string {

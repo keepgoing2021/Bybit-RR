@@ -88,7 +88,7 @@ test.describe('failure handling', () => {
     await expect(page.getByTestId('btn-short')).toBeEnabled();
   });
 
-  test('banner does not jump to a symbol the current data source does not have', async ({ page }) => {
+  test('switching the data source clears a calculation made on the other source', async ({ page }) => {
     await page.goto('/?source=demo');
     await page.evaluate(() => localStorage.clear());
     await page.reload();
@@ -99,12 +99,11 @@ test.describe('failure handling', () => {
     );
     await page.getByTestId('source').selectOption('bybit');
     await expect(page.getByTestId('feed-status')).toHaveAttribute('data-state', 'live', { timeout: 20_000 });
-    const banner = page.getByTestId('other-symbol-banner');
-    await expect(banner).toContainText('DEMO-BTC');
-    await banner.getByRole('button').click();
-    await expect(page.getByTestId('toast')).toContainText('현재 데이터 공급원에 없는 종목');
     await expect(page.getByTestId('symbol')).toHaveValue('BTCUSDT');
-    await expect(page.getByTestId('feed-status')).toHaveAttribute('data-state', 'live');
+    await expect
+      .poll(() => page.evaluate(() => (window as unknown as { __rrDebug: { getScenario(): Scenario | null } }).__rrDebug.getScenario()))
+      .toBeNull();
+    await expect(page.locator('.empty')).toBeVisible();
   });
 });
 

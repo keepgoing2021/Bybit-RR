@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { computeMetrics } from '../../src/core/metrics';
-import { closeScenario, restoreAuto, setBoxShift, setLevel, type Scenario } from '../../src/core/scenario';
+import { closeScenario, restoreAuto, setBoxShift, setEntry, setLevel, type Scenario } from '../../src/core/scenario';
 import { makeScenario } from './helpers/scenario';
 
 const rrOf = (s: Scenario) =>
@@ -97,5 +97,28 @@ describe('setBoxShift', () => {
   it('also works on a closed scenario', () => {
     const closed = closeScenario(makeScenario(), { price: 103, time: 5_000 });
     expect(setBoxShift(closed, 1_000).boxShiftMs).toBe(1_000);
+  });
+});
+
+describe('setEntry (calculator: limit order price)', () => {
+  it('changes only the entry, snapped to the tick, and marks it manual', () => {
+    const s = setEntry(makeScenario(), 99.123456);
+    expect(s.entry).toBe(99.12);
+    expect(s.entryManual).toBe(true);
+    expect(s.applied).toEqual({ sl: 98, tp: 106 });
+    expect(s.capturedEntry).toBe(100);
+  });
+
+  it('restoreAuto puts the entry back to the clicked market price', () => {
+    const r = restoreAuto(setLevel(setEntry(makeScenario(), 99.5), 'sl', 97));
+    expect(r.entry).toBe(100);
+    expect(r.entryManual).toBe(false);
+    expect(r.applied).toEqual({ sl: 98, tp: 106 });
+  });
+
+  it('a scenario saved before entry editing existed keeps its entry on restore', () => {
+    const legacy = { ...makeScenario() } as Scenario;
+    delete legacy.capturedEntry;
+    expect(restoreAuto(legacy).entry).toBe(100);
   });
 });

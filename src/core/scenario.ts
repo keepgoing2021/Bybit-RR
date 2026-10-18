@@ -5,7 +5,7 @@ import type { Side, Timeframe } from './types';
 
 export type LevelSource = 'auto' | 'manual';
 
-/** 가상 매매 시나리오. 엔트리는 생성 후 바뀌지 않는다. */
+/** 손익비 계산 하나. 엔트리는 클릭 순간 가격으로 잡고, 지정가 계산을 위해 직접 고칠 수 있다. */
 export interface Scenario {
   version: 1;
   id: string;
@@ -16,6 +16,10 @@ export interface Scenario {
   htf: Timeframe | null;
   side: Side;
   entry: number;
+  /** LONG/SHORT를 누른 순간 잡은 가격 (자동값으로 되돌리기의 기준). 이 필드 전에 저장된 계산엔 없음 */
+  capturedEntry?: number;
+  /** 엔트리를 직접 고쳤는지 */
+  entryManual?: boolean;
   tickSize: number;
   /** LONG/SHORT를 누른 시각 (브라우저 시계, ms) */
   clickedAt: number;
@@ -56,6 +60,8 @@ export function createScenario(i: CreateScenarioInput): Scenario {
     htf: i.htf,
     side: i.side,
     entry: snapToTick(i.entry.price, i.tickSize),
+    capturedEntry: snapToTick(i.entry.price, i.tickSize),
+    entryManual: false,
     tickSize: i.tickSize,
     clickedAt: i.entry.clickedAt,
     priceTime: i.entry.priceTime,
@@ -80,11 +86,19 @@ export function setLevel(s: Scenario, which: 'sl' | 'tp', price: number | null):
   };
 }
 
-/** 생성 당시 자동 제안값으로 되돌린다. 시장 데이터를 다시 분석하지 않는다. */
+/** 엔트리만 바꾼다 (지정가 주문 계산). SL·TP는 그대로 두고 손익비는 결과로 다시 계산된다 */
+export function setEntry(s: Scenario, price: number): Scenario {
+  if (s.status !== 'active') return s;
+  return { ...s, entry: snapToTick(price, s.tickSize), entryManual: true };
+}
+
+/** 생성 당시 자동 제안값과 클릭 순간 엔트리로 되돌린다. 시장 데이터를 다시 분석하지 않는다. */
 export function restoreAuto(s: Scenario): Scenario {
   if (s.status !== 'active') return s;
   return {
     ...s,
+    entry: s.capturedEntry ?? s.entry,
+    entryManual: false,
     applied: { sl: s.auto.sl.price, tp: s.auto.tp.price },
     source: { sl: 'auto', tp: 'auto' },
   };

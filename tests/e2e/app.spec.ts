@@ -5,6 +5,8 @@ import type { Scenario } from '../../src/core/scenario';
 // 모든 E2E는 데모 데이터(DEMO-BTC, 호가 단위 0.1)로 실행한다.
 type Debug = {
   getScenario(): Scenario | null;
+  getLastCopied(): string | null;
+  priceToClientY(p: number): number | null;
   getRenderedGeometry(): BoxGeometry | null;
   computeExpectedGeometry(): BoxGeometry | null;
   chartClientRect(): { left: number; top: number; width: number; height: number };
@@ -66,7 +68,7 @@ test('entry stays fixed while price moves', async ({ page }) => {
   const s0 = (await scenario(page))!;
   const candles0 = await page.evaluate(() => window.__rrDebug.getCandleCount());
   const price0 = await page.evaluate(() => window.__rrDebug.getLastPrice());
-  await expect(page.getByTestId('entry-price')).toHaveText(s0.entry.toFixed(1));
+  await expect(page.getByTestId('entry-input')).toHaveValue(s0.entry.toFixed(1));
 
   await page.waitForTimeout(3_000); // 60배속: 데모 시간 3분, 새 1분봉 약 3개
 
@@ -76,7 +78,7 @@ test('entry stays fixed while price moves', async ({ page }) => {
   expect(s1.entry).toBe(s0.entry);
   expect(s1.auto).toEqual(s0.auto);
   expect(s1.applied).toEqual(s0.applied);
-  await expect(page.getByTestId('entry-price')).toHaveText(s0.entry.toFixed(1));
+  await expect(page.getByTestId('entry-input')).toHaveValue(s0.entry.toFixed(1));
 });
 
 test('dragging SL updates RR during drag and keeps TP', async ({ page }) => {
@@ -102,7 +104,7 @@ test('dragging SL updates RR during drag and keeps TP', async ({ page }) => {
 
   const after = (await scenario(page))!;
   expect(after.source).toEqual({ sl: 'manual', tp: 'manual' });
-  await expect(page.getByTestId('sl-source')).toHaveText('수동 수정');
+  await expect(page.getByTestId('sl-source')).toHaveText('수동');
   expect(await visibleRange(page)).toEqual(rangeBefore); // 드래그가 차트를 이동시키지 않음
 });
 
@@ -148,7 +150,7 @@ test('reload restores scenario and manual edits', async ({ page }) => {
   await page.reload();
   await waitLive(page);
   expect(await scenario(page)).toEqual(before);
-  await expect(page.getByTestId('sl-source')).toHaveText('수동 수정');
+  await expect(page.getByTestId('sl-source')).toHaveText('수동');
   await expect.poll(() => rendered(page)).not.toBeNull();
   await expect(page.getByTestId('tf')).toHaveValue('15');
 });
@@ -173,29 +175,66 @@ test('disconnect blocks creation and reconnect recovers', async ({ page }) => {
   await waitLive(page);
 });
 
-test('second LONG asks instead of overwriting', async ({ page }) => {
+test('pressing SHORT after LONG recalculates right away at the current price (no dialog)', async ({ page }) => {
   await open(page, { tf: '15' });
   const s = await validLong(page);
-  await page.getByTestId('btn-short').click();
-  await expect(page.getByTestId('dialog')).toBeVisible();
-  await expect(page.getByTestId('dialog')).toContainText('활성 시나리오');
-  await page.getByTestId('dialog-cancel').click();
-  await expect(page.getByTestId('dialog')).toBeHidden();
-  const after = (await scenario(page))!;
-  expect(after.id).toBe(s.id);
-  expect(after.side).toBe('LONG');
-});
-
-test('closing then pressing LONG creates a new scenario', async ({ page }) => {
-  await open(page, { tf: '15' });
-  const s = await validLong(page);
-  await page.getByTestId('btn-short').click();
-  await page.getByTestId('dialog-close-scenario').click();
-  await expect(page.getByTestId('dialog')).toBeHidden();
-  expect((await scenario(page))!.status).toBe('closed');
   await page.getByTestId('btn-short').click();
   await expect.poll(async () => (await scenario(page))?.id).not.toBe(s.id);
-  expect((await scenario(page))!.side).toBe('SHORT');
+  const after = (await scenario(page))!;
+  expect(after.side).toBe('SHORT');
+  expect(after.source).toEqual({ sl: 'auto', tp: 'auto' });
+  expect(Math.abs(after.entry - (await page.evaluate(() => window.__rrDebug.getLastPrice()))!)).toBeLessThan(after.entry * 0.002);
+  await expect(page.locator('[role=dialog]')).toHaveCount(0);
+});
+
+test('clear removes the calculation from the panel and the chart', async ({ page }) => {
+  await open(page, { tf: '15' });
+  await validLong(page);
+  await page.getByTestId('btn-clear').click();
+  expect(await scenario(page)).toBeNull();
+  await expect.poll(() => rendered(page)).toBeNull();
+  await expect(page.locator('.empty')).toBeVisible();
+});
+
+test('entry can be typed for a limit order; restore goes back to the clicked price', async ({ page }) => {
+  await open(page, { tf: '15' });
+  const s = await validLong(page); // SL = 진입 − 10, TP = 진입 + 30
+  const limit = (s.entry - 5).toFixed(1);
+  await page.getByTestId('entry-input').fill(limit);
+  await page.getByTestId('entry-input').press('Enter');
+  await expect(page.getByTestId('entry-source')).toHaveText('지정가');
+  await expect(page.getByTestId('rr')).toHaveText('1:7'); // 보상 35 ÷ 위험 5
+  expect((await scenario(page))!.entry).toBe(Number(limit));
+  await expect.poll(async () => (await rendered(page))?.yEntry).toBeCloseTo(
+    (await page.evaluate((p) => window.__rrDebug.priceToClientY(p), Number(limit)))! - (await chartRect(page)).top, 0,
+  );
+  await page.getByTestId('btn-restore').click();
+  expect((await scenario(page))!.entry).toBe(s.entry);
+  await expect(page.getByTestId('entry-source')).toHaveText('시장가');
+});
+
+test('no live monitoring readouts: only the calculation is shown', async ({ page }) => {
+  await open(page, { speed: 60, tf: '1' });
+  await validLong(page);
+  for (const t of ['현재가', '현재 손익률', 'R 배수', '진행 중', '종료']) await expect(page.locator('.card')).not.toContainText(t);
+  await expect.poll(async () => (await page.evaluate(() => window.__rrDebug.getOverlayLabels()))?.center).toBe('손익비 1:3');
+  await page.waitForTimeout(1_500); // 가격이 움직여도 중앙 이름표는 그대로
+  expect((await page.evaluate(() => window.__rrDebug.getOverlayLabels()))!.center).toBe('손익비 1:3');
+});
+
+test('order table numbers copy on click', async ({ page }) => {
+  await open(page, { tf: '15' });
+  await validLong(page);
+  await page.getByTestId('sizing-capital').fill('10000');
+  await page.getByTestId('sizing-capital').press('Enter');
+  const qty = page.getByTestId('sizing-row').first().locator('td:nth-child(4) [data-testid=copy]');
+  const text = (await qty.textContent())!;
+  await qty.click();
+  await expect.poll(() => page.evaluate(() => window.__rrDebug.getLastCopied())).toBe(text);
+  await expect(page.getByTestId('toast')).toContainText(text);
+  const money = page.getByTestId('sizing-row').first().locator('td:nth-child(3) [data-testid=copy]');
+  await money.click();
+  await expect.poll(() => page.evaluate(() => window.__rrDebug.getLastCopied())).toBe((await money.textContent())!.replace(/,/g, ''));
 });
 
 test('manual input snaps to tick', async ({ page }) => {
@@ -210,20 +249,19 @@ test('manual input snaps to tick', async ({ page }) => {
   expect((await scenario(page))!.applied.sl).toBe(snapped);
 });
 
-test('switching symbol hides scenario', async ({ page }) => {
+test('switching symbol clears the calculation', async ({ page }) => {
   await open(page, { tf: '15' });
   await validLong(page);
   const symbol = page.getByTestId('symbol');
   await symbol.fill('DEMO-ETH');
   await symbol.press('Enter');
   await waitLive(page);
-  await expect(page.getByTestId('other-symbol-banner')).toContainText('DEMO-BTC');
+  expect(await scenario(page)).toBeNull();
   await expect.poll(() => rendered(page)).toBeNull();
   await symbol.fill('DEMO-BTC');
   await symbol.press('Enter');
   await waitLive(page);
-  await expect(page.getByTestId('other-symbol-banner')).toBeHidden();
-  await expect.poll(() => rendered(page)).not.toBeNull();
+  expect(await scenario(page)).toBeNull();
 });
 
 async function setSlMode(page: Page, mode: string) {
@@ -465,7 +503,7 @@ test('split entries: 3 or 5 splits between entry and SL, loss at SL capped at th
   expect(m3[0]).toBeLessThan(m3[1]);
   expect(m3[1]).toBeLessThan(m3[2]);
   const summary = page.getByTestId('sizing-summary');
-  const loss = Number((await summary.locator('dd').nth(2).textContent())!.match(/−([\d,.]+)/)![1].replace(/,/g, ''));
+  const loss = Number((await summary.getByTestId('sizing-loss').textContent())!.match(/−([\d,.]+)/)![1].replace(/,/g, ''));
   expect(loss).toBeLessThanOrEqual(100);
   expect(loss).toBeGreaterThan(99);
   await expect.poll(async () => (await rendered(page))?.splits.map((x) => x.label.split(' ')[0]) ?? []).toEqual(['2차', '3차']);
