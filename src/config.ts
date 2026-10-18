@@ -3,7 +3,8 @@ export const CONFIG = {
   bybit: {
     /** 개발 서버 프록시 경로 (vite.config.ts) → https://api.bybit.com */
     restBase: '/bybit-api',
-    wsUrl: 'wss://stream.bybit.com/v5/public/linear',
+    /** VITE_BYBIT_WS: E2E에서 가짜 Bybit 서버로 바꿀 때만 쓴다 */
+    wsUrl: (import.meta.env.VITE_BYBIT_WS as string | undefined) || 'wss://stream.bybit.com/v5/public/linear',
   },
   /** 차트·분석에 불러올 캔들 수 (Bybit REST 최대 1000) */
   historyLimit: 1000,

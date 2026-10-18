@@ -20,10 +20,23 @@ export default defineConfig({
       ? { executablePath, args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu'] }
       : {},
   },
-  webServer: {
-    command: 'npx vite --port 5199 --strictPort',
-    url: 'http://localhost:5199',
-    reuseExistingServer: true,
-    timeout: 60_000,
-  },
+  webServer: [
+    // 공식 문서 형식을 따르는 가짜 Bybit (tests/e2e/mock-bybit.mjs). 실제 Bybit가 아니다.
+    {
+      command: 'node tests/e2e/mock-bybit.mjs',
+      url: 'http://localhost:5299/mock/stats',
+      reuseExistingServer: false,
+      timeout: 30_000,
+    },
+    {
+      command: 'npx vite --port 5199 --strictPort',
+      url: 'http://localhost:5199',
+      reuseExistingServer: false,
+      timeout: 60_000,
+      env: {
+        BYBIT_REST_TARGET: 'http://localhost:5299',
+        VITE_BYBIT_WS: 'ws://localhost:5299/v5/public/linear',
+      },
+    },
+  ],
 });
