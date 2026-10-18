@@ -136,6 +136,7 @@ function isScenario(v: unknown): boolean {
     isNumOrNull(auto.tp.price) &&
     isObject(v.settings) &&
     (v.status === 'active' || v.status === 'closed') &&
-    (closed === null || (isObject(closed) && isNum(closed.price) && isNum(closed.time)))
+    (closed === null || (isObject(closed) && isNum(closed.price) && isNum(closed.time))) &&
+    (v.boxShiftMs === undefined || (isNum(v.boxShiftMs) && v.boxShiftMs >= 0))
   );
 }

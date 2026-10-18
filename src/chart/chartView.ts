@@ -14,7 +14,7 @@ import {
 import { decimalsOf, snapToTick } from '../core/price';
 import type { Candle, Side } from '../core/types';
 import { CountdownPrimitive, type CountdownState } from './countdownPrimitive';
-import { DragController, type DragTarget } from './drag';
+import { BoxMoveController, DragController, type DragTarget } from './drag';
 import type { PresetLevel } from '../core/presets';
 import { hitTestPreset, type BoxGeometry } from './geometry';
 import { RRBoxPrimitive, type OverlayModel } from './rrPrimitive';
@@ -36,6 +36,8 @@ export interface OverlayInput {
   slCandle: { time: number; durationMs: number; label: string } | null;
   /** 엔트리 ±% 점선 (진행 중 시나리오만) */
   presets: PresetLevel[];
+  /** 박스를 오른쪽으로 옮긴 양 (ms) */
+  shiftMs: number;
   swing: { time: number; price: number; label: string } | null;
 }
 
@@ -43,6 +45,8 @@ export interface ChartViewCallbacks {
   onDrag(which: DragTarget, price: number): void;
   /** ±% 점선을 눌렀을 때 */
   onPreset(which: DragTarget, price: number): void;
+  /** 박스를 좌우로 옮길 때 (done: 손을 뗐을 때) */
+  onBoxMove(shiftMs: number, done: boolean): void;
   onDragEnd(which: DragTarget): void;
   formatTime(ms: number): string;
 }
@@ -62,6 +66,7 @@ export class ChartView {
   private readonly prim = new RRBoxPrimitive();
   private readonly countdown = new CountdownPrimitive();
   private readonly drag: DragController;
+  private readonly mover: BoxMoveController;
   private candles: readonly Candle[] = [];
   private tfMs = 60_000;
   private tickSize = 0.01;
@@ -87,7 +92,7 @@ export class ChartView {
       rightPriceScale: { borderColor: THEME.line },
       timeScale: {
         borderColor: THEME.line,
-        rightOffset: 14,
+        rightOffset: 24, // 박스를 옮겨 둘 빈 공간
         barSpacing: 8,
         timeVisible: true,
         secondsVisible: false,
@@ -117,6 +122,23 @@ export class ChartView {
       onDragEnd: (which) => this.cb.onDragEnd(which),
       setChartInteraction: (on) => this.chart.applyOptions({ handleScroll: on, handleScale: on }),
     });
+    this.mover = new BoxMoveController({
+      getGeometry: () => (this.overlay ? this.prim.computeGeometry() : null),
+      xToLogical: (x) => this.chart.timeScale().coordinateToLogical(x),
+      getShiftBars: () => Math.round((this.overlay?.shiftMs ?? 0) / this.tfMs),
+      onMove: (bars) => this.cb.onBoxMove(bars * this.tfMs, false),
+      onMoveEnd: (bars) => this.cb.onBoxMove(bars * this.tfMs, true),
+      setChartInteraction: (on) => this.chart.applyOptions({ handleScroll: on, handleScale: on }),
+      // 박스 왼쪽 끝이 차트 오른쪽 끝에서 60px 안쪽까지만 가도록
+      maxShiftBars: () => {
+        const g = this.prim.computeGeometry();
+        const ts = this.chart.timeScale();
+        const from = g ? ts.coordinateToLogical(g.x1) : null;
+        const to = ts.coordinateToLogical(ts.width() - 60);
+        if (from === null || to === null) return null;
+        return Math.round((this.overlay?.shiftMs ?? 0) / this.tfMs) + Math.floor(to - from);
+      },
+    });
     this.bindPointer();
   }
 
@@ -132,7 +154,7 @@ export class ChartView {
     if (resetView) {
       const n = candles.length;
       const bars = Math.max(30, Math.min(150, Math.floor(this.container.clientWidth / 9)));
-      this.chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, n - bars), to: n + 14 });
+      this.chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, n - bars), to: n + 24 });
     }
     this.rebuildOverlay();
   }
@@ -221,15 +243,16 @@ export class ChartView {
       return;
     }
     const last = this.candles.length - 1;
-    const end = o.endTime === null ? last + o.extendBars : this.logicalForTime(o.endTime) ?? last;
+    const shift = o.shiftMs / this.tfMs;
+    const end = (o.endTime === null ? last + o.extendBars : this.logicalForTime(o.endTime) ?? last) + shift;
     const swingLogical = o.swing ? this.logicalForTime(o.swing.time) : null;
     const model: OverlayModel = {
       side: o.side,
       entry: o.entry,
       sl: o.sl,
       tp: o.tp,
-      startLogical: start,
-      endLogical: Math.max(end, start + 1),
+      startLogical: start + shift,
+      endLogical: Math.max(end, start + shift + 1),
       closed: o.endTime !== null,
       labels: o.labels,
       highlight: this.highlightRange(o.slCandle),
@@ -287,11 +310,19 @@ export class ChartView {
       const { x, y } = local(e);
       if (!this.drag.pointerDown(x, y)) {
         const preset = this.presetAt(x, y);
-        if (!preset) return;
-        // 점선 클릭: 그 가격으로 SL/TP 설정. 차트 이동으로 넘어가지 않게 막는다
+        if (preset) {
+          // 점선 클릭: 그 가격으로 SL/TP 설정. 차트 이동으로 넘어가지 않게 막는다
+          e.preventDefault();
+          e.stopPropagation();
+          this.cb.onPreset(preset.target, preset.price);
+          return;
+        }
+        // 박스 몸통: 좌우로 옮기기
+        if (!this.mover.pointerDown(x, y)) return;
         e.preventDefault();
         e.stopPropagation();
-        this.cb.onPreset(preset.target, preset.price);
+        el.setPointerCapture?.(e.pointerId);
+        el.style.cursor = 'grabbing';
         return;
       }
       this.dragging = this.drag.hover(x, y);
@@ -309,16 +340,30 @@ export class ChartView {
         this.drag.pointerMove(x, y);
         return;
       }
+      if (this.mover.isMoving()) {
+        e.preventDefault();
+        e.stopPropagation();
+        this.mover.pointerMove(x, y);
+        return;
+      }
       const h = this.drag.hover(x, y);
       const p = h ? null : this.presetAt(x, y)?.pct ?? null;
+      const body = !h && p === null && this.overlay !== null && this.mover.hover(x, y);
+      el.style.cursor = h ? 'ns-resize' : p !== null ? 'pointer' : body ? 'grab' : '';
       if (h !== this.hover || p !== this.hoverPreset) {
         this.hover = h;
         this.hoverPreset = p;
-        el.style.cursor = h ? 'ns-resize' : p !== null ? 'pointer' : '';
         this.rebuildOverlay();
       }
     };
     const onUp = (e: PointerEvent) => {
+      if (this.mover.isMoving()) {
+        e.stopPropagation();
+        el.releasePointerCapture?.(e.pointerId);
+        el.style.cursor = 'grab';
+        this.mover.pointerUp();
+        return;
+      }
       if (!this.drag.isDragging()) return;
       e.stopPropagation();
       el.releasePointerCapture?.(e.pointerId);
@@ -328,7 +373,7 @@ export class ChartView {
     };
     // 드래그 중에는 차트 라이브러리의 마우스·터치 이벤트로 넘어가지 않게 막는다
     const swallow = (e: Event) => {
-      if (this.drag.isDragging()) e.stopPropagation();
+      if (this.drag.isDragging() || this.mover.isMoving()) e.stopPropagation();
     };
     el.addEventListener('pointerdown', onDown, true);
     el.addEventListener('pointermove', onMove, true);

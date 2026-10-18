@@ -295,3 +295,70 @@ test('clicking a percent line sets TP or SL to that level', async ({ page }) => 
   expect((await scenario(page))!.entry).toBe(s0.entry);
   expect(await visibleRange(page)).toEqual(rangeBefore); // 클릭이 차트를 움직이지 않음
 });
+
+test('dragging the box body moves it sideways without touching prices or the chart', async ({ page }) => {
+  await open(page, { tf: '15' });
+  await page.getByTestId('btn-long').click();
+  await expect.poll(() => scenario(page)).not.toBeNull();
+  const e = (await scenario(page))!.entry;
+  // 몸통을 잡을 수 있을 만큼 넓게: SL −1.5%, TP +2%
+  await setLevel(page, 'sl', (e * 0.985).toFixed(1));
+  await setLevel(page, 'tp', (e * 1.02).toFixed(1));
+  await expect.poll(async () => { const g = await rendered(page); return !!(g?.profit && g?.loss); }).toBe(true);
+  const s0 = (await scenario(page))!;
+  const g = (await rendered(page))!;
+  const r = await chartRect(page);
+  // 몸통 안(화면 안)에서 SL·TP·점선과 떨어진 높이를 고른다
+  const lines = [g.ySl!, g.yTp!, ...g.presets.map((p) => p.y)];
+  const top = Math.max(0, Math.min(g.profit!.y, g.loss!.y)) + 2;
+  const bottom = Math.min(r.height, Math.max(g.profit!.y + g.profit!.h, g.loss!.y + g.loss!.h)) - 2;
+  let y = top;
+  while (y < bottom && lines.some((l) => Math.abs(l - y) < 10)) y += 2;
+  expect(y).toBeLessThan(bottom);
+  const x = g.x1 + 12;
+  const rangeBefore = await visibleRange(page);
+
+  await page.mouse.move(r.left + x, r.top + y);
+  await page.mouse.down();
+  await page.mouse.move(r.left + x + 100, r.top + y, { steps: 8 });
+  await page.mouse.up();
+
+  const moved = (await rendered(page))!;
+  expect(moved.x1 - g.x1).toBeGreaterThan(80);
+  expect(moved.x1 - g.x1).toBeLessThan(120);
+  expect(moved.x2 - moved.x1).toBeCloseTo(g.x2 - g.x1, 0);
+  const s1 = (await scenario(page))!;
+  expect(s1.boxShiftMs).toBeGreaterThan(0);
+  expect(s1.entry).toBe(s0.entry);
+  expect(s1.applied).toEqual(s0.applied);
+  expect(await visibleRange(page)).toEqual(rangeBefore);
+
+  await page.reload();
+  await waitLive(page);
+  await expect.poll(async () => (await rendered(page))?.x1 ?? 0).toBeCloseTo(moved.x1, 0);
+});
+
+test('the box stops before it leaves the visible chart', async ({ page }) => {
+  await open(page, { tf: '15' });
+  await page.getByTestId('btn-long').click();
+  await expect.poll(() => scenario(page)).not.toBeNull();
+  const e = (await scenario(page))!.entry;
+  await setLevel(page, 'sl', (e * 0.985).toFixed(1));
+  await setLevel(page, 'tp', (e * 1.02).toFixed(1));
+  await expect.poll(async () => { const g = await rendered(page); return !!(g?.profit && g?.loss); }).toBe(true);
+  const g = (await rendered(page))!;
+  const r = await chartRect(page);
+  const lines = [g.ySl!, g.yTp!, ...g.presets.map((p) => p.y)];
+  let y = Math.max(0, Math.min(g.profit!.y, g.loss!.y)) + 2;
+  while (lines.some((l) => Math.abs(l - y) < 10)) y += 2;
+  await page.mouse.move(r.left + g.x1 + 12, r.top + y);
+  await page.mouse.down();
+  await page.mouse.move(r.left + r.width - 5, r.top + y, { steps: 10 }); // 가격축 너머까지 끈다
+  await page.mouse.up();
+  const moved = (await rendered(page))!;
+  const paneWidth = await page.evaluate(() => {
+    const canvas = document.querySelector('[data-testid=chart] canvas') as HTMLCanvasElement;
+    return canvas.getBoundingClientRect().width;
+  });
+  expect(moved.x1).toBeLessThanOrEqual(paneWidth - 50);
+});

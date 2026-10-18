@@ -82,3 +82,16 @@ describe('settings persistence', () => {
     expect(loadSettings(st).swingBars).toBe(3);
   });
 });
+
+describe('box shift persistence', () => {
+  it('keeps the box shift and accepts scenarios saved before it existed', () => {
+    const st = memoryStorage();
+    const withShift = { ...state(), scenario: { ...state().scenario!, boxShiftMs: 900_000 } };
+    saveState(st, withShift);
+    expect(loadState(st)?.scenario?.boxShiftMs).toBe(900_000);
+    const legacy = { ...state() };
+    delete (legacy.scenario as { boxShiftMs?: number }).boxShiftMs;
+    saveState(st, legacy);
+    expect(loadState(st)?.scenario).not.toBeNull();
+  });
+});

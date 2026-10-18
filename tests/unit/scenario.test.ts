@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { computeMetrics } from '../../src/core/metrics';
-import { closeScenario, restoreAuto, setLevel, type Scenario } from '../../src/core/scenario';
+import { closeScenario, restoreAuto, setBoxShift, setLevel, type Scenario } from '../../src/core/scenario';
 import { makeScenario } from './helpers/scenario';
 
 const rrOf = (s: Scenario) =>
@@ -78,5 +78,24 @@ describe('closeScenario', () => {
     expect(setLevel(closed, 'sl', 90)).toBe(closed);
     expect(restoreAuto(closed)).toBe(closed);
     expect(closeScenario(closed, { price: 1, time: 1 })).toBe(closed);
+  });
+});
+
+describe('setBoxShift', () => {
+  it('moves only where the box is drawn', () => {
+    const s = setBoxShift(makeScenario(), 45 * 60_000);
+    expect(s.boxShiftMs).toBe(45 * 60_000);
+    expect(s.entry).toBe(100);
+    expect(s.applied).toEqual({ sl: 98, tp: 106 });
+    expect(s.source).toEqual({ sl: 'auto', tp: 'auto' });
+  });
+
+  it('never goes left of the entry time', () => {
+    expect(setBoxShift(makeScenario(), -5).boxShiftMs).toBe(0);
+  });
+
+  it('also works on a closed scenario', () => {
+    const closed = closeScenario(makeScenario(), { price: 103, time: 5_000 });
+    expect(setBoxShift(closed, 1_000).boxShiftMs).toBe(1_000);
   });
 });

@@ -31,6 +31,8 @@ export interface Scenario {
   settings: AnalysisSettings;
   status: 'active' | 'closed';
   closed: { price: number; time: number } | null;
+  /** 박스를 그리는 위치를 오른쪽으로 옮긴 양 (ms). 가격과 무관한 표시 설정 */
+  boxShiftMs?: number;
 }
 
 export interface CreateScenarioInput {
@@ -91,4 +93,9 @@ export function restoreAuto(s: Scenario): Scenario {
 export function closeScenario(s: Scenario, at: { price: number; time: number }): Scenario {
   if (s.status !== 'active') return s;
   return { ...s, status: 'closed', closed: { price: at.price, time: at.time } };
+}
+
+/** 박스 그리는 위치만 옮긴다 (엔트리 시점보다 왼쪽으로는 안 감). 종료된 시나리오도 가능 */
+export function setBoxShift(s: Scenario, shiftMs: number): Scenario {
+  return { ...s, boxShiftMs: Math.max(0, shiftMs) };
 }

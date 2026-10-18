@@ -57,3 +57,72 @@ export class DragController {
     return g ? hitTest(g, x, y, this.d.tolerance) : null;
   }
 }
+
+export interface BoxMoveDeps {
+  getGeometry(): BoxGeometry | null;
+  xToLogical(x: number): number | null;
+  /** 현재 박스 이동량 (봉 단위, 0 이상) */
+  getShiftBars(): number;
+  onMove(shiftBars: number): void;
+  onMoveEnd(shiftBars: number): void;
+  setChartInteraction(enabled: boolean): void;
+  /** 이 이상 옮기면 박스가 화면 밖으로 나간다 (없으면 제한 없음) */
+  maxShiftBars?(): number | null;
+}
+
+/** 박스 몸통(수익·손실 영역)이 눌렸는지 */
+export function insideBoxBody(g: BoxGeometry, x: number, y: number): boolean {
+  if (x < g.x1 || x > g.x2) return false;
+  const ys = [g.yEntry - 6, g.yEntry + 6];
+  for (const r of [g.profit, g.loss]) if (r) ys.push(r.y, r.y + r.h);
+  return y >= Math.min(...ys) && y <= Math.max(...ys);
+}
+
+/**
+ * 박스 좌우 이동. 가격(엔트리·SL·TP)은 건드리지 않고 그리는 위치만 봉 단위로 옮긴다.
+ * 엔트리 시점보다 왼쪽(음수)으로는 옮기지 않는다.
+ */
+export class BoxMoveController {
+  private start: { logical: number; shift: number; max: number } | null = null;
+  private last = 0;
+
+  constructor(private readonly d: BoxMoveDeps) {}
+
+  pointerDown(x: number, y: number): boolean {
+    const g = this.d.getGeometry();
+    if (!g || !insideBoxBody(g, x, y)) return false;
+    const logical = this.d.xToLogical(x);
+    if (logical === null) return false;
+    const shift = this.d.getShiftBars();
+    this.start = { logical, shift, max: Math.max(shift, this.d.maxShiftBars?.() ?? Infinity) };
+    this.last = this.start.shift;
+    this.d.setChartInteraction(false);
+    return true;
+  }
+
+  pointerMove(x: number, _y: number): void {
+    if (!this.start) return;
+    const logical = this.d.xToLogical(x);
+    if (logical === null) return;
+    const next = Math.min(this.start.max, Math.max(0, this.start.shift + Math.round(logical - this.start.logical)));
+    if (next === this.last) return;
+    this.last = next;
+    this.d.onMove(next);
+  }
+
+  pointerUp(): void {
+    if (!this.start) return;
+    this.start = null;
+    this.d.setChartInteraction(true);
+    this.d.onMoveEnd(this.last);
+  }
+
+  isMoving(): boolean {
+    return this.start !== null;
+  }
+
+  hover(x: number, y: number): boolean {
+    const g = this.d.getGeometry();
+    return !!g && insideBoxBody(g, x, y);
+  }
+}

@@ -8,7 +8,7 @@ import { presetLevels } from '../core/presets';
 import { computeMetrics, formatRR, type Metrics } from '../core/metrics';
 import { loadSettings, loadState, saveSettings, saveState, type StorageLike, type UiSelection } from '../core/persistence';
 import { formatPrice } from '../core/price';
-import { closeScenario, createScenario, restoreAuto, setLevel, type Scenario } from '../core/scenario';
+import { closeScenario, createScenario, restoreAuto, setBoxShift, setLevel, type Scenario } from '../core/scenario';
 import { DEFAULT_SETTINGS, sanitizeSettings, type AnalysisSettings } from '../core/settings';
 import { defaultHigherTf, defaultSlTf, higherTimeframes, slTimeframes, TIMEFRAMES, tfMs } from '../core/timeframe';
 import type { PriceTick, Side, SymbolInfo, Timeframe } from '../core/types';
@@ -97,6 +97,12 @@ export class App {
         this.renderNow();
       },
       onDragEnd: () => this.persist(),
+      onBoxMove: (shiftMs, done) => {
+        if (!this.scenario) return;
+        this.scenario = setBoxShift(this.scenario, shiftMs);
+        this.renderNow();
+        if (done) this.persist();
+      },
       onPreset: (which, price) => {
         if (!this.scenario) return;
         this.scenario = setLevel(this.scenario, which, price);
@@ -761,6 +767,7 @@ export class App {
           }
         : null,
       presets: s.status === 'active' ? presetLevels(s.side, s.entry, s.tickSize) : [],
+      shiftMs: s.boxShiftMs ?? 0,
       swing: s.auto.tp.swing && s.auto.tp.timeframe
         ? { time: s.auto.tp.swing.time, price: s.auto.tp.swing.price, label: `TP 기준 ${tfName(s.auto.tp.timeframe)} 스윙` }
         : null,

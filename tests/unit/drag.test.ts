@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DragController } from '../../src/chart/drag';
+import { BoxMoveController, DragController } from '../../src/chart/drag';
 import { computeBoxGeometry, type CoordMapper } from '../../src/chart/geometry';
 import { computeMetrics } from '../../src/core/metrics';
 import { snapToTick } from '../../src/core/price';
@@ -84,5 +84,66 @@ describe('DragController', () => {
     const h = harness();
     expect(h.ctl.hover(150, 121)).toBe('sl');
     expect(h.ctl.hover(150, 70)).toBeNull();
+  });
+});
+
+describe('BoxMoveController', () => {
+  // x = 논리 인덱스 × 10, 박스는 논리 10~20, 가격 98~106
+  const geometry = () =>
+    computeBoxGeometry({ side: 'LONG', entry: 100, sl: 98, tp: 106, startLogical: 10, endLogical: 20 }, mapper);
+
+  function moveHarness(startShift = 0, maxShift: number | null = null) {
+    let shift = startShift;
+    const interaction: boolean[] = [];
+    const ends: number[] = [];
+    const ctl = new BoxMoveController({
+      getGeometry: geometry,
+      xToLogical: (x) => x / 10,
+      getShiftBars: () => shift,
+      onMove: (bars) => { shift = bars; },
+      onMoveEnd: (bars) => ends.push(bars),
+      setChartInteraction: (on) => interaction.push(on),
+      maxShiftBars: () => maxShift,
+    });
+    return { ctl, interaction, ends, shift: () => shift };
+  }
+
+  it('grabbing the box body moves it by whole bars and blocks chart panning', () => {
+    const h = moveHarness();
+    expect(h.ctl.pointerDown(150, 90)).toBe(true); // 수익 영역 안 (y 40~100)
+    expect(h.interaction).toEqual([false]);
+    h.ctl.pointerMove(176, 95); // +2.6봉 → 3봉
+    expect(h.shift()).toBe(3);
+    h.ctl.pointerUp();
+    expect(h.ends).toEqual([3]);
+    expect(h.interaction).toEqual([false, true]);
+  });
+
+  it('adds to an existing shift', () => {
+    const h = moveHarness(4);
+    h.ctl.pointerDown(150, 110);
+    h.ctl.pointerMove(170, 110);
+    expect(h.shift()).toBe(6);
+  });
+
+  it('never moves the box left of where the scenario started', () => {
+    const h = moveHarness(2);
+    h.ctl.pointerDown(150, 110);
+    h.ctl.pointerMove(90, 110);
+    expect(h.shift()).toBe(0);
+  });
+
+  it('stops before the box would leave the visible chart', () => {
+    const h = moveHarness(1, 5);
+    h.ctl.pointerDown(150, 110);
+    h.ctl.pointerMove(250, 110); // +10봉 요청
+    expect(h.shift()).toBe(5);
+  });
+
+  it('ignores presses outside the box body', () => {
+    const h = moveHarness();
+    expect(h.ctl.pointerDown(250, 90)).toBe(false);
+    expect(h.ctl.pointerDown(150, 20)).toBe(false);
+    expect(h.interaction).toEqual([]);
   });
 });
