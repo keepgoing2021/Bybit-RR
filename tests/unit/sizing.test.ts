@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_SIZING,
+  linearRatio,
+  MAX_SPLITS,
+  parseWeights,
   planSizing,
+  ratioLabel,
   sanitizeSizing,
   splitPrices,
   splitShares,
@@ -14,7 +18,7 @@ const base = (over: Partial<SizingInput> = {}): SizingInput => ({
   sl: 90,
   tp: 120,
   tickSize: 0.1,
-  settings: { capital: 10_000, riskPct: 1, splits: 3, weightMode: 'linear', showAvgLine: true },
+  settings: { capital: 10_000, riskPct: 1, splits: 3, weightMode: 'linear', customWeights: [], showAvgLine: true },
   ...over,
 });
 const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
@@ -32,6 +36,15 @@ describe('splitShares', () => {
   it('linear: later entries get more money (1:2:3, 1:2:3:4:5)', () => {
     expect(splitShares([100, 96.7, 93.3], 90, 'linear').map((x) => x * 6)).toEqual([1, 2, 3].map((x) => expect.closeTo(x, 9)));
     expect(splitShares([100, 98, 96, 94, 92], 90, 'linear').map((x) => x * 15)).toEqual([1, 2, 3, 4, 5].map((x) => expect.closeTo(x, 9)));
+  });
+
+  it('custom weights are used as given ratios', () => {
+    expect(splitShares([100, 96.7, 93.3], 90, 'custom', [1, 1, 2])).toEqual([0.25, 0.25, 0.5]);
+    expect(splitShares([100, 95], 90, 'custom', [20, 80])).toEqual([0.2, 0.8]);
+  });
+
+  it('linear works for any count (1:2:…:n)', () => {
+    expect(splitShares([100, 99, 98, 97], 90, 'linear').map((x) => x * 10)).toEqual([1, 2, 3, 4].map((x) => expect.closeTo(x, 9)));
   });
 
   it('shares always add up to 1', () => {
@@ -154,19 +167,64 @@ describe('planSizing — when it cannot plan', () => {
 
 describe('sanitizeSizing', () => {
   it('defaults: no capital yet, 1% risk, 3 splits, linear', () => {
-    expect(DEFAULT_SIZING).toEqual({ capital: null, riskPct: 1, splits: 3, weightMode: 'linear', showAvgLine: true });
+    expect(DEFAULT_SIZING).toEqual({ capital: null, riskPct: 1, splits: 3, weightMode: 'linear', customWeights: [], showAvgLine: true });
     expect(sanitizeSizing(null)).toEqual(DEFAULT_SIZING);
   });
 
   it('keeps valid values and clamps risk %', () => {
     expect(sanitizeSizing({ capital: 2500, riskPct: 0.5, splits: 5, weightMode: 'equalRisk', showAvgLine: false })).toEqual({
-      capital: 2500, riskPct: 0.5, splits: 5, weightMode: 'equalRisk', showAvgLine: false,
+      capital: 2500, riskPct: 0.5, splits: 5, weightMode: 'equalRisk', customWeights: [], showAvgLine: false,
     });
     expect(sanitizeSizing({ riskPct: 50 }).riskPct).toBe(10);
     expect(sanitizeSizing({ riskPct: 0 }).riskPct).toBe(0.1);
   });
 
+  it('any split count from 1 to MAX_SPLITS', () => {
+    expect(MAX_SPLITS).toBe(10);
+    for (const n of [1, 2, 4, 7, 10]) expect(sanitizeSizing({ splits: n }).splits).toBe(n);
+    for (const n of [0, 11, 2.5, 'x']) expect(sanitizeSizing({ splits: n }).splits).toBe(3);
+  });
+
+  it('custom weights decide the split count; empty or bad custom falls back to linear', () => {
+    expect(sanitizeSizing({ weightMode: 'custom', customWeights: [1, 1, 2], splits: 5 })).toMatchObject({ weightMode: 'custom', customWeights: [1, 1, 2], splits: 3 });
+    expect(sanitizeSizing({ weightMode: 'custom', customWeights: [] })).toMatchObject({ weightMode: 'linear', customWeights: [] });
+    expect(sanitizeSizing({ weightMode: 'custom', customWeights: [1, -1, 'a'] })).toMatchObject({ weightMode: 'linear', customWeights: [] });
+  });
+
   it('drops garbage', () => {
-    expect(sanitizeSizing({ capital: -5, splits: 4, weightMode: 'x', riskPct: 'a', showAvgLine: 'no' })).toEqual(DEFAULT_SIZING);
+    expect(sanitizeSizing({ capital: -5, splits: 40, weightMode: 'x', riskPct: 'a', showAvgLine: 'no' })).toEqual(DEFAULT_SIZING);
+  });
+});
+
+describe('parseWeights', () => {
+  it('reads ratios written with : / , or spaces', () => {
+    expect(parseWeights('1:1:2')).toEqual([1, 1, 2]);
+    expect(parseWeights('20/30/50')).toEqual([20, 30, 50]);
+    expect(parseWeights(' 1, 2 ,3 ')).toEqual([1, 2, 3]);
+    expect(parseWeights('1 2 3 4')).toEqual([1, 2, 3, 4]);
+    expect(parseWeights('0.5:1.5')).toEqual([0.5, 1.5]);
+    expect(parseWeights('100')).toEqual([100]);
+  });
+
+  it('rejects empty, zero, negative, text and more than MAX_SPLITS', () => {
+    for (const t of ['', 'a:b', '1:0', '1:-1', '1::2', Array(11).fill(1).join(':')]) expect(parseWeights(t)).toBeNull();
+  });
+});
+
+describe('planSizing — custom weights', () => {
+  it('splits money by the custom ratio and still caps the loss', () => {
+    const r = planSizing(base({ settings: { ...base().settings, weightMode: 'custom', customWeights: [1, 1, 2], splits: 3 } }));
+    if (!r.ok) throw new Error(r.reason);
+    expect(r.plan.tranches.map((t) => t.share)).toEqual([0.25, 0.25, 0.5].map((x) => expect.closeTo(x, 9)));
+    expect(r.plan.lossAtSl).toBeCloseTo(100, 9);
+  });
+});
+
+describe('ratio helpers', () => {
+  it('linear ratio and its short label', () => {
+    expect(linearRatio(4)).toEqual([1, 2, 3, 4]);
+    expect(ratioLabel(1)).toBe('1');
+    expect(ratioLabel(5)).toBe('1:2:3:4:5');
+    expect(ratioLabel(8)).toBe('1:2:…:8');
   });
 });

@@ -56,7 +56,8 @@ export interface BoxGeometry {
   loss: Rect | null;
   handles: { sl: Rect | null; tp: Rect | null };
   presets: (PresetLevel & { y: number })[];
-  splits: (SplitLine & { y: number })[];
+  /** 분할 가격선. showLabel=false면 이름표가 엔트리·다른 분할과 겹쳐서 선만 그린다 (10분할 등) */
+  splits: (SplitLine & { y: number; showLabel: boolean })[];
   /** 분할별 예상 평단 선. showLabel=false면 이름표가 다른 것과 겹쳐서 선만 그린다 */
   avgLines: (AvgLine & { y: number; showLabel: boolean })[];
 }
@@ -92,28 +93,59 @@ export function computeBoxGeometry(i: BoxInput, m: CoordMapper): BoxGeometry | n
     loss: band(ySl),
     handles: { sl: handle(ySl), tp: handle(yTp) },
     presets: spaced(i.presets ?? [], m, yEntry),
-    avgLines: labeledAvgLines(i.avgLines ?? [], m),
-    splits: (i.splits ?? []).flatMap((p) => {
-      const y = m.priceToY(p.price);
-      return y === null ? [] : [{ ...p, y }];
-    }),
+    ...labeledInside(i, m, yEntry, x2 - x1),
   };
 }
 
-/** 전부 체결 평단 이름표는 항상, 나머지는 이미 보이는 이름표와 14px 넘게 떨어질 때만 */
-function labeledAvgLines(lines: AvgLine[], m: CoordMapper): (AvgLine & { y: number; showLabel: boolean })[] {
-  const placed = lines.flatMap((l) => {
+/**
+ * 박스 너비가 이보다 좁으면 왼쪽 분할 이름표가 가운데 손익비 칩·오른쪽 평단 칩과 가로로 겹친다.
+ * 그때는 셋이 한 줄(세로)을 나눠 쓰듯 서로 피한다.
+ */
+export const NARROW_BOX = 210;
+/** 평단 칩(높이 16) 중심 ↔ 엔트리의 손익비 칩(높이 20) 중심 최소 거리 */
+const AVG_ENTRY_GAP = 20;
+/** 분할 이름표(선 위 2~12px, 중심 = 선 − 7) 중심 ↔ 손익비 칩 중심 / 평단 칩 중심 최소 거리 */
+const SPLIT_LABEL_OFFSET = 7;
+const SPLIT_ENTRY_GAP = 17;
+const SPLIT_AVG_GAP = 15;
+
+/**
+ * 박스 안 이름표 자리 정하기. 우선순위: 전부 체결 평단(항상) > 다른 평단 > 분할 이름표.
+ * 선은 모두 그리고, 겹칠 이름표만 숨긴다 (10분할처럼 촘촘할 때).
+ */
+function labeledInside(
+  i: BoxInput,
+  m: CoordMapper,
+  yEntry: number,
+  width: number,
+): { avgLines: (AvgLine & { y: number; showLabel: boolean })[]; splits: (SplitLine & { y: number; showLabel: boolean })[] } {
+  const narrow = width < NARROW_BOX;
+  const avgLines = (i.avgLines ?? []).flatMap((l) => {
     const y = m.priceToY(l.price);
     return y === null ? [] : [{ ...l, y, showLabel: false }];
   });
-  const shown: number[] = [];
-  for (const l of [...placed.filter((p) => p.final), ...placed.filter((p) => !p.final)]) {
-    if (l.final || shown.every((y) => Math.abs(y - l.y) >= PRESET_MIN_GAP)) {
+  const avgShown: number[] = [];
+  for (const l of [...avgLines.filter((p) => p.final), ...avgLines.filter((p) => !p.final)]) {
+    const free = Math.abs(l.y - yEntry) >= AVG_ENTRY_GAP && avgShown.every((y) => Math.abs(y - l.y) >= PRESET_MIN_GAP);
+    if (l.final || free) {
       l.showLabel = true;
-      shown.push(l.y);
+      avgShown.push(l.y);
     }
   }
-  return placed;
+
+  // 분할 이름표: 엔트리에서 SL 쪽 순서로, 엔트리선·앞 이름표와 14px. 좁은 박스면 손익비 칩·평단 칩도 피한다
+  let last = yEntry;
+  const splits = (i.splits ?? []).flatMap((p) => {
+    const y = m.priceToY(p.price);
+    if (y === null) return [];
+    const c = y - SPLIT_LABEL_OFFSET;
+    const showLabel =
+      Math.abs(y - last) >= PRESET_MIN_GAP &&
+      (!narrow || (Math.abs(c - yEntry) >= SPLIT_ENTRY_GAP && avgShown.every((ya) => Math.abs(c - ya) >= SPLIT_AVG_GAP)));
+    if (showLabel) last = y;
+    return [{ ...p, y, showLabel }];
+  });
+  return { avgLines, splits };
 }
 
 /** 점선 사이 최소 간격 (px). 이보다 가까우면 이름표가 겹치므로 그 점선은 그리지 않는다 */

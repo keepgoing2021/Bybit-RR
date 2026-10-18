@@ -812,6 +812,19 @@ button.danger {
   width: 70px;
 }
 
+/* 비중: 선택 + 기타(직접 입력) 칸. .field > span(라벨 글씨) 스타일을 받지 않게 되돌린다 */
+.field > .weights-field {
+  display: flex;
+  gap: 6px;
+  font-size: inherit;
+  color: inherit;
+}
+
+.weights-custom {
+  width: 112px;
+  font-variant-numeric: tabular-nums;
+}
+
 /* 차트 왼쪽 작도 도구 */
 .chart-wrap .chart {
   left: 22px;

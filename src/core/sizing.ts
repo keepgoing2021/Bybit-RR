@@ -1,9 +1,11 @@
 import { decimalsOf, snapToTick } from './price';
 import type { Side } from './types';
 
-export type SplitCount = 1 | 3 | 5;
+/** 분할 수 1 ~ MAX_SPLITS */
+export type SplitCount = number;
+export const MAX_SPLITS = 10;
 /** linear: 금액 1:2:3(:4:5) / equalRisk: 분할마다 SL 손실이 같도록 */
-export type WeightMode = 'linear' | 'equalRisk';
+export type WeightMode = 'linear' | 'equalRisk' | 'custom';
 
 export interface SizingSettings {
   /** 운영자산 (USDT). 입력 전이면 null */
@@ -12,11 +14,13 @@ export interface SizingSettings {
   riskPct: number;
   splits: SplitCount;
   weightMode: WeightMode;
+  /** weightMode 'custom'의 비율 (예: [1, 1, 2]). 개수 = 분할 수 */
+  customWeights: number[];
   /** 차트에 '체결 시 예상 평단' 점선을 그릴지 */
   showAvgLine: boolean;
 }
 
-export const DEFAULT_SIZING: SizingSettings = { capital: null, riskPct: 1, splits: 3, weightMode: 'linear', showAvgLine: true };
+export const DEFAULT_SIZING: SizingSettings = { capital: null, riskPct: 1, splits: 3, weightMode: 'linear', customWeights: [], showAvgLine: true };
 export const RISK_PCT_RANGE: [number, number] = [0.1, 10];
 
 export function sanitizeSizing(raw: unknown): SizingSettings {
@@ -26,8 +30,17 @@ export function sanitizeSizing(raw: unknown): SizingSettings {
   if (typeof src.riskPct === 'number' && Number.isFinite(src.riskPct)) {
     out.riskPct = Math.min(RISK_PCT_RANGE[1], Math.max(RISK_PCT_RANGE[0], src.riskPct));
   }
-  if (src.splits === 1 || src.splits === 3 || src.splits === 5) out.splits = src.splits;
-  if (src.weightMode === 'linear' || src.weightMode === 'equalRisk') out.weightMode = src.weightMode;
+  if (Number.isInteger(src.splits) && (src.splits as number) >= 1 && (src.splits as number) <= MAX_SPLITS) out.splits = src.splits as number;
+  if (src.weightMode === 'linear' || src.weightMode === 'equalRisk' || src.weightMode === 'custom') out.weightMode = src.weightMode;
+  const cw = src.customWeights;
+  if (Array.isArray(cw) && cw.length >= 1 && cw.length <= MAX_SPLITS && cw.every((w) => typeof w === 'number' && Number.isFinite(w) && w > 0)) {
+    out.customWeights = [...(cw as number[])];
+  }
+  // 직접 입력한 비중은 칸 수가 곧 분할 수. 비중이 없으면 기본(점점 크게)으로
+  if (out.weightMode === 'custom') {
+    if (out.customWeights.length) out.splits = out.customWeights.length;
+    else out.weightMode = 'linear';
+  }
   if (typeof src.showAvgLine === 'boolean') out.showAvgLine = src.showAvgLine;
   return out;
 }
@@ -37,9 +50,9 @@ export function splitPrices(_side: Side, entry: number, sl: number, n: number, t
   return Array.from({ length: n }, (_, k) => snapToTick(entry - (k / n) * (entry - sl), tickSize));
 }
 
-/** 분할별 금액 비중 (합 1). linear는 k+1에 비례, equalRisk는 SL 손실이 같도록 가격/손절폭에 비례 */
-export function splitShares(prices: number[], sl: number, mode: WeightMode): number[] {
-  const raw = prices.map((p, k) => (mode === 'linear' ? k + 1 : p / Math.abs(p - sl)));
+/** 분할별 금액 비중 (합 1). linear는 k+1에 비례, equalRisk는 SL 손실이 같도록 가격/손절폭에 비례, custom은 입력한 비율 */
+export function splitShares(prices: number[], sl: number, mode: WeightMode, custom: number[] = []): number[] {
+  const raw = prices.map((p, k) => (mode === 'linear' ? k + 1 : mode === 'custom' ? custom[k] ?? 1 : p / Math.abs(p - sl)));
   const total = raw.reduce((a, b) => a + b, 0);
   return raw.map((x) => x / total);
 }
@@ -119,7 +132,7 @@ export function planSizing(i: SizingInput): SizingResult {
   }
 
   const prices = splitPrices(side, entry, sl, splits, tickSize);
-  const shares = splitShares(prices, sl, weightMode);
+  const shares = splitShares(prices, sl, weightMode, settings.customWeights);
   const riskBudget = (capital * riskPct) / 100;
   // 금액 1당 SL 손실 = 손절폭 ÷ 가격
   const lossPerNotional = shares.reduce((acc, w, k) => acc + (w * Math.abs(prices[k] - sl)) / prices[k], 0);
@@ -168,4 +181,24 @@ export function planSizing(i: SizingInput): SizingResult {
       leverage: totalNotional / capital,
     },
   };
+}
+
+/** 직접 입력한 비중 '1:1:2', '20/30/50', '1, 2, 3', '1 2 3' → [..]. 0 이하·숫자 아님·MAX_SPLITS 초과는 null */
+export function parseWeights(text: string): number[] | null {
+  const t = text.trim();
+  if (t === '') return null;
+  const parts = t.split(/\s*[:/,]\s*|\s+/);
+  if (parts.length > MAX_SPLITS || parts.some((x) => x === '')) return null;
+  const nums = parts.map(Number);
+  return nums.every((n) => Number.isFinite(n) && n > 0) ? nums : null;
+}
+
+/** 점점 크게(1:2:…:n) 비율 */
+export function linearRatio(n: number): number[] {
+  return Array.from({ length: n }, (_, k) => k + 1);
+}
+
+/** 비중 이름표: 5분할까지는 1:2:3:4:5, 그 이상은 1:2:…:n */
+export function ratioLabel(n: number): string {
+  return n <= 5 ? linearRatio(n).join(':') : `1:2:…:${n}`;
 }

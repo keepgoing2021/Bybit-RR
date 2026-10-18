@@ -182,8 +182,15 @@ export class RRBoxPrimitive implements ISeriesPrimitive<Time> {
         ctx.lineTo(g.x2, Math.round(sp.y) + 0.5);
         ctx.stroke();
         ctx.setLineDash([]);
-        ctx.fillStyle = THEME.entry;
-        ctx.fillText(sp.label, g.x1 + 4, sp.y - 2);
+        if (sp.showLabel) {
+          // 촘촘한 분할에서 위쪽 점선이 글자를 가르지 않게 배경색 테두리
+          ctx.strokeStyle = THEME.bg;
+          ctx.lineWidth = 3;
+          ctx.lineJoin = 'round';
+          ctx.strokeText(sp.label, g.x1 + 4, sp.y - 2);
+          ctx.fillStyle = THEME.entry;
+          ctx.fillText(sp.label, g.x1 + 4, sp.y - 2);
+        }
       }
 
       // 체결 시 예상 평단: 전부 체결은 굵은 흰 점선 + 흰 칩, 중간 단계는 옅은 잔점선 + 테두리 칩
