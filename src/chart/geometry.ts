@@ -101,13 +101,17 @@ function spaced(presets: PresetLevel[], m: CoordMapper, yEntry: number): (Preset
   return out;
 }
 
-/** 박스 가로 범위 안에서 점선 위인지 (가장 가까운 것) */
+/** 점선 오른쪽 끝의 이름표 칩 영역 (px). 여기서는 더 넓게 눌린다 */
+export const PRESET_LABEL_ZONE = 56;
+
+/** 박스 가로 범위 안에서 점선(또는 오른쪽 이름표 칩) 위인지 (가장 가까운 것) */
 export function hitTestPreset(g: BoxGeometry, x: number, y: number, tol = 4): (PresetLevel & { y: number }) | null {
   if (x < g.x1 || x > g.x2) return null;
+  const reach = x >= g.x2 - PRESET_LABEL_ZONE ? Math.max(tol, 9) : tol;
   let best: (PresetLevel & { y: number }) | null = null;
   for (const p of g.presets) {
     const d = Math.abs(p.y - y);
-    if (d <= tol && (!best || d < Math.abs(best.y - y))) best = p;
+    if (d <= reach && (!best || d < Math.abs(best.y - y))) best = p;
   }
   return best;
 }

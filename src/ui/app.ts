@@ -487,7 +487,14 @@ export class App {
     const rrInput = h('input', {
       class: 'rr num', 'data-testid': 'rr-input', inputmode: 'decimal', autocomplete: 'off', placeholder: '—', 'aria-label': '손익비 1:X 의 X',
     });
-    const rr = h('label', { class: 'rr-edit', title: '숫자를 고치면 TP가 그 손익비로 움직입니다' }, h('span', { class: 'rr num' }, '1:'), rrInput);
+    const rr = h(
+      'label',
+      { class: 'rr-edit', 'data-testid': 'rr-edit', title: '숫자를 고치면 TP가 그 손익비로 움직입니다' },
+      h('span', { class: 'rr num' }, '1:'),
+      rrInput,
+      h('span', { class: 'edit-icon', 'aria-hidden': 'true' }, '✎'),
+    );
+    rrInput.addEventListener('input', () => (rrInput.style.width = `${Math.max(2, rrInput.value.length) + 0.4}ch`));
     rrInput.addEventListener('change', () => this.applyRR(rrInput.value));
     rrInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') rrInput.blur();
@@ -528,6 +535,7 @@ export class App {
       h('div', { class: 'prices' }, entry.row, sl.row, tp.row),
       times,
       h('div', { class: 'rr-row' }, rrLabel, rr),
+      h('p', { class: 'rr-hint', 'data-testid': 'rr-hint' }, '✎ 숫자를 고치거나 차트의 빨간 1:x 칩을 누르면 TP 이동'),
       reasons,
       sizing.box,
       h('div', { class: 'why' }, h('p', { class: 'why-title' }, '자동 제안 근거'), slWhy, tpWhy),
@@ -855,7 +863,10 @@ export class App {
         ? `지정가로 계산 (누를 때 시장가 ${fp(s.capturedEntry ?? s.entry)})`
         : `${formatClock(s.priceTime)} ${s.priceSource === 'trade' ? '체결가' : '티커 가격'}로 계산`,
     );
-    if (force || document.activeElement !== e.rrInput) e.rrInput.value = m.rr === null ? '' : formatRR(m.rr).slice(2);
+    if (force || document.activeElement !== e.rrInput) {
+      e.rrInput.value = m.rr === null ? '' : formatRR(m.rr).slice(2);
+      e.rrInput.style.width = `${Math.max(2, e.rrInput.value.length) + 0.4}ch`;
+    }
     setText(e.rrLabel, this.sizing.splits > 1 ? '손익비 (1차만 체결 시)' : '손익비');
     e.rr.dataset.valid = String(m.valid);
     e.reasons.replaceChildren(...m.reasons.map((r) => h('li', {}, r)));

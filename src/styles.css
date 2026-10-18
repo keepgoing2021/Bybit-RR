@@ -453,27 +453,54 @@ button.copy:hover {
 .rr-edit {
   display: inline-flex;
   align-items: baseline;
+  padding: 2px 10px 4px 12px;
+  border: 1px solid rgba(240, 97, 109, 0.6);
+  border-radius: 8px;
+  background: rgba(240, 97, 109, 0.14);
   cursor: text;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.rr-edit:hover,
+.rr-edit:focus-within {
+  border-color: var(--loss);
+  background: rgba(240, 97, 109, 0.24);
+}
+
+.rr-edit .rr {
+  color: var(--loss);
 }
 
 .rr-edit input.rr {
-  width: 4.2ch;
-  padding: 0 2px;
+  width: 3.4ch;
+  padding: 0;
   background: transparent;
   border: none;
-  border-bottom: 1px dotted var(--muted);
   border-radius: 0;
-  color: var(--text);
   text-align: left;
 }
 
 .rr-edit input.rr:focus {
   outline: none;
-  border-bottom: 1px solid var(--entry);
 }
 
-.rr-edit[data-valid='false'] .rr {
+.rr-edit .edit-icon {
+  align-self: center;
+  margin-left: 6px;
+  font-size: 15px;
+  color: var(--loss);
+  opacity: 0.85;
+}
+
+.rr-edit[data-valid='false'] {
+  opacity: 0.6;
+}
+
+.rr-hint {
+  margin: -6px 0 0;
+  font-size: 12px;
   color: var(--muted);
+  text-align: right;
 }
 
 .reasons {

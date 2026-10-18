@@ -147,15 +147,12 @@ export class RRBoxPrimitive implements ISeriesPrimitive<Time> {
         ctx.fillRect(g.loss.x, g.loss.y, g.loss.w, g.loss.h);
       }
 
-      // 손익비 점선 (누르면 TP를 그 손익비로)
-      ctx.font = `600 11px ${THEME.font}`;
-      ctx.textAlign = 'right';
-      ctx.textBaseline = 'bottom';
+      // 손익비 점선: 누를 수 있다는 게 보이도록 오른쪽 끝에 빨간 칩 (마우스를 올리면 진하게)
       for (const p of g.presets) {
+        if (m.tp !== null && Math.abs(p.price - m.tp) < 1e-9) continue; // 지금 TP 자리는 TP 선·이름표가 이미 있다
         const hot = m.hoverPreset === p.id;
-        const color = p.target === 'tp' ? THEME.profit : THEME.loss;
-        ctx.globalAlpha = (m.closed ? 0.55 : 1) * (hot ? 1 : 0.5);
-        ctx.strokeStyle = color;
+        ctx.globalAlpha = (m.closed ? 0.55 : 1) * (hot ? 1 : 0.6);
+        ctx.strokeStyle = THEME.loss;
         ctx.lineWidth = hot ? 1.5 : 1;
         ctx.setLineDash([4, 4]);
         ctx.beginPath();
@@ -163,13 +160,15 @@ export class RRBoxPrimitive implements ISeriesPrimitive<Time> {
         ctx.lineTo(g.x2, Math.round(p.y) + 0.5);
         ctx.stroke();
         ctx.setLineDash([]);
-        ctx.fillStyle = color;
-        ctx.fillText(p.label, g.x2 - 4, p.y - 2);
+        ctx.globalAlpha = m.closed ? 0.55 : 1;
+        rrChip(ctx, hot ? `${p.label} → TP` : p.label, g.x2 - 3, p.y, hot);
       }
       ctx.globalAlpha = m.closed ? 0.55 : 1;
 
       // 분할 진입 가격선 (엔트리 색 점선, 이름표는 왼쪽)
+      ctx.font = `600 11px ${THEME.font}`;
       ctx.textAlign = 'left';
+      ctx.textBaseline = 'bottom';
       for (const sp of g.splits) {
         ctx.strokeStyle = THEME.entry;
         ctx.lineWidth = 1;
@@ -234,6 +233,27 @@ function handle(ctx: Ctx, r: { x: number; y: number; w: number; h: number }, col
   ctx.lineWidth = 1.5;
   ctx.fillRect(r.x, r.y, r.w, r.h);
   ctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1);
+}
+
+/** 손익비 점선 이름표: 오른쪽 정렬 빨간 칩 */
+function rrChip(ctx: Ctx, text: string, right: number, y: number, hot: boolean): void {
+  ctx.font = `700 11px ${THEME.font}`;
+  const w = ctx.measureText(text).width + 12;
+  const h = 16;
+  const left = right - w;
+  ctx.fillStyle = hot ? THEME.loss : 'rgba(240, 97, 109, 0.82)';
+  roundRect(ctx, left, y - h / 2, w, h, 4);
+  ctx.fill();
+  if (hot) {
+    ctx.strokeStyle = '#FFFFFF';
+    ctx.lineWidth = 1;
+    roundRect(ctx, left + 0.5, y - h / 2 + 0.5, w - 1, h - 1, 4);
+    ctx.stroke();
+  }
+  ctx.fillStyle = '#FFFFFF';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, left + 6, y + 0.5);
 }
 
 function chip(

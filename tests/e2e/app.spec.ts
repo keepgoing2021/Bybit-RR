@@ -397,31 +397,67 @@ test('price axis shows a countdown to the bar close that ticks down', async ({ p
   expect(b.text).not.toBe(a.text);
 });
 
+/** 화면 기준으로 1R이 px 픽셀이 되도록 SL을 둔다 (가격축 배율은 실행마다 다르다). TP는 점선을 가리지 않게 멀리 */
+async function riskInPixels(page: Page, s: Scenario, px: number): Promise<number> {
+  const [y0, y1] = await page.evaluate(([a, b]) => [window.__rrDebug.priceToClientY(a), window.__rrDebug.priceToClientY(b)], [s.entry, s.entry + 100]);
+  const risk = Number(((px * 100) / (y0! - y1!)).toFixed(1));
+  await setLevel(page, 'sl', (s.entry - risk).toFixed(1));
+  await setLevel(page, 'tp', (s.entry + risk * 10).toFixed(1));
+  return risk;
+}
+
+/** 차트 안에 보이는 손익비 점선 */
+async function visiblePresets(page: Page) {
+  const g = (await rendered(page))!;
+  const r = await chartRect(page);
+  return { g, r, shown: g.presets.filter((p) => p.y > 12 && p.y < r.height - 12) };
+}
+
 test('RR lines replace the percent lines; clicking one moves TP to that RR', async ({ page }) => {
   await open(page, { tf: '15' });
   await page.getByTestId('btn-long').click();
   await expect.poll(() => scenario(page)).not.toBeNull();
   const s0 = (await scenario(page))!;
-  // 1R을 넓게(진입 −1%) 잡아 점선이 다 보이게 하고, TP는 점선 클릭을 가로채지 않게 멀리 둔다
-  const risk = Number((s0.entry * 0.01).toFixed(1));
-  await setLevel(page, 'sl', (s0.entry - risk).toFixed(1));
-  await setLevel(page, 'tp', (s0.entry * 1.2).toFixed(1));
-  await expect.poll(async () => (await rendered(page))?.presets.map((p) => p.label) ?? []).toEqual(
-    ['1:1', '1:1.3', '1:1.5', '1:1.7', '1:2', '1:2.5', '1:3'],
-  );
-  const g = (await rendered(page))!;
+  const risk = await riskInPixels(page, s0, 30);
+  await expect.poll(async () => (await rendered(page))?.presets.length ?? 0).toBeGreaterThan(2);
+  const { g, r, shown } = await visiblePresets(page);
+  // 퍼센트 점선은 없고 손익비 점선만, 엔트리에서 바깥쪽 순서
+  const all = ['1:1', '1:1.3', '1:1.5', '1:1.7', '1:2', '1:2.5', '1:3'];
+  const labels = g.presets.map((p) => p.label);
+  expect(labels.every((l) => all.includes(l))).toBe(true);
+  expect(labels).toEqual([...labels].sort((a, b) => all.indexOf(a) - all.indexOf(b)));
+  expect(labels[0]).toBe('1:1');
   expect(g.presets.every((p) => p.target === 'tp')).toBe(true);
-  const r = await chartRect(page);
-  const x = r.left + (g.x1 + g.x2) / 2;
-  const rr15 = g.presets.find((p) => p.label === '1:1.5')!;
+  const pick = shown.find((p) => p.label !== '1:1') ?? shown[0];
   const rangeBefore = await visibleRange(page);
-  await page.mouse.click(x, r.top + rr15.y);
-  await expect.poll(async () => (await scenario(page))!.applied.tp).toBe(rr15.price);
-  await expect(page.getByTestId('rr-input')).toHaveValue('1.5');
+  await page.mouse.click(r.left + (g.x1 + g.x2) / 2, r.top + pick.y);
+  await expect.poll(async () => (await scenario(page))!.applied.tp).toBe(pick.price);
+  await expect(page.getByTestId('rr-input')).toHaveValue(pick.label.slice(2));
   const s1 = (await scenario(page))!;
   expect(s1.entry).toBe(s0.entry);
   expect(s1.applied.sl).toBe(Number((s0.entry - risk).toFixed(1)));
   expect(await visibleRange(page)).toEqual(rangeBefore); // 클릭이 차트를 움직이지 않음
+});
+
+test('RR looks editable: red box with a pencil, and chart chips say what a click does', async ({ page }) => {
+  await open(page, { tf: '15' });
+  await page.getByTestId('btn-long').click();
+  await expect.poll(() => scenario(page)).not.toBeNull();
+  const s = (await scenario(page))!;
+  await riskInPixels(page, s, 30);
+  const edit = page.getByTestId('rr-edit');
+  await expect(edit).toContainText('✎');
+  await expect(page.getByTestId('rr-hint')).toContainText('1:x 칩');
+  expect(await page.getByTestId('rr-input').evaluate((el) => getComputedStyle(el).color)).toBe('rgb(240, 97, 109)');
+  expect(await edit.evaluate((el) => getComputedStyle(el).borderTopStyle)).toBe('solid');
+  await expect.poll(async () => (await visiblePresets(page)).shown.length).toBeGreaterThan(0);
+  const { g, r, shown } = await visiblePresets(page);
+  const chip = shown[shown.length - 1];
+  await page.mouse.move(r.left + g.x2 - 20, r.top + chip.y + 6); // 칩 위: 선보다 넓게 잡힌다
+  await expect(page.getByTestId('chart')).toHaveAttribute('title', new RegExp(`누르면 TP를 손익비 ${chip.label}`));
+  await page.mouse.down();
+  await page.mouse.up();
+  await expect.poll(async () => (await scenario(page))!.applied.tp).toBe(chip.price);
 });
 
 test('typing an RR moves TP to that RR, keeping entry and SL', async ({ page }) => {

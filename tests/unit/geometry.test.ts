@@ -81,9 +81,15 @@ describe('RR preset lines', () => {
   });
 
   it('hits a visible line within 4px inside the box span', () => {
-    expect(hitTestPreset(g, 150, 68)?.id).toBe('rr-1.7');
-    expect(hitTestPreset(g, 150, 73)).toBeNull();
+    expect(hitTestPreset(g, 120, 68)?.id).toBe('rr-1.7');
+    expect(hitTestPreset(g, 120, 73)).toBeNull();
     expect(hitTestPreset(g, 250, 66)).toBeNull();
+  });
+
+  it('the label chip at the right end is a bigger target than the line', () => {
+    // 박스 x 100~200. 오른쪽 56px 안(이름표 칩)은 ±9px, 그 밖은 ±4px
+    expect(hitTestPreset(g, 190, 66 - 7)?.id).toBe('rr-1.7');
+    expect(hitTestPreset(g, 120, 66 - 7)).toBeNull();
   });
 
   it('a box without presets has none', () => {

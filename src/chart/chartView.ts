@@ -432,9 +432,11 @@ export class ChartView {
         return;
       }
       const h = this.drag.hover(x, y);
-      const p = h ? null : this.presetAt(x, y)?.id ?? null;
+      const preset = h ? null : this.presetAt(x, y);
+      const p = preset?.id ?? null;
       const body = !h && p === null && this.overlay !== null && this.mover.hover(x, y);
       el.style.cursor = h ? 'ns-resize' : p !== null ? 'pointer' : body ? 'grab' : '';
+      el.title = preset ? `누르면 TP를 손익비 ${preset.label} 자리(${preset.price})로 옮깁니다` : '';
       if (h !== this.hover || p !== this.hoverPreset) {
         this.hover = h;
         this.hoverPreset = p;
