@@ -643,6 +643,14 @@ export class App {
       h('thead', {}, h('tr', {}, ...['차수', '가격', '금액 USDT', '수량', '비중'].map((t) => h('th', {}, t)))),
       body,
     );
+    // 차트의 '체결 시 예상 평단' 점선 켜기/끄기
+    const avgShow = h('input', { type: 'checkbox', 'data-testid': 'sizing-avg-toggle' });
+    const avgToggle = h('label', { class: 'avg-toggle', title: '차트에 체결 시 예상 평단 점선 표시' }, avgShow, h('span', {}, '차트에 평단 선'));
+    avgShow.addEventListener('change', () => {
+      this.sizing = { ...this.sizing, showAvgLine: avgShow.checked };
+      saveSizing(this.d.storage, this.sizing);
+      this.renderNow();
+    });
     const mk = (id: string) => h('dd', { class: 'num', 'data-testid': `sizing-${id}` });
     const sum = { total: mk('total'), lev: mk('lev'), loss: mk('loss'), profit: mk('profit'), avg: mk('avg'), rr: mk('rr') };
     sum.avg.classList.add('avg');
@@ -651,8 +659,8 @@ export class App {
       { class: 'metrics', 'data-testid': 'sizing-summary' },
       h('dt', {}, '총 포지션'), sum.total,
       h('dt', {}, '필요 레버리지'), sum.lev,
-      h('dt', { class: 'group' }, '모두 체결되면'), h('dd', { class: 'group' }),
-      h('dt', { class: 'avg' }, '평단'), sum.avg,
+      h('dt', { class: 'group' }, '모두 체결되면'), h('dd', { class: 'group' }, avgToggle),
+      h('dt', { class: 'avg' }, '체결 시 예상 평단'), sum.avg,
       h('dt', {}, '손절 시'), sum.loss,
       h('dt', {}, '목표 시'), sum.profit,
       h('dt', {}, '손익비'), sum.rr,
@@ -693,7 +701,7 @@ export class App {
     };
     for (const c of [capital, risk, splits, weights]) c.addEventListener('change', apply);
     capital.addEventListener('keydown', (e) => e.key === 'Enter' && capital.blur());
-    return { bar, box, capital, risk, splits, weights, linear, reason, table, body, summary, sum };
+    return { bar, box, capital, risk, splits, weights, linear, reason, table, body, summary, sum, avgShow };
   }
 
   /** 상단 바의 분할 진입 입력칸을 저장된 값으로 맞춘다 (시나리오가 없어도 보인다) */
@@ -706,6 +714,7 @@ export class App {
     z.weights.value = cfg.weightMode;
     setText(z.linear, `${cfg.splits === 5 ? '1:2:3:4:5' : cfg.splits === 3 ? '1:2:3' : '1'} 점점 크게`);
     z.weights.disabled = cfg.splits === 1;
+    z.avgShow.checked = cfg.showAvgLine;
   }
 
   private sizingPlan(s: Scenario): { plan: SizingPlan | null; reason: string | null } {
@@ -916,7 +925,7 @@ export class App {
         : null,
       presets: rrLevels(s.side, s.entry, s.applied.sl, s.tickSize),
       splits: plan ? plan.tranches.slice(1).map((t) => ({ price: t.price, label: `${t.n}차 ${(t.share * 100).toFixed(0)}%` })) : [],
-      avgEntry: plan && plan.tranches.length > 1 ? snapToTick(plan.avgEntry, s.tickSize) : null,
+      avgEntry: this.sizing.showAvgLine && plan && plan.tranches.length > 1 ? snapToTick(plan.avgEntry, s.tickSize) : null,
       shiftBars: boxShiftOf(s),
     };
     this.chart.setOverlay(overlay);

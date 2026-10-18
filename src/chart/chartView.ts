@@ -42,7 +42,7 @@ export interface OverlayInput {
   shiftBars: number;
   /** 2차 이후 분할 진입 가격선 (진행 중 시나리오만) */
   splits: SplitLine[];
-  /** 모든 분할 체결 시 평단 (분할이 없거나 계산 전이면 null) */
+  /** 체결 시 예상 평단: 모든 분할이 체결됐을 때 (분할이 없거나, 계산 전이거나, 꺼 두면 null) */
   avgEntry: number | null;
 }
 
@@ -347,7 +347,7 @@ export class ChartView {
       presets: o.presets,
       hoverPreset: this.hoverPreset,
       splits: o.splits,
-      avg: o.avgEntry === null ? null : { price: o.avgEntry, label: `평단 ${formatPrice(o.avgEntry, this.tickSize)}` },
+      avg: o.avgEntry === null ? null : { price: o.avgEntry, label: `체결 시 예상 평단 ${formatPrice(o.avgEntry, this.tickSize)}` },
     };
     this.prim.setModel(model);
     this.syncLines(o);
@@ -358,7 +358,7 @@ export class ChartView {
       entry: { price: o ? o.entry : null, color: THEME.entry, title: '엔트리' },
       sl: { price: o ? o.sl : null, color: THEME.loss, title: 'SL' },
       tp: { price: o ? o.tp : null, color: THEME.profit, title: 'TP' },
-      avg: { price: o ? o.avgEntry : null, color: '#FFFFFF', title: '평단' },
+      avg: { price: o ? o.avgEntry : null, color: '#FFFFFF', title: '예상 평단' },
     };
     for (const key of ['entry', 'sl', 'tp', 'avg'] as const) {
       const { price, color, title } = want[key];

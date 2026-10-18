@@ -12,9 +12,11 @@ export interface SizingSettings {
   riskPct: number;
   splits: SplitCount;
   weightMode: WeightMode;
+  /** 차트에 '체결 시 예상 평단' 점선을 그릴지 */
+  showAvgLine: boolean;
 }
 
-export const DEFAULT_SIZING: SizingSettings = { capital: null, riskPct: 1, splits: 3, weightMode: 'linear' };
+export const DEFAULT_SIZING: SizingSettings = { capital: null, riskPct: 1, splits: 3, weightMode: 'linear', showAvgLine: true };
 export const RISK_PCT_RANGE: [number, number] = [0.1, 10];
 
 export function sanitizeSizing(raw: unknown): SizingSettings {
@@ -26,6 +28,7 @@ export function sanitizeSizing(raw: unknown): SizingSettings {
   }
   if (src.splits === 1 || src.splits === 3 || src.splits === 5) out.splits = src.splits;
   if (src.weightMode === 'linear' || src.weightMode === 'equalRisk') out.weightMode = src.weightMode;
+  if (typeof src.showAvgLine === 'boolean') out.showAvgLine = src.showAvgLine;
   return out;
 }
 

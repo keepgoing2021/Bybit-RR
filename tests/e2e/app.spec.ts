@@ -701,6 +701,25 @@ test('average entry if all splits fill: emphasized in the panel and drawn as a w
   const y = (await page.evaluate((p) => window.__rrDebug.priceToClientY(p), avg))! - (await chartRect(page)).top;
   expect((await rendered(page))!.yAvg!).toBeCloseTo(y, 0);
 
+  await expect(page.getByTestId('sizing-summary')).toContainText('체결 시 예상 평단');
+
+  // 끄고 켜기 (새로고침해도 유지)
+  const toggle = page.getByTestId('sizing-avg-toggle');
+  await expect(toggle).toBeChecked();
+  await toggle.uncheck();
+  await expect.poll(async () => {
+    const g = await rendered(page);
+    return g ? g.yAvg : 'no box';
+  }).toBeNull();
+  await expect(page.getByTestId('sizing-avg')).not.toHaveText(''); // 패널 값은 그대로
+  await page.reload();
+  await waitLive(page);
+  await expect(page.getByTestId('sizing-avg-toggle')).not.toBeChecked();
+  await expect.poll(async () => (await rendered(page)) !== null).toBe(true);
+  expect((await rendered(page))!.yAvg).toBeNull();
+  await page.getByTestId('sizing-avg-toggle').check();
+  await expect.poll(async () => (await rendered(page))?.yAvg ?? null).not.toBeNull();
+
   await page.getByTestId('sizing-splits').selectOption('1'); // 1회 진입이면 평단 = 진입가라 선을 그리지 않는다
   await expect.poll(async () => {
     const g = await rendered(page);

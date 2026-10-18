@@ -685,6 +685,22 @@ button.danger {
   font-size: 18px;
 }
 
+.avg-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.avg-toggle input {
+  margin: 0;
+  accent-color: #ffffff;
+  cursor: pointer;
+}
+
 .sizing .metrics .group {
   margin-top: 4px;
   padding-top: 6px;

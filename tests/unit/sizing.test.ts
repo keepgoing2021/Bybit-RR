@@ -14,7 +14,7 @@ const base = (over: Partial<SizingInput> = {}): SizingInput => ({
   sl: 90,
   tp: 120,
   tickSize: 0.1,
-  settings: { capital: 10_000, riskPct: 1, splits: 3, weightMode: 'linear' },
+  settings: { capital: 10_000, riskPct: 1, splits: 3, weightMode: 'linear', showAvgLine: true },
   ...over,
 });
 const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
@@ -139,19 +139,19 @@ describe('planSizing — when it cannot plan', () => {
 
 describe('sanitizeSizing', () => {
   it('defaults: no capital yet, 1% risk, 3 splits, linear', () => {
-    expect(DEFAULT_SIZING).toEqual({ capital: null, riskPct: 1, splits: 3, weightMode: 'linear' });
+    expect(DEFAULT_SIZING).toEqual({ capital: null, riskPct: 1, splits: 3, weightMode: 'linear', showAvgLine: true });
     expect(sanitizeSizing(null)).toEqual(DEFAULT_SIZING);
   });
 
   it('keeps valid values and clamps risk %', () => {
-    expect(sanitizeSizing({ capital: 2500, riskPct: 0.5, splits: 5, weightMode: 'equalRisk' })).toEqual({
-      capital: 2500, riskPct: 0.5, splits: 5, weightMode: 'equalRisk',
+    expect(sanitizeSizing({ capital: 2500, riskPct: 0.5, splits: 5, weightMode: 'equalRisk', showAvgLine: false })).toEqual({
+      capital: 2500, riskPct: 0.5, splits: 5, weightMode: 'equalRisk', showAvgLine: false,
     });
     expect(sanitizeSizing({ riskPct: 50 }).riskPct).toBe(10);
     expect(sanitizeSizing({ riskPct: 0 }).riskPct).toBe(0.1);
   });
 
   it('drops garbage', () => {
-    expect(sanitizeSizing({ capital: -5, splits: 4, weightMode: 'x', riskPct: 'a' })).toEqual(DEFAULT_SIZING);
+    expect(sanitizeSizing({ capital: -5, splits: 4, weightMode: 'x', riskPct: 'a', showAvgLine: 'no' })).toEqual(DEFAULT_SIZING);
   });
 });

@@ -34,7 +34,7 @@ export interface OverlayModel {
   hoverPreset: string | null;
   /** 2차 이후 분할 진입 가격선 */
   splits: SplitLine[];
-  /** 모두 체결 시 평단 (이름표 문구 포함) */
+  /** 체결 시 예상 평단 (이름표 문구 포함) */
   avg: { price: number; label: string } | null;
 }
 
@@ -184,9 +184,11 @@ export class RRBoxPrimitive implements ISeriesPrimitive<Time> {
         ctx.fillText(sp.label, g.x1 + 4, sp.y - 2);
       }
 
-      // 모두 체결 시 평단: 흰 실선 + 오른쪽 흰 칩
+      // 체결 시 예상 평단: 흰 점선 + 오른쪽 흰 칩
       if (g.yAvg !== null && m.avg) {
+        ctx.setLineDash([6, 4]);
         hline(ctx, g.x1, g.x2, g.yAvg, '#FFFFFF', 1.5);
+        ctx.setLineDash([]);
         avgChip(ctx, m.avg.label, g.x2 - 3, g.yAvg);
       }
 

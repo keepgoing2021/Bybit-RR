@@ -115,8 +115,8 @@ describe('sizing persistence', () => {
   it('keeps capital, risk %, split count and weights; sanitizes garbage', () => {
     const st = memoryStorage();
     expect(loadSizing(st)).toEqual(DEFAULT_SIZING);
-    saveSizing(st, { capital: 3000, riskPct: 2, splits: 5, weightMode: 'equalRisk' });
-    expect(loadSizing(st)).toEqual({ capital: 3000, riskPct: 2, splits: 5, weightMode: 'equalRisk' });
+    saveSizing(st, { capital: 3000, riskPct: 2, splits: 5, weightMode: 'equalRisk', showAvgLine: false });
+    expect(loadSizing(st)).toEqual({ capital: 3000, riskPct: 2, splits: 5, weightMode: 'equalRisk', showAvgLine: false });
     st.setItem(SIZING_KEY, '{bad json');
     expect(loadSizing(st)).toEqual(DEFAULT_SIZING);
     expect(loadSizing(throwing)).toEqual(DEFAULT_SIZING);
