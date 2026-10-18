@@ -1,8 +1,17 @@
 /** 공급원 연결 설정. 다른 도메인을 써야 하면 여기만 바꾼다. */
 export const CONFIG = {
   bybit: {
-    /** 개발 서버 프록시 경로 (vite.config.ts) → https://api.bybit.com */
-    restBase: '/bybit-api',
+    /**
+     * REST 주소 후보 (앞에서부터 시도).
+     * - npm run dev: 개발 서버 중계(/bybit-api, vite.config.ts)
+     * - 배포 빌드: 브라우저가 Bybit를 직접 호출하고, 막히면 /bybit-api 중계(vercel.json)로 재시도
+     * - VITE_BYBIT_REST를 지정하면 그 주소만 쓴다
+     */
+    restBases: import.meta.env.VITE_BYBIT_REST
+      ? [import.meta.env.VITE_BYBIT_REST as string]
+      : import.meta.env.DEV
+        ? ['/bybit-api']
+        : ['https://api.bybit.com', '/bybit-api'],
     /** VITE_BYBIT_WS: E2E에서 가짜 Bybit 서버로 바꿀 때만 쓴다 */
     wsUrl: (import.meta.env.VITE_BYBIT_WS as string | undefined) || 'wss://stream.bybit.com/v5/public/linear',
   },

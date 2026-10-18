@@ -11,7 +11,8 @@ export type FetchLike = (url: string) => Promise<{
 }>;
 
 export interface BybitProviderOptions {
-  restBase: string;
+  /** REST 주소 후보. 앞에서부터 시도하고, 처음 성공한 주소를 계속 쓴다. */
+  restBases: string[];
   wsUrl: string;
   fetchImpl: FetchLike;
   createSocket: (url: string) => WebSocketLike;
@@ -31,6 +32,7 @@ export class BybitProvider implements MarketDataProvider {
   readonly kind = 'bybit' as const;
   readonly isDemo = false;
   private active: ReconnectingSocket | null = null;
+  private preferred = 0;
 
   constructor(private readonly o: BybitProviderOptions) {}
 
@@ -110,11 +112,32 @@ export class BybitProvider implements MarketDataProvider {
     };
   }
 
+  /**
+   * 주소 후보를 차례로 시도한다. 연결 실패·HTTP 오류면 다음 후보로 넘어가고,
+   * Bybit가 오류 코드로 답한 경우(요청 자체의 문제)는 다른 주소로 다시 시도하지 않는다.
+   */
   private async getJson(path: string): Promise<Record<string, unknown>> {
-    const res = await this.o.fetchImpl(`${this.o.restBase}${path}`);
-    if (!res.ok) throw new Error(`Bybit REST 응답 ${res.status} ${res.statusText}`.trim());
-    const body = (await res.json()) as Record<string, unknown>;
-    if (body.retCode !== 0) throw new Error(`Bybit 오류 ${String(body.retCode)}: ${String(body.retMsg ?? '')}`);
-    return body;
+    const bases = this.o.restBases;
+    const order = [this.preferred, ...bases.map((_, i) => i).filter((i) => i !== this.preferred)];
+    const errors: string[] = [];
+    for (const i of order) {
+      const base = bases[i];
+      let body: Record<string, unknown>;
+      try {
+        const res = await this.o.fetchImpl(`${base}${path}`);
+        if (!res.ok) {
+          errors.push(`${base || '/'}: HTTP ${res.status} ${res.statusText}`.trim());
+          continue;
+        }
+        body = (await res.json()) as Record<string, unknown>;
+      } catch (e) {
+        errors.push(`${base || '/'}: ${e instanceof Error ? e.message : String(e)}`);
+        continue;
+      }
+      this.preferred = i;
+      if (body.retCode !== 0) throw new Error(`Bybit 오류 ${String(body.retCode)}: ${String(body.retMsg ?? '')}`);
+      return body;
+    }
+    throw new Error(`Bybit REST 연결 실패 (${errors.join(' / ')})`);
   }
 }

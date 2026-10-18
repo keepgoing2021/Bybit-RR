@@ -42,7 +42,7 @@ function makeProvider(fetchImpl: FetchLike = fakeFetch({}).impl) {
   const scheduler = new FakeScheduler();
   const sockets = socketFactory();
   const p = new BybitProvider({
-    restBase: '/bybit-api',
+    restBases: ['/bybit-api'],
     wsUrl: 'wss://stream.bybit.com/v5/public/linear',
     fetchImpl,
     createSocket: sockets.create,
@@ -171,5 +171,51 @@ describe('BybitProvider WebSocket', () => {
     sockets.latest().open();
     stop();
     expect(sockets.latest().clientClosed).toBe(true);
+  });
+});
+
+describe('BybitProvider REST fallback', () => {
+  const ok = (body: unknown) => ({ ok: true, status: 200, statusText: 'OK', json: async () => body });
+  const empty = { retCode: 0, retMsg: 'OK', time: 1, result: { list: [] } };
+  const withBases = (restBases: string[], fetchImpl: FetchLike) =>
+    new BybitProvider({
+      restBases, wsUrl: 'wss://x', fetchImpl, createSocket: socketFactory().create, scheduler: new FakeScheduler(), now: () => 0,
+    });
+  const path = '/v5/market/kline?category=linear&symbol=BTCUSDT&interval=15&limit=10';
+
+  it('falls back to the next REST base when the first cannot be reached, then remembers it', async () => {
+    const calls: string[] = [];
+    const p = withBases(['https://api.bybit.com', '/bybit-api'], async (url) => {
+      calls.push(url);
+      if (url.startsWith('https://')) throw new TypeError('Failed to fetch');
+      return ok(empty);
+    });
+    await p.fetchCandles('BTCUSDT', '15', 10);
+    expect(calls).toEqual([`https://api.bybit.com${path}`, `/bybit-api${path}`]);
+    calls.length = 0;
+    await p.fetchCandles('BTCUSDT', '15', 10);
+    expect(calls).toEqual([`/bybit-api${path}`]);
+  });
+
+  it('reports every base when all of them fail', async () => {
+    const p = withBases(['https://api.bybit.com', '/bybit-api'], async (url) => {
+      if (url.startsWith('https://')) throw new TypeError('Failed to fetch');
+      return { ok: false, status: 403, statusText: 'Forbidden', json: async () => ({}) };
+    });
+    const err = await p.fetchCandles('BTCUSDT', '15', 10).catch((e: Error) => e);
+    expect(String(err)).toContain('https://api.bybit.com');
+    expect(String(err)).toContain('Failed to fetch');
+    expect(String(err)).toContain('/bybit-api');
+    expect(String(err)).toContain('403');
+  });
+
+  it('does not try another base when Bybit itself answers with an error code', async () => {
+    const calls: string[] = [];
+    const p = withBases(['https://api.bybit.com', '/bybit-api'], async (url) => {
+      calls.push(url);
+      return ok({ retCode: 10001, retMsg: 'params error' });
+    });
+    await expect(p.fetchCandles('BTCUSDT', '15', 10)).rejects.toThrow('params error');
+    expect(calls).toHaveLength(1);
   });
 });

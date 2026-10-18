@@ -31,7 +31,7 @@ const app = new App({
     kind === 'demo'
       ? new DemoProvider({ now: demoNow, realNow: () => Date.now(), scheduler, tickMs: CONFIG.demoTickMs })
       : new BybitProvider({
-          restBase: CONFIG.bybit.restBase,
+          restBases: [...CONFIG.bybit.restBases],
           wsUrl: CONFIG.bybit.wsUrl,
           fetchImpl: (url) => fetch(url),
           createSocket: (url) => new WebSocket(url) as unknown as WebSocketLike,

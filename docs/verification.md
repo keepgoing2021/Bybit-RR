@@ -6,10 +6,12 @@
 
 | 명령 | 결과 |
 |---|---|
-| `npx vitest run` | 21개 파일, 165개 테스트 통과 |
+| `npx vitest run` | 21개 파일, 168개 테스트 통과 |
 | `npm run build` (타입 검사 + 빌드) | 오류 없음 |
 | `PW_CHROMIUM_PATH=… npx playwright test` | 17개 통과 (데모 11, 가짜 Bybit 6) |
-| `node scripts/check-bybit.mjs` (실제 Bybit) | 7개 항목 모두 FAIL — 네트워크 차단(ENOTFOUND). 앱 결함이 아니라 환경 제약 |
+| `node scripts/check-bybit.mjs` (실제 Bybit, 개발 환경) | 7개 항목 모두 FAIL — 네트워크 차단(ENOTFOUND). 앱 결함이 아니라 환경 제약 |
+| `npm run check:bybit` (실제 Bybit, 사용자 PC·한국 IP, 사용자가 실행) | 실패 0개 — 종목 정보, 15분봉 200개, 웹소켓 구독·퐁·체결·1분봉·티커 모두 PASS. CORS 헤더는 요청한 출처(http://localhost:5173)를 그대로 돌려줌 |
+| 배포용 빌드 + `vite preview` (가짜 Bybit) | Bybit 직접 호출 실패 → `/bybit-api` 중계로 자동 전환, 이후 요청은 중계로 바로 감. 캔들 1000개, 상태 실시간 |
 | `BYBIT_REST=… BYBIT_WS=… node scripts/check-bybit.mjs` (가짜 Bybit) | 7개 PASS, 종료 코드 0 — 스크립트의 성공 경로 확인 |
 
 ## 요구사항 검증 항목
@@ -39,9 +41,8 @@
 
 ## 직접 확인하지 못한 것 (검증 완료 아님)
 
-- **실제 Bybit 서버와의 연결**: REST 응답, 웹소켓 메시지 형식이 공식 문서와 같은지. 문서 예시와 그 형식을 따르는 가짜 서버로만 확인했습니다. → `npm run check:bybit`로 확인 필요
-- **한국 IP에서 Bybit API 접속 가능 여부**
-- **Bybit REST의 CORS 허용 여부**: 확인하지 못해 개발 서버 프록시를 씁니다. 정적 호스팅으로 배포하려면 별도 확인이 필요합니다.
+- **실제 Bybit로 앱 화면 전체를 돌려본 결과**: 연결 점검 스크립트는 사용자 PC에서 통과했지만, 앱 화면(차트·박스·드래그)을 실제 시세로 돌린 결과는 아직 받지 못했습니다.
+- **Vercel 배포 주소에서의 동작**: CORS 헤더가 요청 출처를 돌려주는 것은 localhost로만 확인했습니다. 배포 주소에서도 같은지는 배포 후 확인해야 합니다. 막히면 `/bybit-api` 중계(vercel.json)로 자동 전환되지만, 그 경로는 Bybit가 클라우드 IP를 막는다면 실패할 수 있습니다.
 - **실제 시세에서 자동 SL/TP가 무효로 나오는 빈도**: 데모 데이터에서는 자동 TP가 엔트리에 매우 가까워 RR이 1:0.03처럼 작게 나오는 경우를 봤습니다. "가장 최근 확정 스윙" 규칙의 성격일 수 있으니 실제 데이터로 확인이 필요합니다.
 - **터치 기기(휴대폰)에서의 드래그**: 마우스로만 검증했습니다. 390px 화면 배치는 스크린샷으로 확인했습니다.
 - **Windows/macOS의 Chrome·Safari·Firefox**: 리눅스 headless Chromium에서만 실행했습니다.
