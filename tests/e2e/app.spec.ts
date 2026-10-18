@@ -670,8 +670,9 @@ test('split count and weights are typed: count 1–10, weights as a ratio (count
     Number((await page.getByTestId('sizing-loss').textContent())!.match(/−([\d,.]+)/)![1].replace(/,/g, ''));
 
   // 길게 펼쳐지는 목록 없이 적는 칸 두 개
-  await expect(page.locator('.sizing-bar select')).toHaveCount(0);
-  expect(await splits.getAttribute('type')).toBe('number');
+  await expect(page.locator('.sizing-bar select, .sizing-bar datalist')).toHaveCount(0);
+  expect(await splits.getAttribute('type')).toBeNull(); // 숫자 화살표 없는 그냥 글 칸
+  for (const box of [splits, weights]) expect(await box.getAttribute('autocomplete')).toBe('off');
   await expect(splits).toHaveValue('3');
   await expect(weights).toHaveValue('1:2:3');
   await expect(linear).toHaveClass(/active/);
@@ -687,7 +688,7 @@ test('split count and weights are typed: count 1–10, weights as a ratio (count
   await expect(weights).toHaveValue('1:2:3:4:5:6:7:8:9:10');
   expect(await lossAtSl()).toBeLessThanOrEqual(100);
   await expect.poll(async () => (await rendered(page))?.splits.length ?? 0).toBe(9);
-  for (const bad of ['0', '11', '2.5']) {
+  for (const bad of ['0', '11', '2.5', 'ab', '']) {
     await typeIn(page, 'sizing-splits', bad);
     await expect(toast).toContainText('분할 수는 1~10');
     await expect(splits).toHaveValue('10');

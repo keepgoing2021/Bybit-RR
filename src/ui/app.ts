@@ -780,8 +780,9 @@ export class App {
     const risk = h('input', { 'data-testid': 'sizing-risk', type: 'number', step: '0.1', min: '0.1', max: '10', 'aria-label': '손절 시 손실 (%)' });
     // 분할 수·비중은 직접 적는다. 예시 두 가지(점점 크게·손실 균등)는 비중 이름 옆 작은 버튼
     const splits = h('input', {
-      'data-testid': 'sizing-splits', type: 'number', min: '1', max: String(MAX_SPLITS), step: '1', inputmode: 'numeric',
-      'aria-label': '분할 수', title: `1~${MAX_SPLITS} (1 = 한 번에 진입)`,
+      // 그냥 적는 칸: 위아래 화살표·브라우저 자동완성 목록 없음
+      'data-testid': 'sizing-splits', inputmode: 'numeric', autocomplete: 'off', spellcheck: 'false', maxlength: '2',
+      placeholder: '3', 'aria-label': '분할 수', title: `1~${MAX_SPLITS} 사이 숫자를 적으세요 (1 = 한 번에 진입)`,
     });
     const splitsField = h('label', { class: 'field' }, h('span', {}, '분할 진입'), h('span', { class: 'with-unit' }, splits, h('span', { class: 'unit' }, '분할')));
     const weights = h('input', {
