@@ -1,4 +1,5 @@
 import { ChartView, type OverlayInput } from '../chart/chartView';
+import { DRAW_COLOR, DRAW_LINE_WIDTH } from '../chart/drawingsPrimitive';
 import { CONFIG } from '../config';
 import { analyzeAutoLevels, type AutoSL } from '../core/analysis';
 import { captureEntry, evaluateFreshness, type FeedSnapshot, type Freshness } from '../core/freshness';
@@ -9,7 +10,7 @@ import { computeMetrics, formatRR, type Metrics } from '../core/metrics';
 import {
   loadDrawings, loadSettings, loadSizing, loadState, saveDrawings, saveSettings, saveSizing, saveState, type StorageLike, type UiSelection,
 } from '../core/persistence';
-import { DRAWING_KINDS, DRAWING_NAMES, placingHint, type Drawing, type DrawingKind } from '../core/drawings';
+import { DRAW_PALETTE, DRAWING_KINDS, DRAWING_NAMES, isColor, placingHint, type Drawing, type DrawingKind } from '../core/drawings';
 import { decimalsOf, formatPrice, snapToTick } from '../core/price';
 import { boxShiftOf, createScenario, restoreAuto, setBoxShift, setEntry, setLevel, type Scenario } from '../core/scenario';
 import { DEFAULT_SETTINGS, sanitizeSettings, type AnalysisSettings } from '../core/settings';
@@ -80,6 +81,7 @@ function slBandLabel(a: AutoSL, side: Side): string {
 }
 
 const DRAW_TOOLS_KEY = 'rrtool.v1.drawtools';
+const DRAW_COLOR_KEY = 'rrtool.v1.drawcolor';
 
 /** 작도 도구 아이콘 (20×20 선화) */
 const svg = (body: string) =>
@@ -142,6 +144,7 @@ export class App {
         saveDrawings(this.d.storage, this.drawingsBySymbol);
       },
       onDrawState: (st) => this.renderDrawTools(st),
+      onDrawingSelect: (d) => this.renderDrawEdit(d),
       onDrag: (which, price) => {
         if (!this.scenario) return;
         this.scenario = setLevel(this.scenario, which, price);
@@ -162,6 +165,7 @@ export class App {
       },
       formatTime: (ms) => formatTime(ms),
     });
+    this.chart.setDefaultDrawColor(this.loadDrawColor());
     window.setInterval(() => {
       this.renderStatus();
       this.renderCountdown();
@@ -605,7 +609,7 @@ export class App {
 
     const panel = h('aside', { class: 'panel' }, h('section', { class: 'scenario' }, empty, card), settings, demoTools);
     const tools = this.buildDrawTools();
-    const chartWrap = h('section', { class: 'chart-wrap', 'data-tools': tools.open ? 'open' : 'closed' }, tools.bar, chart, tools.hint);
+    const chartWrap = h('section', { class: 'chart-wrap', 'data-tools': tools.open ? 'open' : 'closed' }, tools.bar, chart, tools.hint, tools.edit.bar);
     tools.toggle.addEventListener('click', () => {
       const open = chartWrap.dataset.tools !== 'open';
       chartWrap.dataset.tools = open ? 'open' : 'closed';
@@ -722,7 +726,59 @@ export class App {
     list.append(h('div', { class: 'draw-sep' }), clear);
     const bar = h('div', { class: 'draw-toolbar', 'data-testid': 'draw-toolbar' }, toggle, list);
     const hint = h('div', { class: 'draw-hint', 'data-testid': 'draw-hint', hidden: true });
-    return { bar, toggle, buttons, hint, open };
+    return { bar, toggle, buttons, hint, open, edit: this.buildDrawEdit() };
+  }
+
+  /** 선택한 작도 편집 막대: 색 견본·색 고르기·기본색·지우기 */
+  private buildDrawEdit() {
+    const name = h('span', { class: 'draw-edit-name', 'data-testid': 'draw-edit-name' });
+    const swatches = DRAW_PALETTE.map((c) => {
+      const b = h('button', { type: 'button', class: 'swatch', 'data-testid': 'draw-color-swatch', 'data-color': c, title: c, 'aria-label': `색 ${c}` });
+      b.style.background = c;
+      b.addEventListener('click', () => this.pickDrawColor(c));
+      return b;
+    });
+    const custom = h('input', { type: 'color', class: 'swatch-custom', 'data-testid': 'draw-color-input', title: '직접 고르기' });
+    custom.addEventListener('input', () => this.pickDrawColor(custom.value));
+    const reset = h('button', { type: 'button', class: 'link small', 'data-testid': 'draw-color-reset', title: '기본색으로 (피보나치는 레벨별 색)' }, '기본색');
+    reset.addEventListener('click', () => this.pickDrawColor(null));
+    const del = h('button', { type: 'button', class: 'draw-tool danger', 'data-testid': 'draw-delete', title: '지우기 (Delete)', 'aria-label': '지우기' });
+    del.innerHTML = DRAW_ICONS.clear;
+    del.addEventListener('click', () => this.chart.deleteSelectedDrawing());
+    const bar = h('div', { class: 'draw-edit', 'data-testid': 'draw-edit', hidden: true }, name, ...swatches, custom, reset, del);
+    return { bar, name, swatches, custom };
+  }
+
+  private renderDrawEdit(d: Drawing | null): void {
+    const e = this.el?.tools.edit;
+    if (!e) return;
+    show(e.bar, d !== null);
+    if (!d) return;
+    setText(e.name, DRAWING_NAMES[d.kind]);
+    for (const b of e.swatches) b.classList.toggle('active', b.dataset.color?.toLowerCase() === d.color?.toLowerCase());
+    e.custom.value = (d.color ?? DRAW_COLOR).toLowerCase();
+  }
+
+  /** 선택한 작도의 색을 바꾸고, 다음 작도의 기본색으로도 기억한다 (null = 기본색) */
+  private pickDrawColor(color: string | null): void {
+    const id = this.chart.selectedDrawingId();
+    if (id) this.chart.setDrawingColor(id, color);
+    this.chart.setDefaultDrawColor(color);
+    try {
+      if (color) this.d.storage.setItem(DRAW_COLOR_KEY, color);
+      else this.d.storage.removeItem(DRAW_COLOR_KEY);
+    } catch {
+      // 무시
+    }
+  }
+
+  private loadDrawColor(): string | null {
+    try {
+      const c = this.d.storage.getItem(DRAW_COLOR_KEY);
+      return isColor(c) ? c : null;
+    } catch {
+      return null;
+    }
   }
 
   private renderDrawTools(st: { tool: DrawingKind | null; placed: number }): void {
@@ -1073,6 +1129,7 @@ export class App {
       isBoxSelected: () => this.chart.isBoxSelected(),
       getDrawings: () => this.chart.getDrawings(),
       getDrawState: () => this.chart.getDrawState(),
+      drawLineWidth: () => DRAW_LINE_WIDTH,
       wickColors: () => this.chart.wickColors(),
       timeToX: (ms: number) => this.chart.timeToX(ms),
       getMaLast: () => this.chart.getMaLast(),

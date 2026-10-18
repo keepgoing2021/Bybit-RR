@@ -918,3 +918,57 @@ button.danger {
   pointer-events: none;
   white-space: nowrap;
 }
+
+/* 선택한 작도 편집 막대 */
+.draw-edit {
+  position: absolute;
+  top: 52px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(14, 20, 32, 0.95);
+  white-space: nowrap;
+}
+
+.draw-edit[hidden] {
+  display: none;
+}
+
+.draw-edit-name {
+  margin-right: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.swatch {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 50%;
+}
+
+.swatch.active {
+  outline: 2px solid #ffffff;
+  outline-offset: 1px;
+}
+
+.swatch-custom {
+  width: 26px;
+  height: 22px;
+  padding: 0 2px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.draw-edit .draw-tool {
+  width: 28px;
+  height: 26px;
+}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  channelOffset, FIB_LEVELS, fibLevels, mapPoints, POINTS, sanitizeDrawings, setPoint, type Drawing,
+  channelOffset, DRAW_PALETTE, FIB_LEVELS, fibLevels, isColor, mapPoints, POINTS, sanitizeDrawings, setPoint, type Drawing,
 } from '../../src/core/drawings';
 import { logicalToTime, timeToLogical } from '../../src/core/timeMap';
 
@@ -60,6 +60,16 @@ describe('drawings', () => {
       { time: M, price: 11 }, { time: 2 * M, price: 12 },
     ]);
     expect(d.points[0]).toEqual({ time: 0, price: 1 }); // 원본은 그대로
+  });
+
+  it('keeps a valid color and drops a bad one', () => {
+    const colored = { id: 'c', kind: 'hline', points: [{ time: 1, price: 2 }], color: '#ff00aa' };
+    const bad = { id: 'd', kind: 'hline', points: [{ time: 1, price: 2 }], color: 'red; x' };
+    expect(sanitizeDrawings({ X: [colored, bad] })).toEqual({ X: [colored, { id: 'd', kind: 'hline', points: [{ time: 1, price: 2 }] }] });
+    expect(isColor('#A1b2C3')).toBe(true);
+    expect(isColor('#abc')).toBe(false);
+    expect(DRAW_PALETTE.length).toBeGreaterThanOrEqual(8);
+    expect(DRAW_PALETTE.every(isColor)).toBe(true);
   });
 
   it('sanitizes saved drawings per symbol', () => {

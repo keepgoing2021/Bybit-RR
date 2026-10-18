@@ -11,7 +11,14 @@ export interface Drawing {
   id: string;
   kind: DrawingKind;
   points: Anchor[];
+  /** 선 색 (#RRGGBB). 없으면 기본색 (피보나치는 레벨별 기본 색) */
+  color?: string;
 }
+
+/** 작도 색 견본 */
+export const DRAW_PALETTE = ['#26C6DA', '#FFFFFF', '#F2C46D', '#2EBD85', '#F0616D', '#4C9AFF', '#C77DFF', '#FF9800'];
+
+export const isColor = (v: unknown): v is string => typeof v === 'string' && /^#[0-9a-fA-F]{6}$/.test(v);
 
 export const DRAWING_KINDS: DrawingKind[] = ['trend', 'hline', 'channel', 'fib'];
 
@@ -62,7 +69,11 @@ export function sanitizeDrawings(raw: unknown): Record<string, Drawing[]> {
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return out;
   for (const [symbol, list] of Object.entries(raw as Record<string, unknown>)) {
     if (!Array.isArray(list)) continue;
-    const ok = list.filter(isDrawing);
+    // 색이 잘못된 것은 색만 버린다
+    const ok = list.filter(isDrawing).map((d) => {
+      const { color, ...rest } = d;
+      return isColor(color) ? { ...rest, color } : rest;
+    });
     if (ok.length) out[symbol] = ok;
   }
   return out;

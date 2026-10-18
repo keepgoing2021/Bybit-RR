@@ -64,6 +64,8 @@ export interface ChartViewCallbacks {
   onDrawingsChange(list: Drawing[]): void;
   /** 작도 도구 상태: 고른 도구와 찍은 점 수 (도구를 다 쓰면 null로 돌아온다) */
   onDrawState(state: { tool: DrawingKind | null; placed: number }): void;
+  /** 선택한 작도가 바뀜 (편집 막대 표시용). null = 선택 없음 */
+  onDrawingSelect(d: Drawing | null): void;
 }
 
 const toBar = (c: Candle) => ({
@@ -107,6 +109,7 @@ export class ChartView {
   private drawDrag: { id: string; part: 'point' | 'body'; index: number; x0: number; y0: number; orig: Drawing } | null = null;
   /** 이번 누름은 차트 이동으로 넘기지 않는다 (작도 점 찍기·끌기) */
   private swallowPointer = false;
+  private defaultDrawColor: string | null = null;
   private readonly cleanup: (() => void)[] = [];
 
   constructor(private readonly container: HTMLElement, private readonly cb: ChartViewCallbacks) {
@@ -354,10 +357,34 @@ export class ChartView {
 
   // ───────────── 작도 ─────────────
 
+  private selectDrawing(id: string | null): void {
+    if (id === this.selectedDrawing) return;
+    this.selectedDrawing = id;
+    this.cb.onDrawingSelect(id ? this.drawings.find((d) => d.id === id) ?? null : null);
+  }
+
+  /** 새로 그리는 작도의 색 (마지막에 고른 색) */
+  setDefaultDrawColor(color: string | null): void {
+    this.defaultDrawColor = color;
+    this.renderDrawings();
+  }
+
+  /** 작도 색 바꾸기. null이면 기본색(피보나치는 레벨별 기본 색) */
+  setDrawingColor(id: string, color: string | null): void {
+    this.drawings = this.drawings.map((d) => {
+      if (d.id !== id) return d;
+      const { color: _old, ...rest } = d;
+      return color ? { ...rest, color } : rest;
+    });
+    this.renderDrawings();
+    this.cb.onDrawingsChange(this.drawings);
+    this.cb.onDrawingSelect(this.drawings.find((d) => d.id === id) ?? null);
+  }
+
   /** 이 종목의 작도로 바꾼다 (선택·그리던 것은 버림) */
   setDrawings(list: Drawing[]): void {
     this.drawings = list;
-    this.selectedDrawing = null;
+    this.selectDrawing(null);
     this.hoverDrawing = null;
     this.drawDrag = null;
     this.renderDrawings();
@@ -369,7 +396,7 @@ export class ChartView {
     this.draft = [];
     this.cursorAnchor = null;
     if (kind) {
-      this.selectedDrawing = null;
+      this.selectDrawing(null);
       this.clearSelection();
     }
     if (!kind) this.container.style.cursor = '';
@@ -388,7 +415,7 @@ export class ChartView {
   deleteSelectedDrawing(): boolean {
     if (!this.selectedDrawing) return false;
     this.drawings = this.drawings.filter((d) => d.id !== this.selectedDrawing);
-    this.selectedDrawing = null;
+    this.selectDrawing(null);
     this.hoverDrawing = null;
     this.renderDrawings();
     this.cb.onDrawingsChange(this.drawings);
@@ -397,7 +424,7 @@ export class ChartView {
 
   clearDrawingSelection(): void {
     if (!this.selectedDrawing) return;
-    this.selectedDrawing = null;
+    this.selectDrawing(null);
     this.renderDrawings();
   }
 
@@ -462,9 +489,9 @@ export class ChartView {
     if (!kind || !a) return;
     this.draft = [...this.draft, a];
     if (this.draft.length >= POINTS[kind]) {
-      const d: Drawing = { id: newDrawingId(), kind, points: this.draft };
+      const d: Drawing = { id: newDrawingId(), kind, points: this.draft, ...(this.defaultDrawColor ? { color: this.defaultDrawColor } : {}) };
       this.drawings = [...this.drawings, d];
-      this.selectedDrawing = d.id;
+      this.selectDrawing(d.id);
       this.tool = null;
       this.draft = [];
       this.cursorAnchor = null;
@@ -505,7 +532,9 @@ export class ChartView {
 
   private renderDrawings(): void {
     // 미리 보기: 찍은 점 + 마우스 위치 (수평선은 첫 점 전부터 따라다닌다)
-    const draft = this.tool && this.cursorAnchor ? { kind: this.tool, points: [...this.draft, this.cursorAnchor] } : null;
+    const draft = this.tool && this.cursorAnchor
+      ? { kind: this.tool, points: [...this.draft, this.cursorAnchor], ...(this.defaultDrawColor ? { color: this.defaultDrawColor } : {}) }
+      : null;
     this.drawPrim.set({ drawings: this.drawings, selectedId: this.selectedDrawing, hoverId: this.hoverDrawing, draft });
   }
 
@@ -678,7 +707,7 @@ export class ChartView {
         e.stopPropagation();
         this.swallowPointer = true;
         this.selected = false;
-        this.selectedDrawing = hit.id;
+        this.selectDrawing(hit.id);
         const orig = this.drawings.find((d) => d.id === hit.id)!;
         this.drawDrag = { id: hit.id, part: hit.part, index: hit.index, x0: x, y0: y, orig };
         el.setPointerCapture?.(e.pointerId);
@@ -688,7 +717,7 @@ export class ChartView {
         return;
       }
       if (this.selectedDrawing) {
-        this.selectedDrawing = null;
+        this.selectDrawing(null);
         this.renderDrawings();
       }
       // 박스(선·점선·몸통)를 누르면 선택, 바깥을 누르면 선택 해제

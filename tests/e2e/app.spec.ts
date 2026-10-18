@@ -9,8 +9,9 @@ type Debug = {
   timeToX(ms: number): number | null;
   isBoxSelected(): boolean;
   wickColors(): { up: string; down: string };
-  getDrawings(): { drawings: { id: string; kind: string; points: { time: number; price: number }[] }[]; selected: string | null; handles: Record<string, { x: number; y: number }[]> };
+  getDrawings(): { drawings: { id: string; kind: string; points: { time: number; price: number }[]; color?: string }[]; selected: string | null; handles: Record<string, { x: number; y: number }[]> };
   getDrawState(): { tool: string | null; placed: number };
+  drawLineWidth(): number;
   getLegend(): { index: number | null; stats: { time: number; close: number; changePct: number; amplitudePct: number } | null; text: string };
   priceToClientY(p: number): number | null;
   getRenderedGeometry(): BoxGeometry | null;
@@ -964,4 +965,49 @@ test('Esc cancels a drawing in progress; the trash button clears this symbol', a
   await page.getByTestId('draw-clear').click();
   await expect(page.getByTestId('toast')).toContainText('작도 2개를 지웠습니다');
   expect((await drawings(page)).drawings).toHaveLength(0);
+});
+
+test('drawings are 1px; a selected drawing gets an edit bar to change its color, remembered for the next one', async ({ page }) => {
+  await open(page, { tf: '15' });
+  expect(await page.evaluate(() => window.__rrDebug.drawLineWidth())).toBe(1);
+  await page.getByTestId('draw-toggle').click();
+  await page.getByTestId('draw-trend').click();
+  await page.mouse.click(...(await at(page, 0.2, 0.7)));
+  await page.mouse.click(...(await at(page, 0.45, 0.4)));
+  // 그리고 나면 선택된 채라 편집 막대가 뜬다
+  const bar = page.getByTestId('draw-edit');
+  await expect(bar).toBeVisible();
+  await expect(page.getByTestId('draw-edit-name')).toHaveText('추세선');
+  expect((await drawings(page)).drawings[0].color).toBeUndefined();
+
+  await page.locator('[data-testid=draw-color-swatch][data-color="#F0616D"]').click();
+  await expect.poll(async () => (await drawings(page)).drawings[0].color).toBe('#F0616D');
+  await expect(page.locator('[data-testid=draw-color-swatch][data-color="#F0616D"]')).toHaveClass(/active/);
+  await page.getByTestId('draw-color-input').fill('#12ab34');
+  await expect.poll(async () => (await drawings(page)).drawings[0].color).toBe('#12ab34');
+
+  // 다음 작도는 마지막 색으로
+  await page.getByTestId('draw-hline').click();
+  await expect(bar).toBeHidden(); // 도구를 고르면 편집 막대는 닫힌다
+  await page.mouse.click(...(await at(page, 0.5, 0.25)));
+  await expect.poll(async () => (await drawings(page)).drawings[1]?.color).toBe('#12ab34');
+
+  // 기본색으로 되돌리기
+  await page.getByTestId('draw-color-reset').click();
+  await expect.poll(async () => (await drawings(page)).drawings[1].color).toBeUndefined();
+
+  // 새로고침해도 색이 남는다
+  await page.reload();
+  await waitLive(page);
+  await expect.poll(async () => (await drawings(page)).drawings.map((d) => d.color ?? null)).toEqual(['#12ab34', null]);
+
+  // 편집 막대의 휴지통으로 지우기
+  const d = await drawings(page);
+  const hs = d.handles[d.drawings[0].id];
+  const r = await chartRect(page);
+  await page.mouse.click(r.left + (hs[0].x + hs[1].x) / 2, r.top + (hs[0].y + hs[1].y) / 2);
+  await expect(bar).toBeVisible();
+  await page.getByTestId('draw-delete').click();
+  await expect.poll(async () => (await drawings(page)).drawings.map((x) => x.kind)).toEqual(['hline']);
+  await expect(bar).toBeHidden();
 });
