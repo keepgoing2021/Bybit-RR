@@ -1,7 +1,8 @@
 // E2E용 가짜 Bybit V5 서버. 공식 문서의 응답 형식을 따른다 (실제 Bybit 아님).
 // REST: GET /v5/market/instruments-info, GET /v5/market/kline
 // WS:   /v5/public/linear — subscribe/ping 응답, publicTrade·tickers·kline 푸시
-// 시험용: POST /mock/drop (모든 웹소켓 강제 종료), GET /mock/stats
+// 시험용: POST /mock/drop (모든 웹소켓 강제 종료), GET /mock/stats,
+//        POST /mock/fail?route=instruments|kline[&interval=60] (해당 REST를 HTTP 403으로), POST /mock/reset
 import http from 'node:http';
 import { WebSocketServer } from 'ws';
 
@@ -35,6 +36,7 @@ function candle(sym, interval, start, until) {
 }
 
 const stats = { connections: 0, subscribes: [], pings: 0 };
+const failures = { instruments: false, klineIntervals: new Set() };
 const sockets = new Set();
 
 const server = http.createServer((req, res) => {
@@ -48,6 +50,23 @@ const server = http.createServer((req, res) => {
     return json({ dropped: true });
   }
   if (url.pathname === '/mock/stats') return json(stats);
+  if (url.pathname === '/mock/fail' && req.method === 'POST') {
+    const route = url.searchParams.get('route');
+    if (route === 'instruments') failures.instruments = true;
+    if (route === 'kline') failures.klineIntervals.add(url.searchParams.get('interval'));
+    return json({ ok: true });
+  }
+  if (url.pathname === '/mock/reset' && req.method === 'POST') {
+    failures.instruments = false;
+    failures.klineIntervals.clear();
+    return json({ ok: true });
+  }
+  const forbidden = () => {
+    res.writeHead(403, { 'content-type': 'text/plain' });
+    res.end('Forbidden');
+  };
+  if (url.pathname === '/v5/market/instruments-info' && failures.instruments) return forbidden();
+  if (url.pathname === '/v5/market/kline' && failures.klineIntervals.has(url.searchParams.get('interval'))) return forbidden();
   if (url.pathname === '/v5/market/instruments-info') {
     const item = (symbol, tick, extra = {}) => ({
       symbol, contractType: 'LinearPerpetual', status: 'Trading', baseCoin: symbol.replace('USDT', ''), quoteCoin: 'USDT',

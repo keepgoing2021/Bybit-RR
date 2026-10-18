@@ -47,3 +47,55 @@ test('bybit provider reconnects and resubscribes after the server drops', async 
   expect(after.connections).toBe(before.connections + 1);
   expect(after.subscribes.at(-1)).toEqual(['kline.15.BTCUSDT', 'publicTrade.BTCUSDT', 'tickers.BTCUSDT']);
 });
+
+test.describe('failure handling', () => {
+  test.afterEach(async ({ request }) => {
+    await request.post(`${MOCK}/mock/reset`);
+  });
+
+  test('shows why Bybit REST failed and still lets you switch to demo', async ({ page, request }) => {
+    await request.post(`${MOCK}/mock/fail?route=instruments`);
+    await page.goto('/?source=bybit');
+    await page.evaluate(() => localStorage.clear());
+    await page.reload();
+    await expect(page.getByTestId('load-error')).toBeVisible();
+    await expect(page.getByTestId('load-error')).toContainText('종목 목록을 불러오지 못했습니다');
+    await expect(page.getByTestId('load-error')).toContainText('403');
+    await expect(page.getByTestId('btn-long')).toBeDisabled();
+    await page.getByTestId('source').selectOption('demo');
+    await expect(page.getByTestId('feed-status')).toHaveAttribute('data-state', 'live', { timeout: 20_000 });
+    await expect(page.getByTestId('load-error')).toBeHidden();
+  });
+
+  test('higher timeframe fetch failure still creates the scenario with a reason', async ({ page, request }) => {
+    await openBybit(page);
+    await request.post(`${MOCK}/mock/fail?route=kline&interval=60`);
+    await page.getByTestId('btn-long').click();
+    const s = (await page.waitForFunction(() =>
+      (window as unknown as { __rrDebug: { getScenario(): Scenario | null } }).__rrDebug.getScenario(),
+    ).then((h) => h.jsonValue())) as Scenario;
+    expect(s.auto.tp.price).toBeNull();
+    expect(s.auto.tp.reason).toContain('상위 시간봉 데이터 조회 실패');
+    await expect(page.getByTestId('tp-rationale')).toContainText('상위 시간봉 데이터 조회 실패');
+    await expect(page.getByTestId('btn-short')).toBeEnabled();
+  });
+
+  test('banner does not jump to a symbol the current data source does not have', async ({ page }) => {
+    await page.goto('/?source=demo');
+    await page.evaluate(() => localStorage.clear());
+    await page.reload();
+    await expect(page.getByTestId('btn-long')).toBeEnabled({ timeout: 20_000 });
+    await page.getByTestId('btn-long').click();
+    await page.waitForFunction(() =>
+      (window as unknown as { __rrDebug: { getScenario(): Scenario | null } }).__rrDebug.getScenario(),
+    );
+    await page.getByTestId('source').selectOption('bybit');
+    await expect(page.getByTestId('feed-status')).toHaveAttribute('data-state', 'live', { timeout: 20_000 });
+    const banner = page.getByTestId('other-symbol-banner');
+    await expect(banner).toContainText('DEMO-BTC');
+    await banner.getByRole('button').click();
+    await expect(page.getByTestId('toast')).toContainText('현재 데이터 공급원에 없는 종목');
+    await expect(page.getByTestId('symbol')).toHaveValue('BTCUSDT');
+    await expect(page.getByTestId('feed-status')).toHaveAttribute('data-state', 'live');
+  });
+});

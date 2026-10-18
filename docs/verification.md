@@ -6,9 +6,9 @@
 
 | 명령 | 결과 |
 |---|---|
-| `npx vitest run` | 19개 파일, 157개 테스트 통과 |
+| `npx vitest run` | 20개 파일, 159개 테스트 통과 |
 | `npm run build` (타입 검사 + 빌드) | 오류 없음 |
-| `PW_CHROMIUM_PATH=… npx playwright test` | 13개 통과 (데모 11, 가짜 Bybit 2) |
+| `PW_CHROMIUM_PATH=… npx playwright test` | 16개 통과 (데모 11, 가짜 Bybit 5) |
 | `node scripts/check-bybit.mjs` (실제 Bybit) | 7개 항목 모두 FAIL — 네트워크 차단(ENOTFOUND). 앱 결함이 아니라 환경 제약 |
 | `BYBIT_REST=… BYBIT_WS=… node scripts/check-bybit.mjs` (가짜 Bybit) | 7개 PASS, 종료 코드 0 — 스크립트의 성공 경로 확인 |
 
@@ -26,6 +26,15 @@
 | 데이터 연결 중단과 재연결 | `socket.test.ts` (백오프 1s→2s, 최대값, 재구독, 무응답 감시), E2E 데모 끊김, E2E 가짜 Bybit 강제 종료 후 재연결·재구독 | 통과 (데모·가짜 서버) |
 | 새로고침 후 복원 | `persistence.test.ts`, E2E `reload restores scenario and manual edits` | 통과 |
 | 자동 제안값 복원 | `scenario.test.ts › restoreAuto …`, E2E `restore auto returns creation values` | 통과 |
+
+## 실패 상황 처리
+
+| 상황 | 근거 | 상태 |
+|---|---|---|
+| Bybit REST 실패(HTTP 403) | E2E: 오류 원인(403)이 배너로 보이고, 데모로 바꾸면 정상 동작 | 통과 (가짜 서버) |
+| 상위 시간봉 조회 실패 | E2E: 시나리오는 만들어지고 TP는 "상위 시간봉 데이터 조회 실패" 사유와 함께 비워 둠 | 통과 (가짜 서버) |
+| 저장소 접근 자체가 막힌 브라우저 | `safeStorage.test.ts`: 메모리 저장소로 대체(새로고침하면 사라짐) | 통과 |
+| 현재 공급원에 없는 종목의 시나리오 | E2E: "그 종목 보기"가 이동하지 않고 안내만 표시 | 통과 |
 
 ## 직접 확인하지 못한 것 (검증 완료 아님)
 

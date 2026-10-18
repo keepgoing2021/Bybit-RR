@@ -25,6 +25,25 @@ export interface PersistedState {
   ui: UiSelection | null;
 }
 
+/**
+ * 브라우저 저장소 접근 자체가 예외를 던지는 환경(저장소 차단 등)에서는
+ * 이 탭에서만 유지되는 메모리 저장소로 대신한다.
+ */
+export function safeStorage(get: () => StorageLike): StorageLike {
+  try {
+    const s = get();
+    if (s) return s;
+  } catch {
+    // 아래 메모리 저장소 사용
+  }
+  const mem = new Map<string, string>();
+  return {
+    getItem: (k) => (mem.has(k) ? mem.get(k)! : null),
+    setItem: (k, v) => void mem.set(k, v),
+    removeItem: (k) => void mem.delete(k),
+  };
+}
+
 export function saveState(storage: StorageLike, state: PersistedState): void {
   try {
     storage.setItem(STATE_KEY, JSON.stringify(state));

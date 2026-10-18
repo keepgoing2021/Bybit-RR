@@ -495,6 +495,10 @@ export class App {
     del.addEventListener('click', () => this.deleteScenario());
     otherGo.addEventListener('click', () => {
       if (!this.scenario) return;
+      if (!this.symbols.some((s) => s.symbol === this.scenario!.symbol)) {
+        this.toast(`${this.scenario.symbol}은(는) 현재 데이터 공급원에 없는 종목입니다. 상단 '데이터'를 바꿔 보세요.`);
+        return;
+      }
       this.ui.symbol = this.scenario.symbol;
       void this.loadMarket();
     });

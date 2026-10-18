@@ -3,6 +3,7 @@ import { CONFIG } from './config';
 import { BybitProvider } from './data/bybit/provider';
 import type { Scheduler, WebSocketLike } from './data/bybit/socket';
 import { DemoProvider } from './data/demo/provider';
+import { safeStorage } from './core/persistence';
 import { App, type SourceKind } from './ui/app';
 
 const params = new URLSearchParams(location.search);
@@ -23,7 +24,7 @@ const demoNow = () => demoT0 + (Date.now() - demoT0) * demoSpeed;
 
 const app = new App({
   root: document.getElementById('app')!,
-  storage: window.localStorage,
+  storage: safeStorage(() => window.localStorage),
   now: () => Date.now(),
   sourceOverride,
   createProvider: (kind) =>
