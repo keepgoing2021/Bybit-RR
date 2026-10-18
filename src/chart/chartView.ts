@@ -83,6 +83,7 @@ export class ChartView {
   private readonly prim = new RRBoxPrimitive();
   private readonly countdown = new CountdownPrimitive();
   private readonly ohlcEl: HTMLElement;
+  private readonly legendBox: HTMLElement;
   /** 마우스가 가리키는 논리 인덱스 (차트 밖이면 null) */
   private hoverLogical: number | null = null;
   private readonly ma: { period: number; label: string; color: string; series: ISeriesApi<'Line'>; value: HTMLElement }[];
@@ -157,7 +158,7 @@ export class ChartView {
     this.series.attachPrimitive(this.countdown);
 
     // 왼쪽 위 범례: 1줄 캔들 정보(시·고·저·종, 등락, 진폭), 2줄 이동평균. 마우스가 올라간 캔들 기준, 없으면 현재 캔들
-    const legendBox = document.createElement('div');
+    const legendBox = (this.legendBox = document.createElement('div'));
     legendBox.className = 'chart-legend';
     this.ohlcEl = document.createElement('div');
     this.ohlcEl.className = 'ohlc-legend';
@@ -558,8 +559,18 @@ export class ChartView {
     return this.overlay?.labels ?? null;
   }
 
-  getHighlight(): { from: number; to: number; label: string } | null {
+  getHighlight(): { from: number; to: number; label: string; labelY: number } | null {
     return this.prim.getModel()?.highlight ?? null;
+  }
+
+  /** 범례 아래쪽 끝 (차트 안 세로 좌표). E2E 겹침 확인용 */
+  legendBottom(): number {
+    return this.legendBox.offsetTop + this.legendBox.offsetHeight;
+  }
+
+  /** SL 캔들 이름표는 범례 아래 (칩 높이 20의 절반 + 여유 4) */
+  private withLabelY(h: { from: number; to: number; label: string } | null) {
+    return h ? { ...h, labelY: Math.max(60, this.legendBottom() + 14) } : null;
   }
 
   getRenderedGeometry(): BoxGeometry | null {
@@ -636,7 +647,7 @@ export class ChartView {
       endLogical: Math.max(end, start + shift + 1),
       closed: o.endTime !== null,
       labels: o.labels,
-      highlight: this.highlightRange(o.slCandle),
+      highlight: this.withLabelY(this.highlightRange(o.slCandle)),
       active: this.dragging ?? this.hover,
       presets: o.presets,
       hoverPreset: this.hoverPreset,

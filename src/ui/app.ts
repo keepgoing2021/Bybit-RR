@@ -89,6 +89,9 @@ function slBandLabel(a: AutoSL, side: Side, chartTf: Timeframe): string {
   }
 }
 
+/** 폰 화면 (styles.css의 640px 구간과 같은 기준) */
+const PHONE = typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(max-width: 640px)') : ({ matches: false } as MediaQueryList);
+
 const DRAW_TOOLS_KEY = 'rrtool.v1.drawtools';
 const DRAW_COLOR_KEY = 'rrtool.v1.drawcolor';
 
@@ -183,6 +186,7 @@ export class App {
       formatTime: (ms) => formatTime(ms),
     });
     this.chart.setDefaultDrawColor(this.loadDrawColor());
+    PHONE.addEventListener?.('change', () => this.renderTopbar());
     window.setInterval(() => {
       this.renderStatus();
       this.renderCountdown();
@@ -542,6 +546,7 @@ export class App {
       field('SL 기준', sltf),
       h('div', { class: 'sides' }, long, short),
       h('div', { class: 'status' }, status, statusReason),
+      sizing.fold,
       sizing.bar,
     );
 
@@ -881,12 +886,22 @@ export class App {
     );
     const bar = h(
       'div',
-      { class: 'sizing-bar', 'data-testid': 'sizing-bar' },
+      { class: 'sizing-bar', 'data-testid': 'sizing-bar', id: 'sizing-bar' },
       field('운영자산 (USDT)', capital),
       field('손절 시 손실 %', risk),
       splitsField,
       weightsField,
     );
+    // 폰 화면 전용: 입력칸 네 개를 한 줄 요약 버튼으로 접어 둔다 (데스크톱에서는 숨김, 입력칸은 항상 보임)
+    const fold = h('button', {
+      type: 'button', class: 'sizing-toggle', 'data-testid': 'sizing-toggle', 'aria-expanded': 'false', 'aria-controls': 'sizing-bar',
+      'aria-label': '주문 설정 펼치기',
+    });
+    fold.addEventListener('click', () => {
+      const open = bar.dataset.open !== 'true';
+      bar.dataset.open = String(open);
+      fold.setAttribute('aria-expanded', String(open));
+    });
     const box = h(
       'section',
       { class: 'sizing', 'data-testid': 'sizing' },
@@ -935,7 +950,7 @@ export class App {
     linear.addEventListener('click', () => apply('linear'));
     equal.addEventListener('click', () => apply('equal'));
     for (const c of [capital, splits, weights]) c.addEventListener('keydown', (e) => e.key === 'Enter' && c.blur());
-    return { bar, box, capital, risk, splits, weights, linear, equal, reason, table, body, summary, sum, avgShow };
+    return { bar, fold, box, capital, risk, splits, weights, linear, equal, reason, table, body, summary, sum, avgShow };
   }
 
   /** 상단 바의 분할 진입 입력칸을 저장된 값으로 맞춘다 (시나리오가 없어도 보인다) */
@@ -951,6 +966,11 @@ export class App {
     z.equal.classList.toggle('active', cfg.weightMode === 'equalRisk');
     z.linear.title = `${ratioLabel(Math.max(cfg.splits, 2))} (뒤로 갈수록 크게)`;
     z.avgShow.checked = cfg.showAvgLine;
+    // 폰 요약 버튼: '주문 설정 · 10,000 USDT · 1% · 3분할 1:2:3'
+    const cap = cfg.capital === null ? '운영자산 입력' : `${cfg.capital.toLocaleString('en-US')} USDT`;
+    const ratio = cfg.splits === 1 ? '1회 진입' : `${cfg.splits}분할 ${weightsText(cfg)}`;
+    setText(z.fold, `${cap} · ${cfg.riskPct}% · ${ratio}`);
+    z.fold.title = '주문 설정 (운영자산·손절 시 손실·분할·비중)';
   }
 
   private sizingPlan(s: Scenario): { plan: SizingPlan | null; reason: string | null } {
@@ -987,7 +1007,8 @@ export class App {
           { 'data-testid': 'sizing-row', class: t.tooSmall ? 'too-small' : '' },
           h('td', {}, `${t.n}차 `, h('span', { class: 'muted small' }, `${(t.share * 100).toFixed(0)}%`)),
           h('td', { class: 'num' }, this.copyCell(formatPrice(t.price, s.tickSize), '가격')),
-          h('td', { class: 'num' }, this.copyCell(usdt(t.notional), '금액', t.notional.toFixed(2))),
+          // 복사값 = 보이는 값에서 쉼표만 뺀 것 (toFixed와 표시 반올림이 반 센트에서 갈리지 않게)
+          h('td', { class: 'num' }, this.copyCell(usdt(t.notional), '금액', usdt(t.notional).replace(/,/g, ''))),
           h('td', { class: 'num' }, this.copyCell(t.qty.toFixed(qd), '수량')),
           // 1차부터 이 분할까지 체결됐을 때의 평단 (1차 = 진입가)
           h(
@@ -1050,8 +1071,10 @@ export class App {
     e.picker.setValue(this.ui.symbol);
     e.tf.value = this.ui.timeframe;
     // SL 기준: 모든 SL 방식에서 고를 수 있다. 차트와 같은 시간봉에는 '(차트)' 표시
+    // 폰은 칸이 좁아 차트와 같은 시간봉을 '차트와 같음'으로 짧게 (옆 칸이 차트 시간봉)
+    const chartMark = (t: Timeframe) => (PHONE.matches ? '차트와 같음' : `${tfName(t)} (차트)`);
     e.sltf.replaceChildren(
-      ...TIMEFRAMES.map((t) => h('option', { value: t }, t === this.ui.timeframe ? `${tfName(t)} (차트)` : tfName(t))),
+      ...TIMEFRAMES.map((t) => h('option', { value: t }, t === this.ui.timeframe ? chartMark(t) : tfName(t))),
     );
     e.sltf.value = this.currentSlTf();
     e.sltf.title = 'SL을 계산할 시간봉 (예: 15분봉 차트에서 1시간봉 스윙 저점). 바꾸면 지금 계산의 자동 SL도 다시 계산';
@@ -1191,6 +1214,7 @@ export class App {
       getLastPrice: () => this.feed.lastPrice?.price ?? null,
       getCountdown: () => this.countdown,
       getHighlight: () => this.chart.getHighlight(),
+      legendBottom: () => this.chart.legendBottom(),
       getOverlayLabels: () => this.chart.getOverlayLabels(),
       isBoxSelected: () => this.chart.isBoxSelected(),
       getDrawings: () => this.chart.getDrawings(),

@@ -25,8 +25,8 @@ export interface OverlayModel {
   endLogical: number;
   closed: boolean;
   labels: { profit: string | null; loss: string | null; center: string; centerValid: boolean };
-  /** SL 선정 캔들의 기간 [from, to) (논리 인덱스) */
-  highlight: { from: number; to: number; label: string } | null;
+  /** SL 선정 캔들의 기간 [from, to) (논리 인덱스). labelY: 이름표 세로 위치 (왼쪽 위 범례 바로 아래) */
+  highlight: { from: number; to: number; label: string; labelY: number } | null;
   active: 'sl' | 'tp' | null;
   /** 손익비 점선 */
   presets: PresetLevel[];
@@ -137,8 +137,8 @@ export class RRBoxPrimitive implements ISeriesPrimitive<Time> {
         if (xa !== null && xb !== null) {
           ctx.fillStyle = THEME.highlight;
           ctx.fillRect(xa - barSpacing / 2, 0, Math.max(xb - xa, 1), mediaSize.height);
-          // 맨 위 두 줄은 캔들·이동평균 범례 자리라 그 아래에 둔다
-          chip(ctx, m.highlight.label, (xa + xb) / 2 - barSpacing / 2, 60, THEME.chipDark, THEME.entry, mediaSize.width);
+          // 왼쪽 위 캔들·이동평균 범례 아래에 둔다 (폰처럼 좁아 범례가 여러 줄이면 그만큼 내려감)
+          chip(ctx, m.highlight.label, (xa + xb) / 2 - barSpacing / 2, m.highlight.labelY, THEME.chipDark, THEME.entry, mediaSize.width);
         }
       }
 
