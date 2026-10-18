@@ -105,6 +105,23 @@ export function restoreAuto(s: Scenario): Scenario {
   };
 }
 
+/**
+ * 자동 제안만 새로 바꾼다 (SL 기준 시간봉을 바꿨을 때). 엔트리·클릭 시각은 그대로,
+ * 자동값을 쓰던 SL·TP만 새 값으로 바뀌고 직접 바꾼 값은 남는다.
+ */
+export function replaceAuto(s: Scenario, auto: AutoLevels, settings: AnalysisSettings): Scenario {
+  if (s.status !== 'active') return s;
+  return {
+    ...s,
+    auto,
+    settings,
+    applied: {
+      sl: s.source.sl === 'auto' ? auto.sl.price : s.applied.sl,
+      tp: s.source.tp === 'auto' ? auto.tp.price : s.applied.tp,
+    },
+  };
+}
+
 export function closeScenario(s: Scenario, at: { price: number; time: number }): Scenario {
   if (s.status !== 'active') return s;
   return { ...s, status: 'closed', closed: { price: at.price, time: at.time } };

@@ -23,8 +23,10 @@ export interface UiSelection {
   timeframe: Timeframe;
   /** 이전 버전의 TP 기준 (쓰지 않음) */
   htf?: Timeframe | null;
-  /** SL 기준 시간봉 (없으면 차트 시간봉 기준 기본값) */
+  /** 이전 버전의 SL 기준 시간봉 ('직전 마감 봉' 방식에서만 쓰던 값, 불러올 때 slBasis로 옮김) */
   slTf?: Timeframe;
+  /** 사용자가 고른 SL 기준 시간봉 (모든 SL 방식). 없으면 기본값(차트 시간봉, 직전 마감 봉은 한 단계 위) */
+  slBasis?: Timeframe;
 }
 
 export interface PersistedState {
@@ -151,7 +153,8 @@ function isUiSelection(v: unknown): boolean {
     typeof v.symbol === 'string' &&
     isTf(v.timeframe) &&
     (v.htf === undefined || v.htf === null || isTf(v.htf)) &&
-    (v.slTf === undefined || isTf(v.slTf))
+    (v.slTf === undefined || isTf(v.slTf)) &&
+    (v.slBasis === undefined || isTf(v.slBasis))
   );
 }
 

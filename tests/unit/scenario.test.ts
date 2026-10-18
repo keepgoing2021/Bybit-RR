@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { computeMetrics } from '../../src/core/metrics';
-import { boxShiftOf, closeScenario, restoreAuto, setBoxShift, setEntry, setLevel, type Scenario } from '../../src/core/scenario';
+import { boxShiftOf, closeScenario, replaceAuto, restoreAuto, setBoxShift, setEntry, setLevel, type Scenario } from '../../src/core/scenario';
 import { makeScenario } from './helpers/scenario';
 
 const rrOf = (s: Scenario) =>
@@ -67,6 +67,27 @@ describe('restoreAuto', () => {
     expect(r.source).toEqual({ sl: 'auto', tp: 'auto' });
     expect(r.entry).toBe(100);
     expect(r.auto).toEqual(edited.auto);
+  });
+});
+
+describe('replaceAuto (SL timeframe changed)', () => {
+  const next = (sl: number, tp: number) => {
+    const a = makeScenario(sl, tp).auto;
+    return a;
+  };
+  it('levels still on auto take the new suggestion; entry and click time stay', () => {
+    const s = makeScenario();
+    const r = replaceAuto(s, next(96, 112), s.settings);
+    expect(r.applied).toEqual({ sl: 96, tp: 112 });
+    expect(r.auto.sl.price).toBe(96);
+    expect([r.entry, r.priceTime, r.clickedAt]).toEqual([s.entry, s.priceTime, s.clickedAt]);
+  });
+  it('a level the user moved by hand is kept', () => {
+    const s = setLevel(makeScenario(), 'sl', 97);
+    const r = replaceAuto(s, next(96, 112), s.settings);
+    expect(r.applied).toEqual({ sl: 97, tp: 112 });
+    expect(r.source).toEqual({ sl: 'manual', tp: 'auto' });
+    expect(restoreAuto(r).applied).toEqual({ sl: 96, tp: 112 });
   });
 });
 

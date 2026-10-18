@@ -287,14 +287,69 @@ async function setSlMode(page: Page, mode: string) {
   await page.getByTestId('setting-slMode').selectOption(mode);
 }
 
-test('default SL uses the chart timeframe, so the SL timeframe box is locked to it', async ({ page }) => {
+test('SL timeframe can be picked in every SL mode: default = chart, picking another recalculates the open SL', async ({ page }) => {
   await open(page, { tf: '15' });
   const sltf = page.getByTestId('sltf');
-  await expect(sltf).toBeDisabled();
+  await expect(sltf).toBeEnabled();
   await expect(sltf).toHaveValue('15');
+  await expect(sltf.locator('option:checked')).toHaveText('15분봉 (차트)');
+  // 기본은 차트를 따라간다
   await page.getByTestId('tf').selectOption('240');
   await waitLive(page);
   await expect(sltf).toHaveValue('240');
+  await page.getByTestId('tf').selectOption('15');
+  await waitLive(page);
+
+  await page.getByTestId('btn-long').click(); // 자동 SL 그대로 (직접 옮기지 않음)
+  await expect.poll(() => scenario(page)).not.toBeNull();
+  const s0 = (await scenario(page))!;
+  expect(s0.auto.sl.timeframe).toBe('15');
+  expect(s0.source.sl).toBe('auto');
+  // 15분봉 차트에서 SL 기준을 1시간봉으로: 다시 누르지 않아도 같은 엔트리·같은 시각으로 SL을 다시 계산
+  await sltf.selectOption('60');
+  await expect.poll(async () => (await scenario(page))?.auto.sl.timeframe).toBe('60');
+  const s1 = (await scenario(page))!;
+  expect([s1.id, s1.entry, s1.priceTime]).toEqual([s0.id, s0.entry, s0.priceTime]);
+  if (s1.auto.sl.status === 'ok') {
+    expect(s1.auto.sl.candle!.time % 3_600_000).toBe(0); // 1시간봉 캔들
+    expect(s1.applied.sl).toBe(s1.auto.sl.price);
+    expect(s1.auto.sl.price!).toBeLessThan(s1.entry);
+    await expect(page.getByTestId('sl-rationale')).toContainText('1시간봉 최근 확정 스윙 저점');
+    await expect.poll(() => page.evaluate(() => window.__rrDebug.getHighlight()?.label ?? null)).toBe('SL 기준 1시간봉 스윙 저점');
+  } else {
+    await expect(page.getByTestId('sl-rationale')).toContainText('유효한 자동 SL 없음');
+  }
+
+  // 직접 옮긴 SL은 SL 기준을 바꿔도 그대로 (알림)
+  await setLevel(page, 'sl', (s1.entry - 7).toFixed(1));
+  await sltf.selectOption('240');
+  await expect.poll(async () => (await scenario(page))?.auto.sl.timeframe).toBe('240');
+  await expect(page.getByTestId('toast')).toContainText('SL을 직접 바꿔 둔 상태라 그대로');
+  expect((await scenario(page))!.applied.sl).toBe(Number((s1.entry - 7).toFixed(1)));
+
+  // 고른 SL 기준은 차트를 바꿔도·새로고침해도 유지, 차트와 같은 값을 고르면 다시 차트를 따라간다
+  await page.reload();
+  await waitLive(page);
+  await expect(page.getByTestId('sltf')).toHaveValue('240');
+  await page.getByTestId('tf').selectOption('5');
+  await waitLive(page);
+  await expect(page.getByTestId('sltf')).toHaveValue('240');
+  await page.getByTestId('sltf').selectOption('5');
+  await page.getByTestId('tf').selectOption('15');
+  await waitLive(page);
+  await expect(page.getByTestId('sltf')).toHaveValue('15');
+});
+
+test('an older save (SL 기준 auto-set to 4h for the previous-candle mode only) keeps the swing SL on the chart timeframe', async ({ page }) => {
+  await open(page, { tf: '15' });
+  await page.evaluate(() =>
+    localStorage.setItem('rrtool.v1.state', JSON.stringify({ version: 1, scenario: null, ui: { provider: 'bybit', symbol: 'DEMO-BTC', timeframe: '15', slTf: '240' } })),
+  );
+  await page.reload();
+  await waitLive(page);
+  await expect(page.getByTestId('sltf')).toHaveValue('15');
+  await page.getByTestId('btn-long').click();
+  await expect.poll(async () => (await scenario(page))?.auto.sl.timeframe).toBe('15');
 });
 
 test('no TP 기준: TP starts at RR 1:1.5 from the auto SL and can be changed in settings', async ({ page }) => {

@@ -292,6 +292,18 @@ describe('analyzeAutoLevels — SL from the latest confirmed swing on the chart 
     expect(analyzeAutoLevels(swingInput({}, fromLows(LOWS, 70))).sl.price).toBe(77.055);
   });
 
+  it('with an SL timeframe given, the swing comes from that timeframe, not the chart', () => {
+    // 차트는 1분봉(엔트리 아래 스윙 없음), SL 기준은 4시간봉 → 4시간봉 스윙 저점 77.055
+    const flat = ranged(ones(30), 79, 0, MIN);
+    const r = analyzeAutoLevels(swingInput({ ltf: { timeframe: '1', candles: flat }, slTf: { timeframe: '240', candles: fromLows(LOWS, 78.3) } }));
+    expect(r.sl.timeframe).toBe('240');
+    expect(r.sl.price).toBe(77.055);
+    // 최근 N봉·급격한 캔들 방식도 SL 기준 시간봉을 쓴다
+    const lowest = analyzeAutoLevels(swingInput({ ltf: { timeframe: '1', candles: flat }, slTf: { timeframe: '240', candles: fromLows(LOWS, 78.3) }, settings: LOWEST }));
+    expect(lowest.sl.timeframe).toBe('240');
+    expect(lowest.sl.price).toBe(76.5);
+  });
+
   it('LONG skips swing lows above the entry and takes the latest one below it', () => {
     const lows = [79, 78, 76, 77, 78, 80, 79, 78.8, 79.5, 80.2]; // 78.8 스윙은 엔트리 위
     const r = analyzeAutoLevels(swingInput({}, fromLows(lows), lows));

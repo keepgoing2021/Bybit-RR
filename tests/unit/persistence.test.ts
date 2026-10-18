@@ -42,6 +42,14 @@ describe('state persistence', () => {
     expect(loadState(st)).toEqual({ version: 1, scenario: null, ui: null });
   });
 
+  it('keeps the chosen SL timeframe (slBasis) and drops a bad one', () => {
+    const st = memoryStorage();
+    saveState(st, { ...state(), ui: { provider: 'bybit', symbol: 'BTCUSDT', timeframe: '15', slBasis: '60' } });
+    expect(loadState(st)?.ui?.slBasis).toBe('60');
+    st.setItem(STATE_KEY, JSON.stringify({ ...state(), ui: { provider: 'bybit', symbol: 'BTCUSDT', timeframe: '15', slBasis: '7m' } }));
+    expect(loadState(st)?.ui).toBeNull();
+  });
+
   it('returns null when nothing is stored', () => {
     expect(loadState(memoryStorage())).toBeNull();
   });

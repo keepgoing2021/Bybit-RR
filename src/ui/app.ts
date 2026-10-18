@@ -12,7 +12,7 @@ import {
 } from '../core/persistence';
 import { DRAW_PALETTE, DRAWING_KINDS, DRAWING_NAMES, isColor, placingHint, type Drawing, type DrawingKind } from '../core/drawings';
 import { decimalsOf, formatPrice, snapToTick } from '../core/price';
-import { boxShiftOf, createScenario, restoreAuto, setBoxShift, setEntry, setLevel, type Scenario } from '../core/scenario';
+import { boxShiftOf, createScenario, replaceAuto, restoreAuto, setBoxShift, setEntry, setLevel, type Scenario } from '../core/scenario';
 import { DEFAULT_SETTINGS, sanitizeSettings, type AnalysisSettings } from '../core/settings';
 import {
   DEFAULT_SIZING,
@@ -27,8 +27,8 @@ import {
   type SizingPlan,
   type SizingSettings,
 } from '../core/sizing';
-import { barEnd, defaultSlTf, slTimeframes, TIMEFRAMES, tfMs } from '../core/timeframe';
-import type { PriceTick, Side, SymbolInfo, Timeframe } from '../core/types';
+import { barEnd, defaultSlTf, TIMEFRAMES, tfMs } from '../core/timeframe';
+import type { Candle, PriceTick, Side, SymbolInfo, Timeframe } from '../core/types';
 import type { SocketState } from '../data/bybit/socket';
 import { CandleStore } from '../data/candleStore';
 import type { FeedListener, MarketDataProvider } from '../data/provider';
@@ -53,10 +53,10 @@ const SETTING_FIELDS: { key: keyof AnalysisSettings; label: string; options?: [s
     key: 'slMode',
     label: 'SL 방식',
     options: [
-      ['swing', '차트 시간봉의 최근 확정 스윙 저점·고점'],
-      ['lowestN', '차트 시간봉 최근 N봉의 최저·최고가'],
+      ['swing', 'SL 기준 시간봉의 최근 확정 스윙 저점·고점'],
+      ['lowestN', 'SL 기준 시간봉 최근 N봉의 최저·최고가'],
       ['prevCandle', 'SL 기준 시간봉의 직전 마감 봉'],
-      ['spike', '차트 시간봉의 가장 급격한 캔들'],
+      ['spike', 'SL 기준 시간봉의 가장 급격한 캔들'],
     ],
   },
   { key: 'slLowestBars', label: '최저·최고 탐색 범위 (마감 봉 수, 최근 N봉 방식. 진행 중인 봉도 포함)' },
@@ -73,17 +73,19 @@ const SETTING_FIELDS: { key: keyof AnalysisSettings; label: string; options?: [s
 ];
 
 /** 차트의 노란 띠(SL을 정한 캔들) 이름표 */
-function slBandLabel(a: AutoSL, side: Side): string {
+/** 차트의 SL 캔들 띠 이름. SL 기준 시간봉이 차트와 다르면 시간봉도 붙인다 (예: 'SL 기준 1시간봉 스윙 저점') */
+function slBandLabel(a: AutoSL, side: Side, chartTf: Timeframe): string {
   const low = side === 'LONG';
+  const tf = a.timeframe !== chartTf ? `${tfName(a.timeframe)} ` : '';
   switch (a.method) {
     case 'swing':
-      return `SL 기준 스윙 ${low ? '저점' : '고점'}`;
+      return `SL 기준 ${tf}스윙 ${low ? '저점' : '고점'}`;
     case 'lowestN':
-      return `SL 기준 최근 ${a.bars ?? '?'}봉 ${low ? '최저' : '최고'}`;
+      return `SL 기준 ${tf}최근 ${a.bars ?? '?'}봉 ${low ? '최저' : '최고'}`;
     case 'prevCandle':
       return `SL 기준 ${tfName(a.timeframe)}`;
     default:
-      return 'SL 기준 캔들';
+      return `SL 기준 ${tf}캔들`;
   }
 }
 
@@ -140,6 +142,15 @@ export class App {
     // 계산기라 '종료된 시나리오'는 없다 (이전 버전에서 종료한 것은 버린다)
     this.scenario = saved?.scenario?.status === 'active' ? saved.scenario : null;
     this.ui = saved?.ui ? { ...saved.ui } : { ...DEFAULT_UI };
+    // 이전 버전의 slTf는 '직전 마감 봉' 방식에서만 쓰였고 차트를 바꿀 때마다 자동으로 바뀌던 값이다.
+    // 그 방식에서 사용자가 기본값과 다르게 고른 경우만 SL 기준으로 옮긴다 (스윙 SL이 갑자기 4시간봉이 되지 않게)
+    if (this.ui.slTf !== undefined) {
+      const { slTf, ...rest } = this.ui;
+      this.ui = rest;
+      if (this.ui.slBasis === undefined && this.settings.slMode === 'prevCandle' && slTf !== defaultSlTf(this.ui.timeframe)) {
+        this.ui.slBasis = slTf;
+      }
+    }
 
     this.el = this.buildDom();
     this.chart = new ChartView(this.el.chart, {
@@ -326,37 +337,12 @@ export class App {
       return;
     }
     const { symbol, timeframe } = this.ui;
-    const slTf = this.currentSlTf();
     const tickSize = this.tickSize;
     const settings = this.settings;
-    const ltfCandles = this.store.all().slice();
-    const provider = this.provider;
 
     this.creating = true;
     this.renderStatus();
-    // 'SL 기준 시간봉의 직전 마감 봉' 방식만 다른 시간봉 데이터가 필요하다 (클릭 시점에 받고, 기준 시각 이후 캔들은 분석에서 걸러짐)
-    const fetchTf = async (tf: Timeframe | null, limit: number) => {
-      if (!tf) return { candles: null, error: null };
-      if (tf === timeframe) return { candles: ltfCandles, error: null };
-      try {
-        return { candles: (await provider.fetchCandles(symbol, tf, limit)).candles, error: null };
-      } catch (e) {
-        return { candles: null, error: errText(e) };
-      }
-    };
-    const slRes = await fetchTf(settings.slMode === 'prevCandle' ? slTf : null, 10);
-    const auto = analyzeAutoLevels({
-      side,
-      entry: cap.price,
-      cutoff: cap.priceTime,
-      tickSize,
-      ltf: { timeframe, candles: ltfCandles },
-      slTf: slRes.candles ? { timeframe: slTf, candles: slRes.candles } : null,
-      settings,
-    });
-    if (settings.slMode === 'prevCandle' && !slRes.candles) {
-      auto.sl = { ...auto.sl, timeframe: slTf, reason: `유효한 자동 SL 없음: SL 기준 시간봉 데이터 조회 실패 (${slRes.error})` };
-    }
+    const auto = await this.analyzeAt(side, cap.price, cap.priceTime, settings);
     const created = createScenario({
       id: newId(),
       symbol,
@@ -374,9 +360,75 @@ export class App {
     this.renderAll();
   }
 
+  /**
+   * 자동 SL·TP 계산. SL은 SL 기준 시간봉 캔들로 (차트와 같으면 차트 캔들, 다르면 그 시간봉을 받아서).
+   * 기준 시각(priceTime) 이후 캔들은 분석에서 걸러진다.
+   */
+  private async analyzeAt(side: Side, entry: number, priceTime: number, settings: AnalysisSettings) {
+    const { symbol, timeframe } = this.ui;
+    const slTf = this.currentSlTf();
+    const ltfCandles = this.store.all().slice();
+    const provider = this.provider;
+    let slCandles: Candle[] | null = ltfCandles;
+    let error: string | null = null;
+    if (slTf !== timeframe) {
+      // 스윙(좌우 봉)·급격한 캔들(탐색 범위 + ATR)·최근 N봉에 충분한 개수
+      const need = Math.max(settings.lookback + settings.atrPeriod, settings.slLowestBars, settings.swingBars * 2 + 1) + 50;
+      try {
+        slCandles = (await provider.fetchCandles(symbol, slTf, Math.min(CONFIG.historyLimit, need))).candles;
+      } catch (e) {
+        slCandles = null;
+        error = errText(e);
+      }
+    }
+    const auto = analyzeAutoLevels({
+      side,
+      entry,
+      cutoff: priceTime,
+      tickSize: this.tickSize,
+      ltf: { timeframe, candles: ltfCandles },
+      slTf: slCandles ? { timeframe: slTf, candles: slCandles } : null,
+      settings,
+    });
+    if (!slCandles) {
+      // 받지 못했으면 차트 시간봉으로 대신 계산하지 않는다 (고른 시간봉과 다른 SL이 나오지 않게)
+      auto.sl = {
+        ...auto.sl,
+        price: null,
+        status: 'unavailable',
+        candle: null,
+        candidatePrice: null,
+        timeframe: slTf,
+        reason: `유효한 자동 SL 없음: SL 기준 시간봉(${tfName(slTf)}) 데이터 조회 실패 (${error})`,
+      };
+      auto.tp = { price: null, candidatePrice: null, status: 'unavailable', reason: '유효한 자동 TP 없음: 자동 SL이 없어 기본 손익비 자리를 정할 수 없음', rr: settings.defaultRR };
+    }
+    return auto;
+  }
+
+  /** SL 기준 시간봉: 사용자가 고른 값, 없으면 기본값 (차트 시간봉, '직전 마감 봉' 방식은 한 단계 위) */
   private currentSlTf(): Timeframe {
-    const allowed = slTimeframes(this.ui.timeframe);
-    return this.ui.slTf && allowed.includes(this.ui.slTf) ? this.ui.slTf : defaultSlTf(this.ui.timeframe);
+    return this.ui.slBasis ?? this.defaultSlBasis();
+  }
+
+  private defaultSlBasis(): Timeframe {
+    return this.settings.slMode === 'prevCandle' ? defaultSlTf(this.ui.timeframe) : this.ui.timeframe;
+  }
+
+  /** 상단 'SL 기준'을 바꾸면 지금 계산의 자동 SL을 같은 엔트리·같은 시각 기준으로 다시 계산한다 */
+  private async onSlBasisChange(tf: Timeframe): Promise<void> {
+    this.ui.slBasis = tf === this.defaultSlBasis() ? undefined : tf;
+    this.persist();
+    this.renderTopbar();
+    const s = this.scenario;
+    if (!s || s.status !== 'active' || s.symbol !== this.ui.symbol) return;
+    const settings = this.settings;
+    const auto = await this.analyzeAt(s.side, s.capturedEntry ?? s.entry, s.priceTime, settings);
+    if (this.scenario?.id !== s.id) return; // 그 사이 새로 계산했으면 버린다
+    this.scenario = replaceAuto(this.scenario, auto, settings);
+    if (s.source.sl === 'manual') this.toast("SL을 직접 바꿔 둔 상태라 그대로 둡니다. 새 자동 SL을 쓰려면 '자동값으로 되돌리기'를 누르세요.");
+    this.persist();
+    this.renderNow(true);
   }
 
   private clearCalc(): void {
@@ -617,13 +669,11 @@ export class App {
     tf.addEventListener('change', () => {
       const t = tf.value as Timeframe;
       this.ui.timeframe = t;
-      this.ui.slTf = defaultSlTf(t); // 차트 시간봉을 바꾸면 SL 기준도 한 단계 위 기본값으로
+      // 사용자가 고른 SL 기준은 유지 (고르지 않았으면 새 차트 시간봉 기준 기본값을 따라간다)
+      if (this.ui.slBasis === this.defaultSlBasis()) this.ui.slBasis = undefined;
       void this.loadMarket();
     });
-    sltf.addEventListener('change', () => {
-      this.ui.slTf = sltf.value as Timeframe;
-      this.persist();
-    });
+    sltf.addEventListener('change', () => void this.onSlBasisChange(sltf.value as Timeframe));
     long.addEventListener('click', () => void this.onSide('LONG'));
     short.addEventListener('click', () => void this.onSide('SHORT'));
     restore.addEventListener('click', () => {
@@ -999,12 +1049,12 @@ export class App {
     const e = this.el;
     e.picker.setValue(this.ui.symbol);
     e.tf.value = this.ui.timeframe;
-    e.sltf.replaceChildren(...slTimeframes(this.ui.timeframe).map((t) => h('option', { value: t }, tfName(t))));
-    // 'SL 기준 시간봉의 직전 마감 봉' 방식에서만 고를 수 있다. 다른 방식은 차트 시간봉을 쓴다.
-    const pickable = this.settings.slMode === 'prevCandle';
-    e.sltf.value = pickable ? this.currentSlTf() : this.ui.timeframe;
-    e.sltf.disabled = !pickable;
-    e.sltf.title = pickable ? '' : "지금 SL 방식은 차트 시간봉을 씁니다. 설정의 'SL 방식'이 직전 마감 봉일 때만 바꿀 수 있습니다";
+    // SL 기준: 모든 SL 방식에서 고를 수 있다. 차트와 같은 시간봉에는 '(차트)' 표시
+    e.sltf.replaceChildren(
+      ...TIMEFRAMES.map((t) => h('option', { value: t }, t === this.ui.timeframe ? `${tfName(t)} (차트)` : tfName(t))),
+    );
+    e.sltf.value = this.currentSlTf();
+    e.sltf.title = 'SL을 계산할 시간봉 (예: 15분봉 차트에서 1시간봉 스윙 저점). 바꾸면 지금 계산의 자동 SL도 다시 계산';
     this.renderSizingControls(false);
     show(e.loadError, this.loadError !== null);
     setText(e.loadError, this.loadError ?? '');
@@ -1106,7 +1156,7 @@ export class App {
         ? {
             time: s.auto.sl.candle.time,
             durationMs: barEnd(s.auto.sl.timeframe, s.auto.sl.candle.time) - s.auto.sl.candle.time,
-            label: slBandLabel(s.auto.sl, s.side),
+            label: slBandLabel(s.auto.sl, s.side, this.ui.timeframe),
           }
         : null,
       presets: rrLevels(s.side, s.entry, s.applied.sl, s.tickSize),

@@ -48,7 +48,10 @@ export interface AnalyzeInput {
   cutoff: number;
   tickSize: number;
   ltf: { timeframe: Timeframe; candles: Candle[] };
-  /** SL 기준 시간봉 캔들 (prevCandle 방식에서 사용) */
+  /**
+   * SL 기준 시간봉 캔들. 모든 SL 방식이 이것으로 계산한다 (차트와 같은 시간봉이면 차트 캔들).
+   * 없으면 스윙·최근 N봉·급격한 캔들은 차트 시간봉(ltf)으로, 직전 마감 봉은 계산 불가
+   */
   slTf: { timeframe: Timeframe; candles: Candle[] } | null;
   settings: AnalysisSettings;
 }
@@ -84,12 +87,16 @@ function analyzeSL(i: AnalyzeInput): AutoSL {
   }
 }
 
+/** SL을 계산할 캔들: SL 기준 시간봉(있으면), 없으면 차트 시간봉 */
+const slSeries = (i: AnalyzeInput) => i.slTf ?? i.ltf;
+
 /**
- * 차트 시간봉의 확정 스윙 저점(LONG)·고점(SHORT) 중 엔트리 너머에 있는 가장 최근 것.
+ * SL 기준 시간봉의 확정 스윙 저점(LONG)·고점(SHORT) 중 엔트리 너머에 있는 가장 최근 것.
  * 스윙은 오른쪽에 swingBars개 봉이 마감돼야 확정되므로 진행 중인 봉은 쓰지 않는다.
  */
 function analyzeSwingSL(i: AnalyzeInput): AutoSL {
-  const { side, entry, cutoff, ltf, settings } = i;
+  const { side, entry, cutoff, settings } = i;
+  const ltf = slSeries(i);
   const base = emptySL(i, ltf.timeframe, 'swing');
   const closed = ltf.candles.filter((c) => isClosedBy(c, ltf.timeframe, cutoff));
   const need = settings.swingBars * 2 + 1;
@@ -109,9 +116,10 @@ function analyzeSwingSL(i: AnalyzeInput): AutoSL {
   return finishSL(i, base, closed[swing.index], {});
 }
 
-/** 차트 시간봉 최근 N개 마감 봉 + 엔트리 시점에 진행 중인 봉(그때까지의 값) 중 최저가(LONG)·최고가(SHORT) */
+/** SL 기준 시간봉 최근 N개 마감 봉 + 엔트리 시점에 진행 중인 봉(그때까지의 값) 중 최저가(LONG)·최고가(SHORT) */
 function analyzeLowestSL(i: AnalyzeInput): AutoSL {
-  const { side, cutoff, ltf, settings } = i;
+  const { side, cutoff, settings } = i;
+  const ltf = slSeries(i);
   const base = emptySL(i, ltf.timeframe, 'lowestN');
   const closed = ltf.candles.filter((c) => isClosedBy(c, ltf.timeframe, cutoff)).slice(-settings.slLowestBars);
   const forming = ltf.candles.find((c) => !isClosedBy(c, ltf.timeframe, cutoff) && c.time <= cutoff && cutoff < barEnd(ltf.timeframe, c.time));
@@ -176,9 +184,10 @@ function analyzePrevCandleSL(i: AnalyzeInput): AutoSL {
   return finishSL(i, base, prev, {});
 }
 
-/** 차트 시간봉에서 가장 급격한 캔들 (이전 기본 방식) */
+/** SL 기준 시간봉에서 가장 급격한 캔들 (이전 기본 방식) */
 function analyzeSpikeSL(i: AnalyzeInput): AutoSL {
-  const { cutoff, ltf, settings } = i;
+  const { cutoff, settings } = i;
+  const ltf = slSeries(i);
   const base = emptySL(i, ltf.timeframe, 'spike');
   const closed = ltf.candles.filter((c) => isClosedBy(c, ltf.timeframe, cutoff));
   const spike = selectSpikeCandle(closed, {
