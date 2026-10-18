@@ -18,8 +18,10 @@ test('bybit provider loads symbols, candles and live trades through the app', as
   await expect(page.getByTestId('demo-badge')).toBeHidden();
   await expect(page.getByTestId('feed-status')).toHaveText('실시간');
   await expect(page.getByTestId('symbol')).toHaveValue('BTCUSDT');
-  const options = await page.locator('#symbol-list option').evaluateAll((els) => els.map((e) => (e as HTMLOptionElement).value));
-  expect(options).toEqual(['BTCUSDT', 'ETHUSDT']); // USDC 무기한·상장 전 종목은 제외
+  await page.getByTestId('symbol').click();
+  await expect(page.getByTestId('symbol-option')).toHaveText(['BTCUSDT', 'ETHUSDT']); // USDC 무기한·상장 전 종목은 제외
+  await page.getByTestId('symbol').press('Escape');
+  await expect(page.getByTestId('symbol')).toHaveValue('BTCUSDT');
   expect(await page.evaluate(() => (window as unknown as { __rrDebug: { getCandleCount(): number } }).__rrDebug.getCandleCount())).toBe(1000);
 
   await page.getByTestId('btn-long').click();
@@ -128,5 +130,30 @@ test.describe('live candle', () => {
       expect(s.lastCandle!.high).toBeGreaterThanOrEqual(s.lastPrice!.price);
       expect(s.lastCandle!.low).toBeLessThanOrEqual(s.lastPrice!.price);
     }
+  });
+});
+
+test.describe('symbol search', () => {
+  test('typing part of a ticker and pressing Enter opens that symbol', async ({ page }) => {
+    await openBybit(page);
+    const box = page.getByTestId('symbol');
+    await box.click();
+    await box.pressSequentially('eth');
+    await box.press('Enter');
+    await expect(box).toHaveValue('ETHUSDT');
+    await expect(page.getByTestId('feed-status')).toHaveAttribute('data-state', 'live', { timeout: 20_000 });
+  });
+
+  test('focusing the box lists every symbol, typing filters, clicking selects', async ({ page }) => {
+    await openBybit(page);
+    const box = page.getByTestId('symbol');
+    await box.click();
+    const options = page.getByTestId('symbol-option');
+    await expect(options).toHaveText(['BTCUSDT', 'ETHUSDT']); // 현재 값과 무관하게 전체 목록
+    await box.pressSequentially('et');
+    await expect(options).toHaveText(['ETHUSDT']);
+    await options.first().click();
+    await expect(box).toHaveValue('ETHUSDT');
+    await expect(page.getByTestId('symbol-list')).toBeHidden();
   });
 });

@@ -116,8 +116,45 @@ input {
 }
 
 input[data-testid='symbol'] {
-  width: 150px;
+  width: 160px;
   text-transform: uppercase;
+}
+
+.symbol-picker {
+  position: relative;
+}
+
+.symbol-list {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 25;
+  width: 220px;
+  max-height: 340px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.symbol-list li {
+  padding: 6px 12px;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+
+.symbol-list li[aria-selected='true'],
+.symbol-list li[data-symbol]:hover {
+  background: var(--raised);
+}
+
+.symbol-list li.symbol-more {
+  cursor: default;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .sides {

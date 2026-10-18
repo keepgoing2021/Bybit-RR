@@ -15,6 +15,7 @@ import { CandleStore } from '../data/candleStore';
 import type { FeedListener, MarketDataProvider } from '../data/provider';
 import { h, setText, show } from './dom';
 import { formatClock, formatPct, formatTime, slRationale, tfName, tpRationale } from './format';
+import { SymbolPicker } from './symbolPicker';
 
 export type SourceKind = 'bybit' | 'demo';
 
@@ -122,7 +123,7 @@ export class App {
       return;
     }
     if (!this.symbols.some((s) => s.symbol === this.ui.symbol)) this.ui.symbol = this.symbols[0]?.symbol ?? '';
-    this.el.symbolList.replaceChildren(...this.symbols.map((s) => h('option', { value: s.symbol })));
+    this.el.picker.setSymbols(this.symbols);
     await this.loadMarket();
   }
 
@@ -340,10 +341,13 @@ export class App {
     const sel = (testid: string) => h('select', { 'data-testid': testid });
     const source = sel('source');
     source.append(h('option', { value: 'bybit' }, 'Bybit 선물 실시간'), h('option', { value: 'demo' }, '데모 데이터'));
-    const symbol = h('input', {
-      'data-testid': 'symbol', list: 'symbol-list', autocomplete: 'off', spellcheck: 'false', 'aria-label': '종목',
-    });
-    const symbolList = h('datalist', { id: 'symbol-list' });
+    const picker = new SymbolPicker(
+      (symbol) => {
+        this.ui.symbol = symbol;
+        void this.loadMarket();
+      },
+      (query) => this.toast(`'${query}'에 맞는 Bybit USDT 무기한 종목이 없습니다.`),
+    );
     const tf = sel('tf');
     tf.append(...TIMEFRAMES.map((t) => h('option', { value: t }, tfName(t))));
     const htf = sel('htf');
@@ -360,8 +364,7 @@ export class App {
       { class: 'topbar' },
       h('div', { class: 'brand' }, 'RR 박스'),
       field('데이터', source),
-      field('종목', symbol),
-      symbolList,
+      field('종목', picker.root),
       field('차트', tf),
       field('SL 기준', sltf),
       field('TP 기준', htf),
@@ -495,19 +498,6 @@ export class App {
 
     // 이벤트
     source.addEventListener('change', () => void this.switchProvider(source.value as SourceKind));
-    const commitSymbol = () => {
-      const v = symbol.value.trim().toUpperCase();
-      if (v === this.ui.symbol) return;
-      if (!this.symbols.some((s) => s.symbol === v)) {
-        this.toast(`목록에 없는 종목입니다: ${v || '(빈 값)'}`);
-        symbol.value = this.ui.symbol;
-        return;
-      }
-      this.ui.symbol = v;
-      void this.loadMarket();
-    };
-    symbol.addEventListener('change', commitSymbol);
-    symbol.addEventListener('keydown', (e) => e.key === 'Enter' && commitSymbol());
     tf.addEventListener('change', () => {
       const t = tf.value as Timeframe;
       this.ui.timeframe = t;
@@ -561,7 +551,7 @@ export class App {
     dialog.addEventListener('keydown', (e) => e.key === 'Escape' && this.closeDialog());
 
     return {
-      source, symbol, symbolList, tf, htf, sltf, long, short, status, statusReason, demoBadge,
+      source, picker, tf, htf, sltf, long, short, status, statusReason, demoBadge,
       loadError, otherBanner, otherText, chart, empty, card, sideChip, title, stateChip, entry, times, rr, reasons, m,
       sl, tp, restore, close, del, settingsInputs, demoTools, dialog, dialogText, dlgCancel, toast,
     };
@@ -619,7 +609,7 @@ export class App {
   private renderTopbar(): void {
     const e = this.el;
     e.source.value = this.ui.provider;
-    if (document.activeElement !== e.symbol) e.symbol.value = this.ui.symbol;
+    e.picker.setValue(this.ui.symbol);
     e.tf.value = this.ui.timeframe;
     const highers = higherTimeframes(this.ui.timeframe);
     e.htf.replaceChildren(h('option', { value: '' }, '없음'), ...highers.map((t) => h('option', { value: t }, tfName(t))));
