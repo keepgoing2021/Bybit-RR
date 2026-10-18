@@ -13,6 +13,7 @@ import {
 } from 'lightweight-charts';
 import { decimalsOf, snapToTick } from '../core/price';
 import type { Candle, Side } from '../core/types';
+import { CountdownPrimitive, type CountdownState } from './countdownPrimitive';
 import { DragController, type DragTarget } from './drag';
 import type { BoxGeometry } from './geometry';
 import { RRBoxPrimitive, type OverlayModel } from './rrPrimitive';
@@ -31,7 +32,7 @@ export interface OverlayInput {
   draggable: boolean;
   labels: OverlayModel['labels'];
   /** SL 선정 캔들의 기간 (SL 기준 시간봉이 더 크면 차트 여러 봉에 걸친다) */
-  slCandle: { time: number; durationMs: number } | null;
+  slCandle: { time: number; durationMs: number; label: string } | null;
   swing: { time: number; price: number; label: string } | null;
 }
 
@@ -54,6 +55,7 @@ export class ChartView {
   private readonly chart: IChartApi;
   private readonly series: ISeriesApi<'Candlestick'>;
   private readonly prim = new RRBoxPrimitive();
+  private readonly countdown = new CountdownPrimitive();
   private readonly drag: DragController;
   private candles: readonly Candle[] = [];
   private tfMs = 60_000;
@@ -99,6 +101,7 @@ export class ChartView {
       wickDownColor: THEME.loss,
     });
     this.series.attachPrimitive(this.prim);
+    this.series.attachPrimitive(this.countdown);
 
     this.drag = new DragController({
       getGeometry: () => (this.overlay?.draggable ? this.prim.computeGeometry() : null),
@@ -139,6 +142,14 @@ export class ChartView {
   setOverlay(o: OverlayInput | null): void {
     this.overlay = o;
     this.rebuildOverlay();
+  }
+
+  setCountdown(state: CountdownState | null): void {
+    this.countdown.set(state);
+  }
+
+  getHighlight(): { from: number; to: number; label: string } | null {
+    return this.prim.getModel()?.highlight ?? null;
   }
 
   getRenderedGeometry(): BoxGeometry | null {
@@ -187,12 +198,12 @@ export class ChartView {
   }
 
   /** [시작 봉, 끝 다음 봉) 논리 범위. 차트에 보이는 데이터 밖이면 null */
-  private highlightRange(c: OverlayInput['slCandle']): { from: number; to: number } | null {
+  private highlightRange(c: OverlayInput['slCandle']): { from: number; to: number; label: string } | null {
     if (!c) return null;
     const from = this.logicalForTime(c.time);
     const to = this.logicalForTime(c.time + c.durationMs);
     if (from === null || to === null || to < 0) return null;
-    return { from, to: Math.max(to, from + 1) };
+    return { from, to: Math.max(to, from + 1), label: c.label };
   }
 
   private rebuildOverlay(): void {

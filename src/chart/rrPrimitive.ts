@@ -25,7 +25,7 @@ export interface OverlayModel {
   closed: boolean;
   labels: { profit: string | null; loss: string | null; center: string; centerValid: boolean };
   /** SL 선정 캔들의 기간 [from, to) (논리 인덱스) */
-  highlight: { from: number; to: number } | null;
+  highlight: { from: number; to: number; label: string } | null;
   /** TP 선정 스윙 지점 */
   swing: { logical: number; price: number; label: string } | null;
   active: 'sl' | 'tp' | null;
@@ -125,6 +125,7 @@ export class RRBoxPrimitive implements ISeriesPrimitive<Time> {
         if (xa !== null && xb !== null) {
           ctx.fillStyle = THEME.highlight;
           ctx.fillRect(xa - barSpacing / 2, 0, Math.max(xb - xa, 1), mediaSize.height);
+          chip(ctx, m.highlight.label, (xa + xb) / 2 - barSpacing / 2, 16, THEME.chipDark, THEME.entry, mediaSize.width);
         }
       }
 

@@ -2,6 +2,7 @@ import { ChartView, type OverlayInput } from '../chart/chartView';
 import { CONFIG } from '../config';
 import { analyzeAutoLevels } from '../core/analysis';
 import { captureEntry, evaluateFreshness, type FeedSnapshot, type Freshness } from '../core/freshness';
+import { barRemainingMs, formatCountdown } from '../core/countdown';
 import { applyTrade } from '../core/liveCandle';
 import { computeMetrics, formatRR, type Metrics } from '../core/metrics';
 import { loadSettings, loadState, saveSettings, saveState, type StorageLike, type UiSelection } from '../core/persistence';
@@ -74,6 +75,7 @@ export class App {
   private renderQueued = false;
   private toastTimer: number | null = null;
   private readonly lastPriceBySymbol = new Map<string, { price: number; time: number }>();
+  private countdown: { text: string; remainingMs: number } | null = null;
   private chart!: ChartView;
   private el!: ReturnType<App['buildDom']>;
 
@@ -96,7 +98,10 @@ export class App {
       onDragEnd: () => this.persist(),
       formatTime: (ms) => formatTime(ms),
     });
-    window.setInterval(() => this.renderStatus(), 500);
+    window.setInterval(() => {
+      this.renderStatus();
+      this.renderCountdown();
+    }, 500);
     await this.switchProvider(source, true);
   }
 
@@ -172,6 +177,7 @@ export class App {
           this.feed.lastPrice = t;
           this.lastPriceBySymbol.set(symbol, { price: t.price, time: t.time });
           this.applyTradeToCandle(t, tf);
+          this.renderCountdown(); // 가격 라벨과 같은 순간에 색·위치를 맞춘다
           this.scheduleRender();
         }
       },
@@ -206,6 +212,21 @@ export class App {
     if (!r) return;
     const kind = this.store.upsert(r.candle);
     this.chart.upsertCandle(r.candle, kind, this.store.all());
+  }
+
+  /** 가격축 카운트다운: 거래소 시각 기준으로 현재 캔들 마감까지 남은 시간 */
+  private renderCountdown(): void {
+    const last = this.store.last();
+    const clock = this.feed.clock;
+    if (!this.chart || !last || !clock) {
+      this.countdown = null;
+      this.chart?.setCountdown(null);
+      return;
+    }
+    const serverNow = clock.serverTs + (this.d.now() - clock.receivedAt);
+    const remainingMs = barRemainingMs(last.time, tfMs(this.ui.timeframe), serverNow);
+    this.countdown = { text: formatCountdown(remainingMs), remainingMs };
+    this.chart.setCountdown({ text: this.countdown.text, price: last.close, up: last.close >= last.open });
   }
 
   private freshness(): Freshness {
@@ -725,7 +746,13 @@ export class App {
       extendBars: this.settings.boxExtendBars,
       draggable: s.status === 'active',
       labels: { profit, loss, center, centerValid: m.valid },
-      slCandle: s.auto.sl.candle ? { time: s.auto.sl.candle.time, durationMs: tfMs(s.auto.sl.timeframe) } : null,
+      slCandle: s.auto.sl.candle
+        ? {
+            time: s.auto.sl.candle.time,
+            durationMs: tfMs(s.auto.sl.timeframe),
+            label: s.auto.sl.method === 'prevCandle' ? `SL 기준 ${tfName(s.auto.sl.timeframe)}` : 'SL 기준 캔들',
+          }
+        : null,
       swing: s.auto.tp.swing && s.auto.tp.timeframe
         ? { time: s.auto.tp.swing.time, price: s.auto.tp.swing.price, label: `TP 기준 ${tfName(s.auto.tp.timeframe)} 스윙` }
         : null,
@@ -744,6 +771,8 @@ export class App {
       getVisibleRange: () => this.chart.getVisibleRange(),
       getCandleCount: () => this.store.all().length,
       getLastPrice: () => this.feed.lastPrice?.price ?? null,
+      getCountdown: () => this.countdown,
+      getHighlight: () => this.chart.getHighlight(),
       /** 마지막 캔들과 최신 가격을 같은 순간에 읽는다 */
       getLiveSnapshot: () => ({ lastCandle: this.store.last() ?? null, lastPrice: this.feed.lastPrice }),
       priceToClientY: (p: number) => this.chart.priceToClientY(p),

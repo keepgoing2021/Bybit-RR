@@ -11,6 +11,8 @@ type Debug = {
   getVisibleRange(): { from: number; to: number } | null;
   getCandleCount(): number;
   getLastPrice(): number | null;
+  getCountdown(): { text: string; remainingMs: number } | null;
+  getHighlight(): { from: number; to: number; label: string } | null;
 };
 declare global {
   interface Window { __rrDebug: Debug }
@@ -244,4 +246,23 @@ test('LONG uses the previous closed candle of the SL timeframe', async ({ page }
   expect(s.auto.sl.timeframe).toBe('240');
   expect(s.auto.sl.candle!.time).toBe(Math.floor(s.priceTime / H4) * H4 - H4);
   await expect(page.getByTestId('sl-rationale')).toContainText('4시간봉 직전 마감 봉');
+});
+
+test('price axis shows a countdown to the bar close that ticks down', async ({ page }) => {
+  await open(page, { tf: '1' });
+  const read = () => page.evaluate(() => window.__rrDebug.getCountdown());
+  await expect.poll(read).not.toBeNull();
+  const a = (await read())!;
+  expect(a.text).toMatch(/^\d{2}:\d{2}$/);
+  expect(a.remainingMs).toBeLessThanOrEqual(60_000);
+  await page.waitForTimeout(2_100);
+  const b = (await read())!;
+  expect(b.text).not.toBe(a.text);
+});
+
+test('SL candle band is labeled with its timeframe', async ({ page }) => {
+  await open(page, { tf: '15' });
+  await page.getByTestId('btn-long').click();
+  await expect.poll(() => scenario(page)).not.toBeNull();
+  await expect.poll(() => page.evaluate(() => window.__rrDebug.getHighlight()?.label ?? null)).toBe('SL 기준 4시간봉');
 });
