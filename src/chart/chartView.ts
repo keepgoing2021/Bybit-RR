@@ -13,7 +13,7 @@ import {
   type UTCTimestamp,
 } from 'lightweight-charts';
 import { MA_LINES, sma, smaAt } from '../core/ma';
-import { decimalsOf, snapToTick } from '../core/price';
+import { decimalsOf, formatPrice, snapToTick } from '../core/price';
 import type { Candle, Side } from '../core/types';
 import { CountdownPrimitive, type CountdownState } from './countdownPrimitive';
 import { BoxMoveController, DragController, type DragTarget } from './drag';
@@ -42,6 +42,8 @@ export interface OverlayInput {
   shiftBars: number;
   /** 2차 이후 분할 진입 가격선 (진행 중 시나리오만) */
   splits: SplitLine[];
+  /** 모든 분할 체결 시 평단 (분할이 없거나 계산 전이면 null) */
+  avgEntry: number | null;
 }
 
 export interface ChartViewCallbacks {
@@ -75,7 +77,7 @@ export class ChartView {
   private tfMs = 60_000;
   private tickSize = 0.01;
   private overlay: OverlayInput | null = null;
-  private lines: { entry: IPriceLine | null; sl: IPriceLine | null; tp: IPriceLine | null } = { entry: null, sl: null, tp: null };
+  private lines: Record<'entry' | 'sl' | 'tp' | 'avg', IPriceLine | null> = { entry: null, sl: null, tp: null, avg: null };
   private hover: DragTarget | null = null;
   private hoverPreset: string | null = null;
   private dragging: DragTarget | null = null;
@@ -345,18 +347,20 @@ export class ChartView {
       presets: o.presets,
       hoverPreset: this.hoverPreset,
       splits: o.splits,
+      avg: o.avgEntry === null ? null : { price: o.avgEntry, label: `평단 ${formatPrice(o.avgEntry, this.tickSize)}` },
     };
     this.prim.setModel(model);
     this.syncLines(o);
   }
 
   private syncLines(o: OverlayInput | null): void {
-    const want: Record<'entry' | 'sl' | 'tp', { price: number | null; color: string; title: string }> = {
+    const want: Record<'entry' | 'sl' | 'tp' | 'avg', { price: number | null; color: string; title: string }> = {
       entry: { price: o ? o.entry : null, color: THEME.entry, title: '엔트리' },
       sl: { price: o ? o.sl : null, color: THEME.loss, title: 'SL' },
       tp: { price: o ? o.tp : null, color: THEME.profit, title: 'TP' },
+      avg: { price: o ? o.avgEntry : null, color: '#FFFFFF', title: '평단' },
     };
-    for (const key of ['entry', 'sl', 'tp'] as const) {
+    for (const key of ['entry', 'sl', 'tp', 'avg'] as const) {
       const { price, color, title } = want[key];
       const line = this.lines[key];
       if (price === null) {

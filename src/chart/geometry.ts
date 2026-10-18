@@ -19,6 +19,8 @@ export interface BoxInput {
   presets?: PresetLevel[];
   /** 2차 이후 분할 진입 가격선 */
   splits?: SplitLine[];
+  /** 모든 분할이 체결됐을 때의 평단 (분할이 없으면 없음) */
+  avgEntry?: number | null;
 }
 
 export interface SplitLine {
@@ -46,6 +48,8 @@ export interface BoxGeometry {
   handles: { sl: Rect | null; tp: Rect | null };
   presets: (PresetLevel & { y: number })[];
   splits: (SplitLine & { y: number })[];
+  /** 평단 선 y (없으면 null) */
+  yAvg: number | null;
 }
 
 export const HANDLE_SIZE = 10;
@@ -79,6 +83,7 @@ export function computeBoxGeometry(i: BoxInput, m: CoordMapper): BoxGeometry | n
     loss: band(ySl),
     handles: { sl: handle(ySl), tp: handle(yTp) },
     presets: spaced(i.presets ?? [], m, yEntry),
+    yAvg: i.avgEntry == null ? null : m.priceToY(i.avgEntry),
     splits: (i.splits ?? []).flatMap((p) => {
       const y = m.priceToY(p.price);
       return y === null ? [] : [{ ...p, y }];

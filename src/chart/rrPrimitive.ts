@@ -34,6 +34,8 @@ export interface OverlayModel {
   hoverPreset: string | null;
   /** 2차 이후 분할 진입 가격선 */
   splits: SplitLine[];
+  /** 모두 체결 시 평단 (이름표 문구 포함) */
+  avg: { price: number; label: string } | null;
 }
 
 /**
@@ -109,7 +111,7 @@ export class RRBoxPrimitive implements ISeriesPrimitive<Time> {
     return computeBoxGeometry(
       {
         side: m.side, entry: m.entry, sl: m.sl, tp: m.tp, startLogical: m.startLogical, endLogical: m.endLogical,
-        presets: m.presets, splits: m.splits,
+        presets: m.presets, splits: m.splits, avgEntry: m.avg?.price ?? null,
       },
       mapper,
     );
@@ -182,6 +184,12 @@ export class RRBoxPrimitive implements ISeriesPrimitive<Time> {
         ctx.fillText(sp.label, g.x1 + 4, sp.y - 2);
       }
 
+      // 모두 체결 시 평단: 흰 실선 + 오른쪽 흰 칩
+      if (g.yAvg !== null && m.avg) {
+        hline(ctx, g.x1, g.x2, g.yAvg, '#FFFFFF', 1.5);
+        avgChip(ctx, m.avg.label, g.x2 - 3, g.yAvg);
+      }
+
       hline(ctx, g.x1, g.x2, g.yEntry, THEME.entry, 1.5);
       if (g.yTp !== null) hline(ctx, g.x1, g.x2, g.yTp, THEME.profit, m.active === 'tp' ? 2.5 : 1.5);
       if (g.ySl !== null) hline(ctx, g.x1, g.x2, g.ySl, THEME.loss, m.active === 'sl' ? 2.5 : 1.5);
@@ -233,6 +241,20 @@ function handle(ctx: Ctx, r: { x: number; y: number; w: number; h: number }, col
   ctx.lineWidth = 1.5;
   ctx.fillRect(r.x, r.y, r.w, r.h);
   ctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1);
+}
+
+/** 평단 이름표: 오른쪽 정렬 흰 칩, 검은 글씨 */
+function avgChip(ctx: Ctx, text: string, right: number, y: number): void {
+  ctx.font = `700 11px ${THEME.font}`;
+  const w = ctx.measureText(text).width + 12;
+  const h = 16;
+  ctx.fillStyle = '#FFFFFF';
+  roundRect(ctx, right - w, y - h / 2, w, h, 4);
+  ctx.fill();
+  ctx.fillStyle = THEME.chipText;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, right - w + 6, y + 0.5);
 }
 
 /** 손익비 점선 이름표 '1:x': 오른쪽 정렬 칩. '1:'(과 '→ TP')은 초록, x만 빨강 */

@@ -452,6 +452,8 @@ button.copy:hover {
 
 .rr-edit {
   display: inline-flex;
+  flex-shrink: 0;
+  white-space: nowrap;
   align-items: baseline;
   padding: 2px 10px 4px 12px;
   border: 1px solid rgba(255, 255, 255, 0.4);
@@ -658,6 +660,29 @@ button.danger {
 
 .sizing .metrics dt {
   white-space: nowrap;
+}
+
+/* 모두 체결 시 평단: 흰 강조 줄 (차트의 흰 평단 선과 짝) */
+.sizing .metrics dt.avg,
+.sizing .metrics dd.avg {
+  padding: 6px 8px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 16px;
+}
+
+.sizing .metrics dt.avg {
+  border-left: 3px solid #ffffff;
+  border-radius: 4px 0 0 4px;
+}
+
+.sizing .metrics dd.avg {
+  /* 칸 사이 간격(12px)까지 덮어 한 줄 띠로 보이게 */
+  margin-left: -12px;
+  padding-left: 20px;
+  border-radius: 0 4px 4px 0;
+  font-size: 18px;
 }
 
 .sizing .metrics .group {

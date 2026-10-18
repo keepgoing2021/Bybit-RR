@@ -7,7 +7,7 @@ import { applyTrade } from '../core/liveCandle';
 import { parseRR, rrLevels, tpForRR } from '../core/presets';
 import { computeMetrics, formatRR, type Metrics } from '../core/metrics';
 import { loadSettings, loadSizing, loadState, saveSettings, saveSizing, saveState, type StorageLike, type UiSelection } from '../core/persistence';
-import { decimalsOf, formatPrice } from '../core/price';
+import { decimalsOf, formatPrice, snapToTick } from '../core/price';
 import { boxShiftOf, createScenario, restoreAuto, setBoxShift, setEntry, setLevel, type Scenario } from '../core/scenario';
 import { DEFAULT_SETTINGS, sanitizeSettings, type AnalysisSettings } from '../core/settings';
 import { DEFAULT_SIZING, planSizing, sanitizeSizing, type SizingPlan, type SizingSettings } from '../core/sizing';
@@ -645,13 +645,14 @@ export class App {
     );
     const mk = (id: string) => h('dd', { class: 'num', 'data-testid': `sizing-${id}` });
     const sum = { total: mk('total'), lev: mk('lev'), loss: mk('loss'), profit: mk('profit'), avg: mk('avg'), rr: mk('rr') };
+    sum.avg.classList.add('avg');
     const summary = h(
       'dl',
       { class: 'metrics', 'data-testid': 'sizing-summary' },
       h('dt', {}, '총 포지션'), sum.total,
       h('dt', {}, '필요 레버리지'), sum.lev,
       h('dt', { class: 'group' }, '모두 체결되면'), h('dd', { class: 'group' }),
-      h('dt', {}, '평단'), sum.avg,
+      h('dt', { class: 'avg' }, '평단'), sum.avg,
       h('dt', {}, '손절 시'), sum.loss,
       h('dt', {}, '목표 시'), sum.profit,
       h('dt', {}, '손익비'), sum.rr,
@@ -915,6 +916,7 @@ export class App {
         : null,
       presets: rrLevels(s.side, s.entry, s.applied.sl, s.tickSize),
       splits: plan ? plan.tranches.slice(1).map((t) => ({ price: t.price, label: `${t.n}차 ${(t.share * 100).toFixed(0)}%` })) : [],
+      avgEntry: plan && plan.tranches.length > 1 ? snapToTick(plan.avgEntry, s.tickSize) : null,
       shiftBars: boxShiftOf(s),
     };
     this.chart.setOverlay(overlay);

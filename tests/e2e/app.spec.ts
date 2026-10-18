@@ -683,3 +683,36 @@ test('capital and split inputs live in the top bar, even before a scenario exist
   await expect(page.locator('.panel').getByTestId('sizing-row')).toHaveCount(5);
   await expect(page.locator('.panel').getByTestId('sizing-capital')).toHaveCount(0);
 });
+
+test('average entry if all splits fill: emphasized in the panel and drawn as a white line', async ({ page }) => {
+  await open(page, { tf: '15' });
+  await validLong(page); // SL −10
+  await page.getByTestId('sizing-capital').fill('10000');
+  await page.getByTestId('sizing-capital').press('Enter');
+  const avgCell = page.getByTestId('sizing-avg');
+  await expect(avgCell).not.toHaveText('');
+  expect(await avgCell.evaluate((el) => getComputedStyle(el).fontWeight)).toBe('700');
+  expect(await avgCell.evaluate((el) => getComputedStyle(el).color)).toBe('rgb(255, 255, 255)');
+  const avg = Number(await avgCell.textContent());
+  const s = (await scenario(page))!;
+  expect(avg).toBeLessThan(s.entry);
+  expect(avg).toBeGreaterThan(s.applied.sl!);
+  await expect.poll(async () => (await rendered(page))?.yAvg ?? null).not.toBeNull();
+  const y = (await page.evaluate((p) => window.__rrDebug.priceToClientY(p), avg))! - (await chartRect(page)).top;
+  expect((await rendered(page))!.yAvg!).toBeCloseTo(y, 0);
+
+  await page.getByTestId('sizing-splits').selectOption('1'); // 1회 진입이면 평단 = 진입가라 선을 그리지 않는다
+  await expect.poll(async () => {
+    const g = await rendered(page);
+    return g ? g.yAvg : 'no box';
+  }).toBeNull();
+});
+
+test('the RR box stays on one line even for a long value', async ({ page }) => {
+  await open(page, { tf: '15' });
+  await validLong(page);
+  await page.getByTestId('rr-input').fill('12.75');
+  await page.getByTestId('rr-input').press('Enter');
+  await expect(page.getByTestId('rr-input')).toHaveValue('12.75');
+  expect((await page.getByTestId('rr-edit').boundingBox())!.height).toBeLessThan(60);
+});

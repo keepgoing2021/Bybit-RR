@@ -107,3 +107,10 @@ describe('split entry lines', () => {
     expect(computeBoxGeometry(longBox, mapper)!.splits).toEqual([]);
   });
 });
+
+describe('average entry line (all splits filled)', () => {
+  it('maps the average price to y, or null when there is none', () => {
+    expect(computeBoxGeometry({ ...longBox, avgEntry: 99.2 }, mapper)!.yAvg).toBeCloseTo(108, 9);
+    expect(computeBoxGeometry(longBox, mapper)!.yAvg).toBeNull();
+  });
+});
