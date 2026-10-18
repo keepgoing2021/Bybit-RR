@@ -6,7 +6,10 @@ import { barRemainingMs, formatCountdown } from '../core/countdown';
 import { applyTrade } from '../core/liveCandle';
 import { parseRR, rrLevels, tpForRR } from '../core/presets';
 import { computeMetrics, formatRR, type Metrics } from '../core/metrics';
-import { loadSettings, loadSizing, loadState, saveSettings, saveSizing, saveState, type StorageLike, type UiSelection } from '../core/persistence';
+import {
+  loadDrawings, loadSettings, loadSizing, loadState, saveDrawings, saveSettings, saveSizing, saveState, type StorageLike, type UiSelection,
+} from '../core/persistence';
+import { DRAWING_KINDS, DRAWING_NAMES, placingHint, type Drawing, type DrawingKind } from '../core/drawings';
 import { decimalsOf, formatPrice, snapToTick } from '../core/price';
 import { boxShiftOf, createScenario, restoreAuto, setBoxShift, setEntry, setLevel, type Scenario } from '../core/scenario';
 import { DEFAULT_SETTINGS, sanitizeSettings, type AnalysisSettings } from '../core/settings';
@@ -76,6 +79,19 @@ function slBandLabel(a: AutoSL, side: Side): string {
   }
 }
 
+const DRAW_TOOLS_KEY = 'rrtool.v1.drawtools';
+
+/** 작도 도구 아이콘 (20×20 선화) */
+const svg = (body: string) =>
+  `<svg viewBox="0 0 20 20" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">${body}</svg>`;
+const DRAW_ICONS: Record<DrawingKind | 'clear', string> = {
+  trend: svg('<line x1="4" y1="16" x2="16" y2="4"/><circle cx="4" cy="16" r="1.8" fill="currentColor"/><circle cx="16" cy="4" r="1.8" fill="currentColor"/>'),
+  hline: svg('<line x1="2" y1="10" x2="18" y2="10"/><circle cx="10" cy="10" r="1.8" fill="currentColor"/>'),
+  channel: svg('<line x1="3" y1="12" x2="14" y2="4"/><line x1="6" y1="16" x2="17" y2="8"/><line x1="4.5" y1="14" x2="15.5" y2="6" stroke-dasharray="2 2" stroke-width="1"/>'),
+  fib: svg('<line x1="3" y1="4" x2="17" y2="4"/><line x1="3" y1="8" x2="17" y2="8"/><line x1="3" y1="11" x2="17" y2="11"/><line x1="3" y1="16" x2="17" y2="16"/><line x1="4" y1="16" x2="16" y2="4" stroke-dasharray="2 2" stroke-width="1"/>'),
+  clear: svg('<path d="M5 6h10M8 6V4h4v2M6.5 6l.8 10h5.4l.8-10"/>'),
+};
+
 const usdtFmt = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const usdt = (n: number) => usdtFmt.format(n);
 
@@ -86,6 +102,8 @@ export class App {
   private ui!: UiSelection;
   private settings: AnalysisSettings = DEFAULT_SETTINGS;
   private sizing: SizingSettings = DEFAULT_SIZING;
+  /** 종목별 작도 */
+  private drawingsBySymbol: Record<string, Drawing[]> = {};
   private symbols: SymbolInfo[] = [];
   private tickSize = 0.01;
   private store = new CandleStore();
@@ -108,6 +126,7 @@ export class App {
   async start(): Promise<void> {
     this.settings = loadSettings(this.d.storage);
     this.sizing = loadSizing(this.d.storage);
+    this.drawingsBySymbol = loadDrawings(this.d.storage);
     const saved = loadState(this.d.storage);
     // 계산기라 '종료된 시나리오'는 없다 (이전 버전에서 종료한 것은 버린다)
     this.scenario = saved?.scenario?.status === 'active' ? saved.scenario : null;
@@ -116,6 +135,13 @@ export class App {
 
     this.el = this.buildDom();
     this.chart = new ChartView(this.el.chart, {
+      onDrawingsChange: (list) => {
+        const sym = this.ui.symbol;
+        if (list.length) this.drawingsBySymbol[sym] = list;
+        else delete this.drawingsBySymbol[sym];
+        saveDrawings(this.d.storage, this.drawingsBySymbol);
+      },
+      onDrawState: (st) => this.renderDrawTools(st),
       onDrag: (which, price) => {
         if (!this.scenario) return;
         this.scenario = setLevel(this.scenario, which, price);
@@ -190,6 +216,8 @@ export class App {
     this.tickSize = this.symbols.find((s) => s.symbol === symbol)?.tickSize ?? 0.01;
     this.chart.setPriceFormat(this.tickSize);
     this.chart.setCandles([], tfMs(timeframe), true);
+    this.chart.setTool(null);
+    this.chart.setDrawings(this.drawingsBySymbol[symbol] ?? []);
     this.persist();
     this.renderAll();
 
@@ -576,7 +604,21 @@ export class App {
     );
 
     const panel = h('aside', { class: 'panel' }, h('section', { class: 'scenario' }, empty, card), settings, demoTools);
-    const layout = h('main', { class: 'layout' }, h('section', { class: 'chart-wrap' }, chart), panel);
+    const tools = this.buildDrawTools();
+    const chartWrap = h('section', { class: 'chart-wrap', 'data-tools': tools.open ? 'open' : 'closed' }, tools.bar, chart, tools.hint);
+    tools.toggle.addEventListener('click', () => {
+      const open = chartWrap.dataset.tools !== 'open';
+      chartWrap.dataset.tools = open ? 'open' : 'closed';
+      tools.toggle.textContent = open ? '‹' : '›';
+      tools.toggle.title = open ? '작도 도구 접기' : '작도 도구 열기 (추세선·수평선·평행 채널·피보나치)';
+      try {
+        this.d.storage.setItem(DRAW_TOOLS_KEY, open ? 'open' : 'closed');
+      } catch {
+        // 무시
+      }
+      if (!open) this.chart.setTool(null);
+    });
+    const layout = h('main', { class: 'layout' }, chartWrap, panel);
 
     const toast = h('div', { class: 'toast', 'data-testid': 'toast', role: 'status', hidden: true });
 
@@ -610,16 +652,22 @@ export class App {
       this.renderNow();
     });
     disconnect.addEventListener('click', () => this.provider.simulateDisconnect?.(6_000));
-    // 박스를 눌러 선택한 뒤 Delete(또는 Backspace)로 지우기. 입력칸에서 글자를 지울 때는 무시
+    // 선택한 작도나 박스는 Delete(또는 Backspace)로 지우기. 입력칸에서 글자를 지울 때는 무시. Esc는 도구·선택 취소
     document.addEventListener('keydown', (e) => {
-      if (!this.chart.isBoxSelected()) return;
       if (e.key === 'Escape') {
+        if (this.chart.getDrawState().tool) this.chart.setTool(null);
+        this.chart.clearDrawingSelection();
         this.chart.clearSelection();
         return;
       }
       if (e.key !== 'Delete' && e.key !== 'Backspace') return;
       const t = e.target as HTMLElement | null;
       if (t && (t.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName))) return;
+      if (this.chart.deleteSelectedDrawing()) {
+        e.preventDefault();
+        return;
+      }
+      if (!this.chart.isBoxSelected()) return;
       e.preventDefault();
       this.clearCalc();
     });
@@ -633,8 +681,56 @@ export class App {
     return {
       source, picker, tf, sltf, long, short, status, statusReason, demoBadge,
       loadError, chart, empty, card, sideChip, title, entry, times, rr, rrInput, rrLabel, reasons,
-      sl, tp, slWhy, tpWhy, sizing, restore, del, settingsInputs, demoTools, toast,
+      sl, tp, slWhy, tpWhy, sizing, restore, del, settingsInputs, demoTools, toast, tools,
     };
+  }
+
+  /** 차트 왼쪽 작도 도구: '›'를 누르면 펼쳐진다 */
+  private buildDrawTools() {
+    let open = false;
+    try {
+      open = this.d.storage.getItem(DRAW_TOOLS_KEY) === 'open';
+    } catch {
+      // 무시
+    }
+    const toggle = h(
+      'button',
+      { type: 'button', class: 'draw-toggle', 'data-testid': 'draw-toggle', title: open ? '작도 도구 접기' : '작도 도구 열기 (추세선·수평선·평행 채널·피보나치)' },
+      open ? '‹' : '›',
+    );
+    const buttons = new Map<DrawingKind, HTMLButtonElement>();
+    const list = h('div', { class: 'draw-tools' });
+    for (const kind of DRAWING_KINDS) {
+      const b = h('button', { type: 'button', class: 'draw-tool', 'data-testid': `draw-${kind}`, title: DRAWING_NAMES[kind], 'aria-label': DRAWING_NAMES[kind] });
+      b.innerHTML = DRAW_ICONS[kind];
+      b.addEventListener('click', () => this.chart.setTool(this.chart.getDrawState().tool === kind ? null : kind));
+      buttons.set(kind, b);
+      list.append(b);
+    }
+    const clear = h('button', {
+      type: 'button', class: 'draw-tool danger', 'data-testid': 'draw-clear', title: '이 종목 작도 모두 지우기 (하나만 지우려면 눌러서 선택 후 Delete)', 'aria-label': '이 종목 작도 모두 지우기',
+    });
+    clear.innerHTML = DRAW_ICONS.clear;
+    clear.addEventListener('click', () => {
+      const n = (this.drawingsBySymbol[this.ui.symbol] ?? []).length;
+      if (n === 0) return this.toast('지울 작도가 없습니다.');
+      this.chart.setDrawings([]);
+      delete this.drawingsBySymbol[this.ui.symbol];
+      saveDrawings(this.d.storage, this.drawingsBySymbol);
+      this.toast(`${this.ui.symbol} 작도 ${n}개를 지웠습니다.`);
+    });
+    list.append(h('div', { class: 'draw-sep' }), clear);
+    const bar = h('div', { class: 'draw-toolbar', 'data-testid': 'draw-toolbar' }, toggle, list);
+    const hint = h('div', { class: 'draw-hint', 'data-testid': 'draw-hint', hidden: true });
+    return { bar, toggle, buttons, hint, open };
+  }
+
+  private renderDrawTools(st: { tool: DrawingKind | null; placed: number }): void {
+    const t = this.el?.tools;
+    if (!t) return;
+    for (const [kind, b] of t.buttons) b.classList.toggle('active', kind === st.tool);
+    show(t.hint, st.tool !== null);
+    setText(t.hint, st.tool ? `${placingHint(st.tool, st.placed)} · Esc 취소` : '');
   }
 
   /** 분할 진입: 입력(운영자산·손실 한도·분할 수·비중)은 상단 바, 분할별 금액표는 패널 */
@@ -975,6 +1071,8 @@ export class App {
       getHighlight: () => this.chart.getHighlight(),
       getOverlayLabels: () => this.chart.getOverlayLabels(),
       isBoxSelected: () => this.chart.isBoxSelected(),
+      getDrawings: () => this.chart.getDrawings(),
+      getDrawState: () => this.chart.getDrawState(),
       wickColors: () => this.chart.wickColors(),
       timeToX: (ms: number) => this.chart.timeToX(ms),
       getMaLast: () => this.chart.getMaLast(),

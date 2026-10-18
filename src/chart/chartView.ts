@@ -9,10 +9,15 @@ import {
   type IChartApi,
   type IPriceLine,
   type ISeriesApi,
+  type Logical,
   type Time,
   type UTCTimestamp,
 } from 'lightweight-charts';
 import { candleStats, legendIndex, type CandleStats } from '../core/candleStats';
+import { mapPoints, POINTS, setPoint, type Anchor, type Drawing, type DrawingKind } from '../core/drawings';
+import { logicalToTime, timeToLogical } from '../core/timeMap';
+import { hitTestDrawing, type DrawMapper } from './drawingGeometry';
+import { DrawingsPrimitive } from './drawingsPrimitive';
 import { MA_LINES, sma, smaAt } from '../core/ma';
 import { decimalsOf, snapToTick } from '../core/price';
 import type { Candle, Side } from '../core/types';
@@ -55,6 +60,10 @@ export interface ChartViewCallbacks {
   onBoxMove(shiftBars: number, done: boolean): void;
   onDragEnd(which: DragTarget): void;
   formatTime(ms: number): string;
+  /** 작도 추가·수정·삭제 (끌기는 놓을 때 한 번) */
+  onDrawingsChange(list: Drawing[]): void;
+  /** 작도 도구 상태: 고른 도구와 찍은 점 수 (도구를 다 쓰면 null로 돌아온다) */
+  onDrawState(state: { tool: DrawingKind | null; placed: number }): void;
 }
 
 const toBar = (c: Candle) => ({
@@ -87,6 +96,17 @@ export class ChartView {
   private dragging: DragTarget | null = null;
   /** 박스를 눌러 선택한 상태 (Delete로 지우기) */
   private selected = false;
+  // 작도
+  private readonly drawPrim: DrawingsPrimitive;
+  private drawings: Drawing[] = [];
+  private tool: DrawingKind | null = null;
+  private draft: Anchor[] = [];
+  private cursorAnchor: Anchor | null = null;
+  private selectedDrawing: string | null = null;
+  private hoverDrawing: string | null = null;
+  private drawDrag: { id: string; part: 'point' | 'body'; index: number; x0: number; y0: number; orig: Drawing } | null = null;
+  /** 이번 누름은 차트 이동으로 넘기지 않는다 (작도 점 찍기·끌기) */
+  private swallowPointer = false;
   private readonly cleanup: (() => void)[] = [];
 
   constructor(private readonly container: HTMLElement, private readonly cb: ChartViewCallbacks) {
@@ -124,6 +144,12 @@ export class ChartView {
       wickUpColor: '#FFFFFF',
       wickDownColor: '#FFFFFF',
     });
+    // 작도는 손익비 박스 아래에 그린다 (먼저 붙인 것이 아래)
+    this.drawPrim = new DrawingsPrimitive(
+      () => this.drawMapper(),
+      (p) => p.toFixed(decimalsOf(this.tickSize)),
+    );
+    this.series.attachPrimitive(this.drawPrim);
     this.series.attachPrimitive(this.prim);
     this.series.attachPrimitive(this.countdown);
 
@@ -326,6 +352,163 @@ export class ChartView {
     return this.chart.timeScale().timeToCoordinate((ms / 1000) as UTCTimestamp);
   }
 
+  // ───────────── 작도 ─────────────
+
+  /** 이 종목의 작도로 바꾼다 (선택·그리던 것은 버림) */
+  setDrawings(list: Drawing[]): void {
+    this.drawings = list;
+    this.selectedDrawing = null;
+    this.hoverDrawing = null;
+    this.drawDrag = null;
+    this.renderDrawings();
+  }
+
+  /** 작도 도구 고르기 (null = 커서). 같은 도구를 다시 고르면 처음부터 */
+  setTool(kind: DrawingKind | null): void {
+    this.tool = kind;
+    this.draft = [];
+    this.cursorAnchor = null;
+    if (kind) {
+      this.selectedDrawing = null;
+      this.clearSelection();
+    }
+    if (!kind) this.container.style.cursor = '';
+    this.renderDrawings();
+    this.cb.onDrawState({ tool: this.tool, placed: 0 });
+  }
+
+  getDrawState(): { tool: DrawingKind | null; placed: number } {
+    return { tool: this.tool, placed: this.draft.length };
+  }
+
+  selectedDrawingId(): string | null {
+    return this.selectedDrawing;
+  }
+
+  deleteSelectedDrawing(): boolean {
+    if (!this.selectedDrawing) return false;
+    this.drawings = this.drawings.filter((d) => d.id !== this.selectedDrawing);
+    this.selectedDrawing = null;
+    this.hoverDrawing = null;
+    this.renderDrawings();
+    this.cb.onDrawingsChange(this.drawings);
+    return true;
+  }
+
+  clearDrawingSelection(): void {
+    if (!this.selectedDrawing) return;
+    this.selectedDrawing = null;
+    this.renderDrawings();
+  }
+
+  /** 검증용: 작도와 화면 좌표의 끝점 */
+  getDrawings(): { drawings: Drawing[]; selected: string | null; handles: Record<string, { x: number; y: number }[]> } {
+    const m = this.drawMapper();
+    const handles: Record<string, { x: number; y: number }[]> = {};
+    for (const d of this.drawings) {
+      handles[d.id] = m
+        ? d.points.flatMap((p) => {
+            const x = m.toX(p.time);
+            const y = m.toY(p.price);
+            return x === null || y === null ? [] : [{ x, y }];
+          })
+        : [];
+    }
+    return { drawings: this.drawings, selected: this.selectedDrawing, handles };
+  }
+
+  private times(): number[] {
+    return this.candles.map((c) => c.time);
+  }
+
+  private drawMapper(): DrawMapper | null {
+    if (!this.candles.length) return null;
+    const times = this.times();
+    const ts = this.chart.timeScale();
+    return {
+      toX: (t) => {
+        const l = timeToLogical(times, this.tfMs, t);
+        return l === null ? null : ts.logicalToCoordinate(l as Logical);
+      },
+      toY: (p) => this.series.priceToCoordinate(p),
+      width: ts.width(),
+    };
+  }
+
+  /** 화면 좌표 → 작도 점. 가로는 가장 가까운 봉(미래 쪽은 시간봉 간격)에 맞춘다 */
+  private anchorAt(x: number, y: number): Anchor | null {
+    const l = this.chart.timeScale().coordinateToLogical(x);
+    const price = this.series.coordinateToPrice(y);
+    if (l === null || price === null) return null;
+    const time = logicalToTime(this.times(), this.tfMs, Math.round(l));
+    return time === null ? null : { time, price: snapToTick(price, this.tickSize) };
+  }
+
+  private drawingAt(x: number, y: number): { id: string; part: 'point' | 'body'; index: number } | null {
+    const m = this.drawMapper();
+    if (!m) return null;
+    // 선택된 것 우선, 그다음 나중에 그린 것(위에 있는 것)부터
+    const order = [...this.drawings].reverse().sort((a, b) => Number(b.id === this.selectedDrawing) - Number(a.id === this.selectedDrawing));
+    for (const d of order) {
+      const h = hitTestDrawing(d, m, x, y);
+      if (h) return { id: d.id, part: h.part, index: h.part === 'point' ? h.index : -1 };
+    }
+    return null;
+  }
+
+  private placePoint(x: number, y: number): void {
+    const kind = this.tool;
+    const a = this.anchorAt(x, y);
+    if (!kind || !a) return;
+    this.draft = [...this.draft, a];
+    if (this.draft.length >= POINTS[kind]) {
+      const d: Drawing = { id: newDrawingId(), kind, points: this.draft };
+      this.drawings = [...this.drawings, d];
+      this.selectedDrawing = d.id;
+      this.tool = null;
+      this.draft = [];
+      this.cursorAnchor = null;
+      this.container.style.cursor = '';
+      this.cb.onDrawingsChange(this.drawings);
+    }
+    this.renderDrawings();
+    this.cb.onDrawState({ tool: this.tool, placed: this.draft.length });
+  }
+
+  private dragDrawingTo(x: number, y: number): void {
+    const g = this.drawDrag;
+    if (!g) return;
+    let next: Drawing | null = null;
+    if (g.part === 'point') {
+      const a = this.anchorAt(x, y);
+      if (!a) return;
+      next = setPoint(g.orig, g.index, g.orig.kind === 'hline' ? { time: g.orig.points[0].time, price: a.price } : a);
+    } else {
+      const ts = this.chart.timeScale();
+      const l0 = ts.coordinateToLogical(g.x0);
+      const l1 = ts.coordinateToLogical(x);
+      const p0 = this.series.coordinateToPrice(g.y0);
+      const p1 = this.series.coordinateToPrice(y);
+      if (l0 === null || l1 === null || p0 === null || p1 === null) return;
+      const dl = Math.round(l1 - l0);
+      const dp = p1 - p0;
+      const times = this.times();
+      next = mapPoints(g.orig, (p) => {
+        const l = timeToLogical(times, this.tfMs, p.time);
+        const t = l === null ? null : logicalToTime(times, this.tfMs, l + dl);
+        return { time: t ?? p.time, price: snapToTick(p.price + dp, this.tickSize) };
+      });
+    }
+    this.drawings = this.drawings.map((d) => (d.id === g.id ? next! : d));
+    this.renderDrawings();
+  }
+
+  private renderDrawings(): void {
+    // 미리 보기: 찍은 점 + 마우스 위치 (수평선은 첫 점 전부터 따라다닌다)
+    const draft = this.tool && this.cursorAnchor ? { kind: this.tool, points: [...this.draft, this.cursorAnchor] } : null;
+    this.drawPrim.set({ drawings: this.drawings, selectedId: this.selectedDrawing, hoverId: this.hoverDrawing, draft });
+  }
+
   /** 검증용: 캔들 꼬리 색 */
   wickColors(): { up: string; down: string } {
     const o = this.series.options();
@@ -480,6 +663,34 @@ export class ChartView {
     const onDown = (e: PointerEvent) => {
       if (e.button !== 0) return;
       const { x, y } = local(e);
+      // 작도 도구를 고른 상태: 누르는 곳마다 점을 찍는다 (차트는 움직이지 않음)
+      if (this.tool) {
+        e.preventDefault();
+        e.stopPropagation();
+        this.swallowPointer = true;
+        this.placePoint(x, y);
+        return;
+      }
+      // 작도 위(SL·TP 선이 아닌 곳): 선택하고 끝점·몸통 끌기 시작
+      const hit = this.drag.hover(x, y) ? null : this.drawingAt(x, y);
+      if (hit) {
+        e.preventDefault();
+        e.stopPropagation();
+        this.swallowPointer = true;
+        this.selected = false;
+        this.selectedDrawing = hit.id;
+        const orig = this.drawings.find((d) => d.id === hit.id)!;
+        this.drawDrag = { id: hit.id, part: hit.part, index: hit.index, x0: x, y0: y, orig };
+        el.setPointerCapture?.(e.pointerId);
+        this.chart.applyOptions({ handleScroll: false, handleScale: false });
+        this.rebuildOverlay();
+        this.renderDrawings();
+        return;
+      }
+      if (this.selectedDrawing) {
+        this.selectedDrawing = null;
+        this.renderDrawings();
+      }
       // 박스(선·점선·몸통)를 누르면 선택, 바깥을 누르면 선택 해제
       const g = this.overlay ? this.prim.computeGeometry() : null;
       const onBox = !!g && (this.drag.hover(x, y) !== null || this.presetAt(x, y) !== null || this.mover.hover(x, y));
@@ -513,6 +724,28 @@ export class ChartView {
     };
     const onMove = (e: PointerEvent) => {
       const { x, y } = local(e);
+      if (this.tool) {
+        this.cursorAnchor = this.anchorAt(x, y);
+        el.style.cursor = 'crosshair';
+        this.renderDrawings();
+        return;
+      }
+      if (this.drawDrag) {
+        e.preventDefault();
+        e.stopPropagation();
+        this.dragDrawingTo(x, y);
+        return;
+      }
+      const overDrawing = this.drag.hover(x, y) ? null : this.drawingAt(x, y);
+      if ((overDrawing?.id ?? null) !== this.hoverDrawing) {
+        this.hoverDrawing = overDrawing?.id ?? null;
+        this.renderDrawings();
+      }
+      if (overDrawing) {
+        el.style.cursor = overDrawing.part === 'point' ? 'pointer' : 'move';
+        el.title = '';
+        return;
+      }
       if (this.drag.isDragging()) {
         e.preventDefault();
         e.stopPropagation();
@@ -540,6 +773,15 @@ export class ChartView {
       }
     };
     const onUp = (e: PointerEvent) => {
+      this.swallowPointer = false;
+      if (this.drawDrag) {
+        e.stopPropagation();
+        el.releasePointerCapture?.(e.pointerId);
+        this.drawDrag = null;
+        this.chart.applyOptions({ handleScroll: true, handleScale: true });
+        this.cb.onDrawingsChange(this.drawings);
+        return;
+      }
       if (this.mover.isMoving()) {
         e.stopPropagation();
         el.releasePointerCapture?.(e.pointerId);
@@ -556,7 +798,7 @@ export class ChartView {
     };
     // 드래그 중에는 차트 라이브러리의 마우스·터치 이벤트로 넘어가지 않게 막는다
     const swallow = (e: Event) => {
-      if (this.drag.isDragging() || this.mover.isMoving()) e.stopPropagation();
+      if (this.drag.isDragging() || this.mover.isMoving() || this.swallowPointer || this.drawDrag) e.stopPropagation();
     };
     el.addEventListener('pointerdown', onDown, true);
     el.addEventListener('pointermove', onMove, true);
@@ -595,4 +837,8 @@ function tickLabel(ms: number, type: TickMarkType): string {
     default:
       return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
   }
+}
+
+function newDrawingId(): string {
+  return typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `d-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  loadSettings, loadSizing, loadState, saveSettings, saveSizing, saveState, SETTINGS_KEY, SIZING_KEY, STATE_KEY, type PersistedState, type StorageLike,
+  loadDrawings, saveDrawings, DRAWINGS_KEY, loadSettings, loadSizing, loadState, saveSettings, saveSizing, saveState, SETTINGS_KEY, SIZING_KEY, STATE_KEY, type PersistedState, type StorageLike,
 } from '../../src/core/persistence';
 import { setLevel } from '../../src/core/scenario';
 import { DEFAULT_SETTINGS } from '../../src/core/settings';
@@ -108,6 +108,20 @@ describe('saves from before TP 기준 was removed', () => {
     const loaded = loadState(st);
     expect(loaded?.ui?.symbol).toBe('BTCUSDT');
     expect(loaded?.scenario).not.toBeNull();
+  });
+});
+
+describe('drawings persistence', () => {
+  it('keeps drawings per symbol and survives garbage', () => {
+    const st = memoryStorage();
+    expect(loadDrawings(st)).toEqual({});
+    const all = { BTCUSDT: [{ id: 'a', kind: 'hline' as const, points: [{ time: 1, price: 2 }] }] };
+    saveDrawings(st, all);
+    expect(loadDrawings(st)).toEqual(all);
+    st.setItem(DRAWINGS_KEY, '{oops');
+    expect(loadDrawings(st)).toEqual({});
+    expect(loadDrawings(throwing)).toEqual({});
+    expect(() => saveDrawings(throwing, all)).not.toThrow();
   });
 });
 

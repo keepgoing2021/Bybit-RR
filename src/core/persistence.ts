@@ -1,12 +1,14 @@
 import type { Scenario } from './scenario';
 import { sanitizeSettings, type AnalysisSettings } from './settings';
 import { sanitizeSizing, type SizingSettings } from './sizing';
+import { sanitizeDrawings, type Drawing } from './drawings';
 import { TIMEFRAMES } from './timeframe';
 import type { Timeframe } from './types';
 
 export const STATE_KEY = 'rrtool.v1.state';
 export const SETTINGS_KEY = 'rrtool.v1.settings';
 export const SIZING_KEY = 'rrtool.v1.sizing';
+export const DRAWINGS_KEY = 'rrtool.v1.drawings';
 
 export interface StorageLike {
   getItem(key: string): string | null;
@@ -109,6 +111,24 @@ export function loadSizing(storage: StorageLike): SizingSettings {
     return sanitizeSizing(raw === null ? null : JSON.parse(raw));
   } catch {
     return sanitizeSizing(null);
+  }
+}
+
+/** 작도 { 종목: Drawing[] }. 이 브라우저에만 저장된다 */
+export function saveDrawings(storage: StorageLike, all: Record<string, Drawing[]>): void {
+  try {
+    storage.setItem(DRAWINGS_KEY, JSON.stringify(all));
+  } catch {
+    // 무시
+  }
+}
+
+export function loadDrawings(storage: StorageLike): Record<string, Drawing[]> {
+  try {
+    const raw = storage.getItem(DRAWINGS_KEY);
+    return sanitizeDrawings(raw === null ? null : JSON.parse(raw));
+  } catch {
+    return {};
   }
 }
 

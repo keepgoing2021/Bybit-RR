@@ -9,6 +9,8 @@ type Debug = {
   timeToX(ms: number): number | null;
   isBoxSelected(): boolean;
   wickColors(): { up: string; down: string };
+  getDrawings(): { drawings: { id: string; kind: string; points: { time: number; price: number }[] }[]; selected: string | null; handles: Record<string, { x: number; y: number }[]> };
+  getDrawState(): { tool: string | null; placed: number };
   getLegend(): { index: number | null; stats: { time: number; close: number; changePct: number; amplitudePct: number } | null; text: string };
   priceToClientY(p: number): number | null;
   getRenderedGeometry(): BoxGeometry | null;
@@ -828,4 +830,138 @@ test('candle legend: current candle by default, the hovered candle on hover, cur
   await expect.poll(async () => (await page.evaluate(() => window.__rrDebug.getLegend())).index).toBe(
     await page.evaluate(() => window.__rrDebug.getCandleCount() - 1),
   );
+});
+
+const drawings = (page: Page) => page.evaluate(() => window.__rrDebug.getDrawings());
+
+/** 차트 안 비율 좌표 → 화면 좌표 */
+async function at(page: Page, fx: number, fy: number): Promise<[number, number]> {
+  const r = await chartRect(page);
+  return [r.left + r.width * fx, r.top + r.height * fy];
+}
+
+test('drawing toolbar: › opens it; trend, horizontal, channel and fib draw by clicks; kept per symbol', async ({ page }) => {
+  await open(page, { tf: '15' });
+  await expect(page.getByTestId('draw-trend')).toBeHidden();
+  await page.getByTestId('draw-toggle').click();
+  for (const k of ['trend', 'hline', 'channel', 'fib']) await expect(page.getByTestId(`draw-${k}`)).toBeVisible();
+  const range0 = await visibleRange(page);
+
+  // 추세선: 2번
+  await page.getByTestId('draw-trend').click();
+  await expect(page.getByTestId('draw-trend')).toHaveClass(/active/);
+  await expect(page.getByTestId('draw-hint')).toContainText('추세선: 시작점');
+  const a = await at(page, 0.2, 0.7);
+  const b = await at(page, 0.4, 0.4);
+  await page.mouse.click(...a);
+  await expect(page.getByTestId('draw-hint')).toContainText('끝점');
+  await page.mouse.click(...b);
+  await expect(page.getByTestId('draw-hint')).toBeHidden();
+  await expect(page.getByTestId('draw-trend')).not.toHaveClass(/active/);
+  let d = await drawings(page);
+  expect(d.drawings.map((x) => x.kind)).toEqual(['trend']);
+  // 찍은 자리에 붙는다 (가로는 봉 중앙으로 맞춤)
+  const r = await chartRect(page);
+  const h = d.handles[d.drawings[0].id];
+  expect(Math.abs(h[0].x - (a[0] - r.left))).toBeLessThan(8);
+  expect(Math.abs(h[0].y - (a[1] - r.top))).toBeLessThan(2);
+  expect(Math.abs(h[1].y - (b[1] - r.top))).toBeLessThan(2);
+
+  // 수평선: 1번, 평행 채널: 3번, 피보나치: 2번
+  await page.getByTestId('draw-hline').click();
+  await page.mouse.click(...(await at(page, 0.5, 0.2)));
+  await page.getByTestId('draw-channel').click();
+  await page.mouse.click(...(await at(page, 0.45, 0.8)));
+  await page.mouse.click(...(await at(page, 0.6, 0.6)));
+  await page.mouse.click(...(await at(page, 0.5, 0.85)));
+  await page.getByTestId('draw-fib').click();
+  await page.mouse.click(...(await at(page, 0.65, 0.85)));
+  await page.mouse.click(...(await at(page, 0.8, 0.3)));
+  d = await drawings(page);
+  expect(d.drawings.map((x) => x.kind)).toEqual(['trend', 'hline', 'channel', 'fib']);
+  expect(d.drawings.map((x) => x.points.length)).toEqual([2, 1, 3, 2]);
+  expect(await visibleRange(page)).toEqual(range0); // 점 찍기가 차트를 움직이지 않음
+
+  // 새로고침해도 남고, 종목마다 따로
+  await page.reload();
+  await waitLive(page);
+  await expect.poll(async () => (await drawings(page)).drawings.length).toBe(4);
+  await expect(page.getByTestId('draw-trend')).toBeVisible(); // 펼친 상태도 기억
+  const symbol = page.getByTestId('symbol');
+  await symbol.fill('DEMO-ETH');
+  await symbol.press('Enter');
+  await waitLive(page);
+  expect((await drawings(page)).drawings).toHaveLength(0);
+  await symbol.fill('DEMO-BTC');
+  await symbol.press('Enter');
+  await waitLive(page);
+  await expect.poll(async () => (await drawings(page)).drawings.length).toBe(4);
+});
+
+test('a drawing can be selected, its end point dragged, moved as a whole, and deleted with Delete', async ({ page }) => {
+  await open(page, { tf: '15' });
+  await page.getByTestId('draw-toggle').click();
+  await page.getByTestId('draw-trend').click();
+  await page.mouse.click(...(await at(page, 0.2, 0.7)));
+  await page.mouse.click(...(await at(page, 0.45, 0.4)));
+  const r = await chartRect(page);
+  await page.mouse.click(r.left + 5 + r.width * 0.9, r.top + r.height * 0.1); // 빈 곳 → 선택 해제
+  await expect.poll(async () => (await drawings(page)).selected).toBeNull();
+
+  const d0 = (await drawings(page)).drawings[0];
+  let hs = (await drawings(page)).handles[d0.id];
+  // 선 가운데를 누르면 선택
+  await page.mouse.click(r.left + (hs[0].x + hs[1].x) / 2, r.top + (hs[0].y + hs[1].y) / 2);
+  await expect.poll(async () => (await drawings(page)).selected).toBe(d0.id);
+
+  // 끝점 끌기: 끝점만 바뀐다
+  const range0 = await visibleRange(page);
+  await page.mouse.move(r.left + hs[1].x, r.top + hs[1].y);
+  await page.mouse.down();
+  await page.mouse.move(r.left + hs[1].x + 40, r.top + hs[1].y - 50, { steps: 6 });
+  await page.mouse.up();
+  const d1 = (await drawings(page)).drawings[0];
+  expect(d1.points[0]).toEqual(d0.points[0]);
+  expect(d1.points[1].price).toBeGreaterThan(d0.points[1].price);
+  expect(d1.points[1].time).toBeGreaterThan(d0.points[1].time);
+  expect(await visibleRange(page)).toEqual(range0); // 끄는 동안 차트는 그대로
+
+  // 몸통 끌기: 두 점이 같이 움직인다
+  hs = (await drawings(page)).handles[d0.id];
+  const mid = { x: (hs[0].x + hs[1].x) / 2, y: (hs[0].y + hs[1].y) / 2 };
+  await page.mouse.move(r.left + mid.x, r.top + mid.y);
+  await page.mouse.down();
+  await page.mouse.move(r.left + mid.x - 60, r.top + mid.y + 40, { steps: 6 });
+  await page.mouse.up();
+  const d2 = (await drawings(page)).drawings[0];
+  expect(d2.points[0].time).toBeLessThan(d1.points[0].time);
+  expect(d2.points[0].price).toBeLessThan(d1.points[0].price);
+  expect(d2.points[1].time - d2.points[0].time).toBe(d1.points[1].time - d1.points[0].time);
+
+  await page.keyboard.press('Delete');
+  await expect.poll(async () => (await drawings(page)).drawings.length).toBe(0);
+  await page.reload();
+  await waitLive(page);
+  expect((await drawings(page)).drawings).toHaveLength(0);
+});
+
+test('Esc cancels a drawing in progress; the trash button clears this symbol', async ({ page }) => {
+  await open(page, { tf: '15' });
+  await page.getByTestId('draw-toggle').click();
+  await page.getByTestId('draw-channel').click();
+  await page.mouse.click(...(await at(page, 0.3, 0.6)));
+  await page.mouse.click(...(await at(page, 0.5, 0.4)));
+  expect(await page.evaluate(() => window.__rrDebug.getDrawState())).toEqual({ tool: 'channel', placed: 2 });
+  await page.keyboard.press('Escape');
+  expect(await page.evaluate(() => window.__rrDebug.getDrawState())).toEqual({ tool: null, placed: 0 });
+  expect((await drawings(page)).drawings).toHaveLength(0);
+
+  await page.getByTestId('draw-hline').click();
+  await page.mouse.click(...(await at(page, 0.5, 0.5)));
+  await page.getByTestId('draw-hline').click();
+  await page.mouse.click(...(await at(page, 0.5, 0.3)));
+  expect((await drawings(page)).drawings).toHaveLength(2);
+  await page.getByTestId('draw-clear').click();
+  await expect(page.getByTestId('toast')).toContainText('작도 2개를 지웠습니다');
+  expect((await drawings(page)).drawings).toHaveLength(0);
 });

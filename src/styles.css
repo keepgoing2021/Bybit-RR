@@ -811,3 +811,110 @@ button.danger {
 .sizing-bar [data-testid='sizing-risk'] {
   width: 70px;
 }
+
+/* 차트 왼쪽 작도 도구 */
+.chart-wrap .chart {
+  left: 22px;
+}
+
+.chart-wrap[data-tools='open'] .chart {
+  left: 44px;
+}
+
+.draw-toolbar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 22px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding-top: 6px;
+  border-right: 1px solid var(--line);
+  background: var(--bg);
+  z-index: 4;
+}
+
+.chart-wrap[data-tools='open'] .draw-toolbar {
+  width: 44px;
+}
+
+.draw-toggle {
+  width: 18px;
+  height: 26px;
+  padding: 0;
+  border-radius: 4px;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--muted);
+  background: var(--raised);
+}
+
+.chart-wrap[data-tools='open'] .draw-toggle {
+  width: 36px;
+}
+
+.draw-toggle:hover {
+  color: var(--text);
+}
+
+.draw-tools {
+  display: none;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.chart-wrap[data-tools='open'] .draw-tools {
+  display: flex;
+}
+
+.draw-tool {
+  width: 36px;
+  height: 34px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  background: transparent;
+  border-color: transparent;
+}
+
+.draw-tool:hover {
+  color: var(--text);
+  background: var(--raised);
+}
+
+.draw-tool.active {
+  color: #26c6da;
+  background: rgba(38, 198, 218, 0.14);
+  border-color: rgba(38, 198, 218, 0.6);
+}
+
+.draw-tool.danger:hover {
+  color: var(--loss);
+}
+
+.draw-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--line);
+}
+
+.draw-hint {
+  position: absolute;
+  top: 52px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  padding: 5px 12px;
+  border: 1px solid rgba(38, 198, 218, 0.6);
+  border-radius: 6px;
+  background: rgba(14, 20, 32, 0.92);
+  color: #26c6da;
+  font-size: 12px;
+  font-weight: 600;
+  pointer-events: none;
+  white-space: nowrap;
+}
