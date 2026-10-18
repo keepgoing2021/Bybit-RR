@@ -147,12 +147,12 @@ export class RRBoxPrimitive implements ISeriesPrimitive<Time> {
         ctx.fillRect(g.loss.x, g.loss.y, g.loss.w, g.loss.h);
       }
 
-      // 손익비 점선: 누를 수 있다는 게 보이도록 오른쪽 끝에 빨간 칩 (마우스를 올리면 진하게)
+      // 손익비 점선: 선은 수익 쪽 초록, 누를 수 있다는 게 보이도록 오른쪽 끝 숫자만 빨간 칩 (마우스를 올리면 진하게)
       for (const p of g.presets) {
         if (m.tp !== null && Math.abs(p.price - m.tp) < 1e-9) continue; // 지금 TP 자리는 TP 선·이름표가 이미 있다
         const hot = m.hoverPreset === p.id;
         ctx.globalAlpha = (m.closed ? 0.55 : 1) * (hot ? 1 : 0.6);
-        ctx.strokeStyle = THEME.loss;
+        ctx.strokeStyle = THEME.profit;
         ctx.lineWidth = hot ? 1.5 : 1;
         ctx.setLineDash([4, 4]);
         ctx.beginPath();
