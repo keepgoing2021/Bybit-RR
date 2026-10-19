@@ -12,8 +12,8 @@ const bybitProxy = {
 };
 
 // 공유 미리보기(og:image 등)는 절대 주소가 필요하다. index.html의 %SITE_URL%을 빌드 때 바꾼다:
-// SITE_URL(직접 지정) → 기본 주소(Cloudflare Workers, 2026-10-19 Vercel에서 이사)
-export const DEFAULT_SITE_URL = 'https://bybit-rr.moaseoul.workers.dev';
+// SITE_URL(직접 지정) → 기본 주소(1rc.app, Cloudflare Workers — 2026-10-19 Vercel에서 이사)
+export const DEFAULT_SITE_URL = 'https://1rc.app';
 export function siteUrl(env: Record<string, string | undefined> = process.env): string {
   if (env.SITE_URL) return env.SITE_URL.replace(/\/+$/, '');
   return DEFAULT_SITE_URL;

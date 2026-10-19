@@ -9,6 +9,10 @@
     "binding": "ASSETS",
     "run_worker_first": ["/bybit-api/*"]
   },
-  "workers_dev": true,
+  // 주소는 1rc.app(2026-10-19 구입, Cloudflare Registrar) — 예비 주소(workers.dev)는 꺼서 한 곳으로
+  "routes": [
+    { "pattern": "1rc.app", "custom_domain": true }
+  ],
+  "workers_dev": false,
   "preview_urls": false
 }

@@ -3,7 +3,7 @@
 Bybit 선물 손익비·분할 주문 계산기. 이름은 **1R calc**(거래 한 번의 손실 단위 1R)이자 **1-click risk calc**(LONG/SHORT 한 번에 SL·TP·사이즈). 태그라인 `risk 1. repeat.`
 
 - 아이콘: 손익비 박스(초록 목표 · 노란 진입선 · 빨간 손절) 위의 '1'. 탭 아이콘(`public/favicon.svg`, 32px PNG), 홈 화면 아이콘(`apple-touch-icon.png` 180px, `manifest.webmanifest`의 192·512px)은 모두 같은 그림입니다.
-- 링크 미리보기: X·텔레그램 등에 주소를 붙이면 큰 이미지 카드(`public/og.png`, 1200×630)가 뜹니다. 원본은 `scripts/og/og.html`, 다시 만들 때는 `node scripts/og/render.mjs`. 미리보기 태그의 절대 주소는 빌드 때 정해집니다: `SITE_URL` 환경 변수 → `https://bybit-rr.moaseoul.workers.dev`.
+- 링크 미리보기: X·텔레그램 등에 주소를 붙이면 큰 이미지 카드(`public/og.png`, 1200×630)가 뜹니다. 원본은 `scripts/og/og.html`, 다시 만들 때는 `node scripts/og/render.mjs`. 미리보기 태그의 절대 주소는 빌드 때 정해집니다: `SITE_URL` 환경 변수 → `https://1rc.app`.
 - 브라우저 저장 키는 이전 이름 그대로(`rrtool.v1.*`)라 이름을 바꿔도 저장된 계산·설정이 그대로 남습니다.
 
 LONG 또는 SHORT를 누르면 그 순간 체결가를 진입가로 잡고, 가격 구조로 SL·TP를 제안해 손익비와 분할 주문표(가격·금액·수량)를 바로 계산하는 개인용 웹 차트입니다. 진입·SL·TP는 차트에서 끌거나 직접 입력해 고칠 수 있고 모든 값은 즉시 다시 계산됩니다. 주문은 넣지 않습니다. 주문표 숫자를 복사해 Bybit에 직접 넣는 용도입니다.
@@ -33,10 +33,10 @@ npm run check:bybit -- ETHUSDT # 다른 종목
 
 ## Cloudflare에 배포하기 (npm run dev 없이 쓰기)
 
-주소: https://bybit-rr.moaseoul.workers.dev (2026-10-19 Vercel에서 이사)
+주소: https://1rc.app (2026-10-19 Vercel에서 이사, 도메인은 Cloudflare Registrar)
 
 1. `npx wrangler login` (처음 한 번 — Cloudflare 계정으로 로그인)
-2. `npm run deploy` — 빌드(`SITE_URL`을 위 주소로) 후 `wrangler deploy`
+2. `npm run deploy` — 빌드 후 `wrangler deploy`
 
 설정은 `wrangler.jsonc`, 중계 코드는 `worker/index.js`입니다. 화면(`dist/`)은 그대로 내보내고 `/bybit-api/*`만 Worker가 Bybit로 넘깁니다 — 열린 중계가 되지 않게 **공개 시세 조회(`GET /v5/market/*`)만** 통과합니다.
 
