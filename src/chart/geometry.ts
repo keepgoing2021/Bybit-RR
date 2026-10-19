@@ -21,22 +21,22 @@ export interface BoxInput {
   splits?: SplitLine[];
   /** 분할별 예상 평단 (2차 체결 시 … 전부 체결 시). 분할이 없으면 없음 */
   avgLines?: AvgLine[];
-  /** 스탑헌팅존 (SL 기준 꼬리 끝에서 2~10% 바깥). SL 캔들 봉부터 오른쪽 끝까지 */
+  /** 스탑헌팅존 (SL 기준 꼬리 끝에서 2~10% 바깥). 가로는 박스와 같은 폭 */
   hunt?: HuntInput | null;
 }
 
 export interface HuntInput {
   near: number;
   far: number;
-  startLogical: number;
   label: string;
   /** 지금 SL이 구간 안 (이름표를 경고색으로) */
   slInside: boolean;
 }
 
 export interface HuntGeometry {
-  /** 왼쪽 끝 (SL 캔들). 오른쪽은 차트 끝까지 */
+  /** 왼쪽·오른쪽 끝 = 박스와 같음 */
   x: number;
+  x2: number;
   yNear: number;
   yFar: number;
   label: string;
@@ -120,17 +120,16 @@ export function computeBoxGeometry(i: BoxInput, m: CoordMapper): BoxGeometry | n
     handles: { sl: handle(ySl), tp: handle(yTp) },
     presets: spaced(i.presets ?? [], m, yEntry),
     ...labeledInside(i, m, yEntry, x2 - x1),
-    hunt: huntGeometry(i.hunt ?? null, m),
+    hunt: huntGeometry(i.hunt ?? null, m, x1, x2),
   };
 }
 
-function huntGeometry(h: HuntInput | null, m: CoordMapper): HuntGeometry | null {
+function huntGeometry(h: HuntInput | null, m: CoordMapper, x1: number, x2: number): HuntGeometry | null {
   if (!h) return null;
-  const x = m.logicalToX(h.startLogical);
   const yNear = m.priceToY(h.near);
   const yFar = m.priceToY(h.far);
-  if (x === null || yNear === null || yFar === null) return null;
-  return { x, yNear, yFar, label: h.label, slInside: h.slInside };
+  if (yNear === null || yFar === null) return null;
+  return { x: x1, x2, yNear, yFar, label: h.label, slInside: h.slInside };
 }
 
 /**

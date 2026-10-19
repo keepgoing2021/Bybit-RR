@@ -262,7 +262,7 @@ export class RRBoxPrimitive implements ISeriesPrimitive<Time> {
         const avoid: Box[] = [chipBox(ctx, m.labels.center, cx, g.yEntry, mediaSize.width), { x: 0, y: mediaSize.height - 44, w: 60, h: 44 }];
         if (m.labels.profit && g.yTp !== null) avoid.push(chipBox(ctx, m.labels.profit, cx, g.yTp + outward(g.yTp) * 14, mediaSize.width));
         if (m.labels.loss && g.ySl !== null) avoid.push(chipBox(ctx, m.labels.loss, cx, g.ySl + outward(g.ySl) * 14, mediaSize.width));
-        g.hunt.chip = huntChip(ctx, hunt.chip, mediaSize.width, g.hunt.slInside, avoid);
+        g.hunt.chip = huntChip(ctx, hunt.chip, g.hunt.slInside, avoid);
         g.hunt.avoided = avoid;
       } else if (g.hunt) {
         g.hunt.chip = null;
@@ -286,6 +286,8 @@ type Ctx = CanvasRenderingContext2D;
 type HuntChipSpec = {
   text: string;
   left: number;
+  /** 구간 오른쪽 끝 (= 박스 오른쪽) */
+  right: number;
   cy: number;
   band: { top: number; bottom: number; inward: 1 | -1 };
   /** 화면 끝 칩일 때 화면 안에 보이는 얇은 띠 (있으면 칩 자리가 없을 때 그 띠 안에 해골만) */
@@ -301,8 +303,10 @@ function drawHuntBand(
 ): { mode: 'band' | 'edge' | null; chip: HuntChipSpec | null } {
   const top = Math.max(0, Math.min(h.yNear, h.yFar));
   const bottom = Math.min(height, Math.max(h.yNear, h.yFar));
+  // 가로는 손익비 박스와 같은 폭
   const left = Math.max(0, h.x);
-  if (left >= width) return { mode: null, chip: null };
+  const right = Math.min(width, h.x2);
+  if (right - left < 2) return { mode: null, chip: null };
   const below = h.yFar > h.yNear; // 화면 아래쪽으로 뻗는 구간 (LONG)
   let edgeChip: HuntChipSpec | null = null;
   if (bottom - top < 22) {
@@ -311,23 +315,23 @@ function drawHuntBand(
     if (offscreen || bottom - top >= 1) {
       const strip = bottom - top >= 6 ? { top, bottom } : null;
       edgeChip = below
-        ? { text: '스탑헌팅존 ↓', left, cy: height - 14, band: { top: 0, bottom: height, inward: -1 }, strip }
-        : { text: '스탑헌팅존 ↑', left, cy: topReserve, band: { top: 0, bottom: height, inward: 1 }, strip };
+        ? { text: '스탑헌팅존 ↓', left, right, cy: height - 14, band: { top: 0, bottom: height, inward: -1 }, strip }
+        : { text: '스탑헌팅존 ↑', left, right, cy: topReserve, band: { top: 0, bottom: height, inward: 1 }, strip };
     }
     if (bottom - top < 1) return { mode: edgeChip ? 'edge' : null, chip: edgeChip };
   }
   ctx.save();
   ctx.beginPath();
-  ctx.rect(left, top, width - left, bottom - top);
+  ctx.rect(left, top, right - left, bottom - top);
   ctx.clip();
   ctx.fillStyle = THEME.huntFill;
-  ctx.fillRect(left, top, width - left, bottom - top);
+  ctx.fillRect(left, top, right - left, bottom - top);
   ctx.strokeStyle = THEME.huntHatch;
   ctx.lineWidth = 1;
   ctx.beginPath();
   const step = 9;
   const span = bottom - top;
-  for (let x = left - span; x < width; x += step) {
+  for (let x = left - span; x < right; x += step) {
     ctx.moveTo(x, bottom);
     ctx.lineTo(x + span, top);
   }
@@ -341,7 +345,7 @@ function drawHuntBand(
     if (y < 0 || y > height) continue;
     ctx.beginPath();
     ctx.moveTo(left, Math.round(y) + 0.5);
-    ctx.lineTo(width, Math.round(y) + 0.5);
+    ctx.lineTo(right, Math.round(y) + 0.5);
     ctx.stroke();
   }
   ctx.restore();
@@ -350,7 +354,7 @@ function drawHuntBand(
   const inward = below ? 1 : -1;
   const edge = h.yNear >= 0 && h.yNear <= height ? h.yNear : inward > 0 ? top : bottom;
   const cy = Math.max(top + 11, Math.min(bottom - 11, edge + inward * 13));
-  return { mode: 'band', chip: { text: h.label, left, cy, band: { top, bottom, inward } } };
+  return { mode: 'band', chip: { text: h.label, left, right, cy, band: { top, bottom, inward } } };
 }
 
 type Box = { x: number; y: number; w: number; h: number };
@@ -365,54 +369,64 @@ function chipBox(ctx: Ctx, text: string, x: number, y: number, paneWidth: number
 const overlaps = (a: Box, b: Box) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 
 /**
- * 해골 + 글자 칩 (지금 SL이 구간 안이면 경고색). 늘 구간 안에 둔다:
- * 가로는 구간 왼쪽 끝 ~ 화면 오른쪽 끝, 세로는 보이는 띠 안 (꼬리 쪽 경계에서 안쪽으로 한 칸씩).
- * 다른 이름표·로고와 겹치면 띠 안에서 옆·안쪽으로 옮기고, 그래도 없으면 해골만(화면 끝 칩은 해골 + 화살표)으로 줄인다
+ * 해골 + 글자 칩 (지금 SL이 구간 안이면 경고색). 늘 구간(= 박스 폭) 안에 둔다:
+ * 가로는 박스 왼쪽 ~ 오른쪽, 세로는 보이는 띠 안 (꼬리 쪽 경계에서 안쪽으로 한 칸씩).
+ * 폭이 모자라거나 다른 이름표와 겹치면 글자를 줄인다: 긴 이름 → 짧은 이름 → 해골만 → (얇은 띠) 해골 아이콘만
  */
-function huntChip(ctx: Ctx, spec: HuntChipSpec, width: number, warn: boolean, avoid: Box[] = []): Box | null {
+function huntChip(ctx: Ctx, spec: HuntChipSpec, warn: boolean, avoid: Box[] = []): Box | null {
   ctx.font = `700 11px ${THEME.font}`;
-  const compact = spec.text.endsWith('↓') ? '↓' : spec.text.endsWith('↑') ? '↑' : '';
-  const widthOf = (t: string) => (t ? ctx.measureText(t).width + 32 : 24);
+  const edgeOnly = spec.text.endsWith('↓') || spec.text.endsWith('↑');
+  const arrow = edgeOnly ? spec.text.slice(-1) : '';
+  const tiers = edgeOnly ? [spec.text, `헌팅존 ${arrow}`, arrow] : [spec.text, warn ? 'SL 안' : '헌팅존', ''];
+  // 해골(5px 여백 + 12px) + 4px + 글자 + 6px. 좁은 박스에서도 '헌팅존'까지는 들어가게 촘촘히
+  const widthOf = (t: string) => (t ? ctx.measureText(t).width + 27 : 22);
   // 세로: 띠 안에서 꼬리 쪽 경계부터 안쪽으로 한 칸(22px)씩. 화면 끝 칩은 그 끝 줄에서만 (구간 밖으로 떠다니지 않게)
-  const edgeOnly = compact !== '';
   const { top, bottom, inward } = spec.band;
   const ys: number[] = [spec.cy];
   if (!edgeOnly) for (let y = spec.cy + inward * 22; y - 9 >= top && y + 9 <= bottom; y += inward * 22) ys.push(y);
+  const xMin = spec.left + 3;
   const spots = (w: number): { x: number; y: number }[] => {
-    const xMin = Math.max(4, spec.left + 6);
-    const xMax = Math.max(xMin, width - w - 4);
+    const xMax = spec.right - w - 3;
+    if (xMax < xMin) return []; // 이 글자로는 박스 폭에 안 들어간다
     const xs = [xMin, ...avoid.map((a) => a.x + a.w + 6).filter((x) => x > xMin && x <= xMax), xMax];
     return ys.flatMap((y) => xs.map((x) => ({ x, y })));
   };
-  const free = (w: number) => spots(w).find(({ x, y }) => avoid.every((a) => !overlaps({ x, y: y - 9, w, h: 18 }, a)));
-  let label = spec.text;
-  let w = widthOf(label);
-  let spot = free(w);
-  if (!spot) {
-    label = compact;
-    w = widthOf(label);
-    spot = free(w);
+  const clear = (b: Box) => avoid.every((a) => !overlaps(b, a));
+  let label = '';
+  let w = 0;
+  let spot: { x: number; y: number } | undefined;
+  for (const t of tiers) {
+    w = widthOf(t);
+    spot = spots(w).find(({ x, y }) => clear({ x, y: y - 9, w, h: 18 }));
+    if (spot) {
+      label = t;
+      break;
+    }
   }
+  const fg = warn ? THEME.warning : THEME.huntText;
   if (!spot) {
-    // 화면 끝 칩 자리가 없으면: 보이는 얇은 띠 안에 해골만, 그것도 안 되면 그리지 않는다. 띠 안이면 가장 안쪽 줄에 해골만
-    if (edgeOnly) {
-      const st = spec.strip;
-      if (!st) return null;
-      // 띠 가운데에, 차트 칸 밖으로 잘리지 않게
+    // 띠 안이면 가장 안쪽 줄에 해골만 (겹쳐도 구간 안). 화면 끝이면 보이는 얇은 띠 안에 해골 아이콘만, 그것도 안 되면 생략
+    if (!edgeOnly) {
+      w = widthOf('');
+      const all = spots(w);
+      if (all.length) {
+        spot = all[all.length - 1];
+        label = '';
+      }
+    }
+    if (!spot) {
+      const st = edgeOnly ? spec.strip : { top, bottom };
+      if (!st || spec.right - spec.left < 16) return null;
       const sy = Math.max(spec.band.top, Math.min(spec.band.bottom - 12, (st.top + st.bottom) / 2 - 6));
-      const xMin = Math.max(4, spec.left + 4);
-      const xs = [xMin, ...avoid.map((a) => a.x + a.w + 4), width - 16].filter((x) => x >= xMin && x <= width - 16);
-      const sx = xs.find((x) => avoid.every((a) => !overlaps({ x, y: sy, w: 12, h: 12 }, a)));
+      const sxs = [xMin, ...avoid.map((a) => a.x + a.w + 4), spec.right - 16].filter((x) => x >= xMin && x <= spec.right - 16);
+      const sx = sxs.find((x) => clear({ x, y: sy, w: 12, h: 12 })) ?? (edgeOnly ? undefined : sxs[0]);
       if (sx === undefined) return null;
-      skull(ctx, sx, sy, warn ? THEME.warning : THEME.huntText);
+      skull(ctx, sx, sy, fg);
       return { x: sx, y: sy, w: 12, h: 12 };
     }
-    const all = spots(w);
-    spot = all[all.length - 1];
   }
   const { x } = spot;
   const cy = spot.y;
-  const fg = warn ? THEME.warning : THEME.huntText;
   ctx.fillStyle = THEME.chipDark;
   roundRect(ctx, x, cy - 9, w, 18, 4);
   ctx.fill();
@@ -420,12 +434,12 @@ function huntChip(ctx: Ctx, spec: HuntChipSpec, width: number, warn: boolean, av
   ctx.lineWidth = 1;
   roundRect(ctx, x + 0.5, cy - 8.5, w - 1, 17, 4);
   ctx.stroke();
-  skull(ctx, x + 6, cy - 6, fg);
+  skull(ctx, x + 5, cy - 6, fg);
   if (label) {
     ctx.fillStyle = fg;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
-    ctx.fillText(label, x + 24, cy + 0.5);
+    ctx.fillText(label, x + 21, cy + 0.5);
   }
   return { x, y: cy - 9, w, h: 18 };
 }

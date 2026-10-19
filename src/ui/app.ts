@@ -1613,7 +1613,7 @@ export class App {
     if (!z) return null;
     const slInside = s.applied.sl !== null && inHuntZone(z, s.applied.sl);
     const label = slInside ? '스탑헌팅존 · SL이 안에 있음' : `스탑헌팅존 ${HUNT_NEAR_PCT}~${HUNT_FAR_PCT}%`;
-    return { ...z, time: c.time, label, slInside };
+    return { ...z, label, slInside };
   }
 
   /** E2E 검증용 읽기 전용 정보 */

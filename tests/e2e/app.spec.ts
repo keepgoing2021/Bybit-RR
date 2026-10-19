@@ -1170,7 +1170,7 @@ test('fee tier buttons (일반 · VIP1–5) switch the Bybit fee used for the fe
   expect(await lit()).toEqual(['일반']);
 });
 
-test('stop-hunting zone: 2–10% beyond the SL wick, from the SL candle to the right edge, with a skull label; warns when SL sits inside', async ({ page }) => {
+test('stop-hunting zone: 2–10% beyond the SL wick, as wide as the RR box, with a skull label inside; warns when SL sits inside', async ({ page }) => {
   await open(page, { tf: '15' });
   await page.getByTestId('btn-long').click();
   await expect.poll(() => scenario(page)).not.toBeNull();
@@ -1194,8 +1194,9 @@ test('stop-hunting zone: 2–10% beyond the SL wick, from the SL candle to the r
   expect(Math.abs(h.yFar - (await yOf(far)))).toBeLessThan(1);
   // 꼬리 바깥쪽으로: LONG은 아래(좌표가 커짐), SHORT는 위
   expect(long ? h.yFar > h.yNear : h.yFar < h.yNear).toBe(true);
-  // 왼쪽 끝 = SL 캔들
-  expect(Math.abs(h.x - (await page.evaluate((t) => window.__rrDebug.timeToX(t), c.time))!)).toBeLessThan(1);
+  // 가로는 손익비 박스와 같은 폭 (차트 끝까지 넓게 그리지 않는다)
+  const box0 = (await rendered(page))!;
+  expect([h.x, h.x2]).toEqual([box0.x1, box0.x2]);
   expect(h.label).toBe('스탑헌팅존 2~10%');
   expect(h.slInside).toBe(false);
   // 그린 방식: 보이는 띠가 이름표(22px)보다 두꺼우면 빗금 띠, 아니면 화면 끝 칩
@@ -1211,13 +1212,13 @@ test('stop-hunting zone: 2–10% beyond the SL wick, from the SL candle to the r
     !g.chip || (g.avoided ?? []).every((a) => !(g.chip!.x < a.x + a.w && a.x < g.chip!.x + g.chip!.w && g.chip!.y < a.y + a.h && a.y < g.chip!.y + g.chip!.h));
   if (h.drawn === 'band') expect(h.chip).toBeTruthy();
   expect(noOverlap(h)).toBe(true);
-  // 해골 이름표는 늘 구간 안: 가로는 SL 캔들(구간 왼쪽 끝)보다 오른쪽, 띠가 보이면 세로도 띠 안
+  // 해골 이름표는 늘 구간 안: 가로는 박스 폭 안, 띠가 보이면 세로도 띠 안
   const inside = (g: typeof h) => {
     const c = g.chip;
     if (!c) return g.drawn !== 'band';
     const top = Math.max(0, Math.min(g.yNear, g.yFar));
     const bottom = Math.min(paneH, Math.max(g.yNear, g.yFar));
-    return c.x >= g.x && (g.drawn !== 'band' || (c.y >= top - 0.5 && c.y + c.h <= bottom + 0.5));
+    return c.x >= g.x && c.x + c.w <= g.x2 && (g.drawn !== 'band' || (c.y >= top - 0.5 && c.y + c.h <= bottom + 0.5));
   };
   expect(inside(h)).toBe(true);
   // 가격축을 끌어 넓게 보면 띠가 화면에 들어오고 빗금 띠로 그린다
@@ -1233,11 +1234,14 @@ test('stop-hunting zone: 2–10% beyond the SL wick, from the SL candle to the r
   expect(h.chip).toBeTruthy();
   expect(noOverlap(h)).toBe(true);
   expect(inside(h)).toBe(true);
-  // 빗금은 잘 보이는 보라: 구간 안 빈 곳(박스 오른쪽, 없으면 SL 캔들과 박스 사이)의 평균 색이 보라 쪽
+  // 빗금은 잘 보이는 보라: 구간 안에서 이름표를 피한 곳의 평균 색이 보라 쪽. 박스 밖(오른쪽)은 칠하지 않는다
   const g = (await rendered(page))!;
-  const paneW = await page.evaluate(() => Math.max(...[...document.querySelectorAll('[data-testid=chart] canvas')].map((e) => e.getBoundingClientRect()).filter((b) => b.left < 50).map((b) => b.width)));
-  const yMid = (Math.max(0, Math.min(h.yNear, h.yFar)) + Math.min(paneH, Math.max(h.yNear, h.yFar))) / 2;
-  const [rx1, rx2] = paneW - g.x2 > 40 ? [g.x2 + 8, paneW - 8] : [h.x + 30, g.x1 - 4];
+  const vTop = Math.max(0, Math.min(h.yNear, h.yFar));
+  const vBottom = Math.min(paneH, Math.max(h.yNear, h.yFar));
+  const chipMid = h.chip ? h.chip.y + h.chip.h / 2 : vTop;
+  // 이름표가 있는 쪽의 반대편 절반 가운데
+  const yMid = chipMid < (vTop + vBottom) / 2 ? vTop + (vBottom - vTop) * 0.75 : vTop + (vBottom - vTop) * 0.25;
+  const [rx1, rx2] = [g.x1 + 4, g.x2 - 4];
   const rgb = await page.evaluate(({ x1, x2, y }) => {
     const cv = [...document.querySelectorAll('[data-testid=chart] canvas')] as HTMLCanvasElement[];
     const sum = [0, 0, 0];
@@ -1258,6 +1262,24 @@ test('stop-hunting zone: 2–10% beyond the SL wick, from the SL candle to the r
   }, { x1: rx1, x2: rx2, y: yMid });
   expect(rgb[2]).toBeGreaterThan(rgb[1] + 15); // 파랑 > 초록
   expect(rgb[0]).toBeGreaterThan(rgb[1]); // 빨강 > 초록 → 보라
+  // 박스 오른쪽(구간 밖)은 칠하지 않음
+  const paneW = await page.evaluate(() => Math.max(...[...document.querySelectorAll('[data-testid=chart] canvas')].map((e) => e.getBoundingClientRect()).filter((b) => b.left < 50).map((b) => b.width)));
+  if (paneW - g.x2 > 30) {
+    const out = await page.evaluate(({ x1, x2, y }) => {
+      const cv = [...document.querySelectorAll('[data-testid=chart] canvas')] as HTMLCanvasElement[];
+      let blue = 0;
+      let n = 0;
+      for (const c of cv) {
+        const b = c.getBoundingClientRect();
+        if (b.left >= 50) continue;
+        const k = c.width / b.width;
+        const d = c.getContext('2d')!.getImageData(Math.round(x1 * k), Math.round((y - 10) * k), Math.max(1, Math.round((x2 - x1) * k)), Math.round(20 * k)).data;
+        for (let i = 0; i < d.length; i += 4) if (d[i + 3] > 0) { blue += d[i + 2] - d[i + 1]; n++; }
+      }
+      return n ? blue / n : 0;
+    }, { x1: g.x2 + 6, x2: Math.min(paneW - 6, g.x2 + 26), y: yMid });
+    expect(out).toBeLessThan(8);
+  }
   // SL을 구간 안(꼬리에서 5% 바깥)으로 옮기면 이름표가 경고로, 꼬리 1% 바깥이면 다시 보통
   await setLevel(page, 'sl', (wick * (long ? 0.95 : 1.05)).toFixed(1));
   await expect.poll(async () => (await hunt()).slInside).toBe(true);

@@ -50,8 +50,8 @@ export interface OverlayInput {
   splits: SplitLine[];
   /** 분할별 체결 시 예상 평단 (2차 체결 시 … 전부 체결 시). 분할이 없거나 꺼 두면 빈 배열 */
   avgLines: AvgLine[];
-  /** 스탑헌팅존 (가격 두 경계, SL 캔들 시각부터) */
-  huntZone?: { near: number; far: number; time: number; label: string; slInside: boolean } | null;
+  /** 스탑헌팅존 (가격 두 경계). 가로는 박스와 같은 폭 */
+  huntZone?: { near: number; far: number; label: string; slInside: boolean } | null;
 }
 
 export interface ChartViewCallbacks {
@@ -658,13 +658,6 @@ export class ChartView {
     return { from, to: Math.max(to, from + 1), label: c.label };
   }
 
-  private huntModel(z: OverlayInput['huntZone']): OverlayModel['hunt'] {
-    if (!z) return null;
-    const start = this.logicalForTime(z.time);
-    if (start === null) return null;
-    return { near: z.near, far: z.far, startLogical: start, label: z.label, slInside: z.slInside };
-  }
-
   private rebuildOverlay(): void {
     const o = this.overlay;
     const start = o ? this.logicalForTime(o.startTime) : null;
@@ -692,7 +685,7 @@ export class ChartView {
       splits: o.splits,
       avgLines: o.avgLines,
       selected: this.selected,
-      hunt: this.huntModel(o.huntZone ?? null),
+      hunt: o.huntZone ?? null,
     };
     this.prim.setModel(model);
     this.syncLines(o);
