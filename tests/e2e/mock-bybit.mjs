@@ -1,5 +1,5 @@
 // E2E용 가짜 Bybit V5 서버. 공식 문서의 응답 형식을 따른다 (실제 Bybit 아님).
-// REST: GET /v5/market/instruments-info, GET /v5/market/kline
+// REST: GET /v5/market/instruments-info, GET /v5/market/kline, GET /v5/market/tickers
 // WS:   /v5/public/linear — subscribe/ping 응답, publicTrade·tickers·kline 푸시
 // 시험용: POST /mock/drop (모든 웹소켓 강제 종료), GET /mock/stats,
 //        POST /mock/fail?route=instruments|kline[&interval=60] (해당 REST를 HTTP 403으로), POST /mock/reset,
@@ -12,6 +12,13 @@ const INTERVAL_MS = { 1: 60e3, 3: 180e3, 5: 300e3, 15: 900e3, 30: 1800e3, 60: 36
 const SYMBOLS = {
   BTCUSDT: { tick: 0.1, base: 65000 },
   ETHUSDT: { tick: 0.01, base: 3200 },
+  SOLUSDT: { tick: 0.01, base: 150 },
+};
+// 24시간 요약 (GET /v5/market/tickers): 거래대금 BTC > ETH > SOL, 등락률 SOL > ETH > BTC
+const TICKERS = {
+  BTCUSDT: { price24hPcnt: '-0.0081', turnover24h: '8270000000.5' },
+  ETHUSDT: { price24hPcnt: '0.0049', turnover24h: '6570000000' },
+  SOLUSDT: { price24hPcnt: '0.1391', turnover24h: '1250000000' },
 };
 
 const price = (sym, t) => {
@@ -85,10 +92,19 @@ const server = http.createServer((req, res) => {
       result: {
         category: 'linear', nextPageCursor: '',
         list: [
-          item('BTCUSDT', 0.1), item('ETHUSDT', 0.01),
+          item('BTCUSDT', 0.1), item('ETHUSDT', 0.01), item('SOLUSDT', 0.01),
           item('BTCPERP', 0.5, { quoteCoin: 'USDC' }), item('NEWUSDT', 0.001, { status: 'PreLaunch' }),
         ],
       },
+    });
+  }
+  if (url.pathname === '/v5/market/tickers') {
+    const now = Date.now();
+    const row = (symbol) => ({ symbol, lastPrice: fmt(symbol, price(symbol, now)), ...TICKERS[symbol], volume24h: '1000', fundingRate: '0.0001' });
+    // USDC 무기한(BTCPERP)도 실제처럼 섞여 온다 → 앱은 USDT 무기한 목록에 있는 것만 쓴다
+    return json({
+      retCode: 0, retMsg: 'OK', time: now, retExtInfo: {},
+      result: { category: 'linear', list: [...Object.keys(SYMBOLS).map(row), { symbol: 'BTCPERP', lastPrice: '65000.0', price24hPcnt: '0.5', turnover24h: '99999999999' }] },
     });
   }
   if (url.pathname === '/v5/market/kline') {

@@ -1,4 +1,4 @@
-import type { Candle, PriceTick, SymbolInfo, Timeframe } from '../core/types';
+import type { Candle, PriceTick, SymbolInfo, TickerStat, Timeframe } from '../core/types';
 import type { SocketState } from './bybit/socket';
 
 export interface FeedListener {
@@ -16,6 +16,8 @@ export interface FeedListener {
 /** 시세 공급원. Bybit 외 다른 거래소로 바꿀 때 이 인터페이스만 구현하면 된다. */
 export interface MarketDataProvider {
   listSymbols(): Promise<SymbolInfo[]>;
+  /** 전 종목 24시간 시세 요약 (종목 목록을 거래대금·등락률로 정렬할 때) */
+  fetchTickers(): Promise<TickerStat[]>;
   /** 최신 캔들 limit개(오름차순)와 공급원 기준 현재 시각 */
   fetchCandles(symbol: string, tf: Timeframe, limit: number): Promise<{ candles: Candle[]; serverTime: number }>;
   /** 실시간 구독. 반환 함수로 해제한다. 한 번에 하나만 구독한다고 가정한다. */

@@ -15,6 +15,16 @@ export interface Candle {
   confirmed: boolean;
 }
 
+/** 24시간 시세 요약 (종목 목록 정렬·표시용) */
+export interface TickerStat {
+  symbol: string;
+  lastPrice: number;
+  /** 24시간 등락 % (예: 0.99 = +0.99%) */
+  changePct: number;
+  /** 24시간 거래대금 (USDT) */
+  turnover24h: number;
+}
+
 export interface SymbolInfo {
   symbol: string;
   tickSize: number;

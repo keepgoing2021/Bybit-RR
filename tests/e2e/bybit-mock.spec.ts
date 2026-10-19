@@ -21,7 +21,7 @@ test('bybit provider loads symbols, candles and live trades through the app', as
   await expect(page.getByTestId('feed-status')).toHaveText('실시간');
   await expect(page.getByTestId('symbol')).toHaveValue('BTCUSDT');
   await page.getByTestId('symbol').click();
-  await expect(page.getByTestId('symbol-option')).toHaveText(['BTCUSDT', 'ETHUSDT']); // USDC 무기한·상장 전 종목은 제외
+  await expect(page.getByTestId('symbol-name')).toHaveText(['BTCUSDT', 'ETHUSDT', 'SOLUSDT']); // USDC 무기한·상장 전 종목은 제외, 거래대금 순
   await page.getByTestId('symbol').press('Escape');
   await expect(page.getByTestId('symbol')).toHaveValue('BTCUSDT');
   expect(await page.evaluate(() => (window as unknown as { __rrDebug: { getCandleCount(): number } }).__rrDebug.getCandleCount())).toBe(1000);
@@ -136,15 +136,51 @@ test.describe('symbol search', () => {
     await expect(page.getByTestId('feed-status')).toHaveAttribute('data-state', 'live', { timeout: 20_000 });
   });
 
+  test('the list opens sorted by 24h turnover like Bybit, with gainer / loser tabs, stats on every row, no "type more" cut-off', async ({ page }) => {
+    await openBybit(page);
+    await page.getByTestId('symbol').click();
+    const names = page.getByTestId('symbol-name');
+    const tab = (s: string) => page.getByTestId(`symbol-sort-${s}`);
+    await expect(tab('volume')).toHaveClass(/active/);
+    // 가짜 Bybit 24시간 요약: 거래대금 BTC 8.27B > ETH 6.57B > SOL 1.25B, 등락 SOL +13.91% > ETH +0.49% > BTC −0.81%
+    await expect(names).toHaveText(['BTCUSDT', 'ETHUSDT', 'SOLUSDT']);
+    await expect(page.getByTestId('symbol-turnover')).toHaveText(['8.27B', '6.57B', '1.25B']);
+    await expect(page.getByTestId('symbol-change')).toHaveText(['−0.81%', '+0.49%', '+13.91%']);
+    await expect(page.getByTestId('symbol-change').first()).toHaveClass(/down/);
+    await expect(page.getByTestId('symbol-option').first().locator('.px')).toHaveText(/^\d{2},\d{3}\.\d$/); // 65,xxx.x (호가 단위 0.1)
+    await expect(page.getByTestId('symbol-panel')).not.toContainText('더 입력');
+
+    await tab('gainers').click();
+    await expect(names).toHaveText(['SOLUSDT', 'ETHUSDT', 'BTCUSDT']);
+    await expect(page.getByTestId('symbol')).toBeFocused(); // 탭을 눌러도 목록이 닫히지 않는다
+    await tab('losers').click();
+    await expect(names).toHaveText(['BTCUSDT', 'ETHUSDT', 'SOLUSDT']);
+    // 고른 정렬은 기억, 검색해도 그 순서 안에서 거른다
+    await page.getByTestId('symbol').press('Escape');
+    await page.reload();
+    await expect(page.getByTestId('feed-status')).toHaveAttribute('data-state', 'live', { timeout: 20_000 });
+    await page.getByTestId('symbol').click();
+    await expect(tab('losers')).toHaveClass(/active/);
+    await expect(names).toHaveText(['BTCUSDT', 'ETHUSDT', 'SOLUSDT']);
+    // 'usdt'는 셋 다 맞음 → 검색 중에도 탭을 바꾸면 그 순서로
+    await page.getByTestId('symbol').pressSequentially('usdt');
+    await tab('gainers').click();
+    await expect(names).toHaveText(['SOLUSDT', 'ETHUSDT', 'BTCUSDT']);
+    // 고르면 그 종목으로
+    await page.getByTestId('symbol-option').first().click();
+    await expect(page.getByTestId('symbol')).toHaveValue('SOLUSDT');
+    await expect(page.getByTestId('feed-status')).toHaveAttribute('data-state', 'live', { timeout: 20_000 });
+  });
+
   test('focusing the box lists every symbol, typing filters, clicking selects', async ({ page }) => {
     await openBybit(page);
     const box = page.getByTestId('symbol');
     await box.click();
-    const options = page.getByTestId('symbol-option');
-    await expect(options).toHaveText(['BTCUSDT', 'ETHUSDT']); // 현재 값과 무관하게 전체 목록
+    const names = page.getByTestId('symbol-name');
+    await expect(names).toHaveText(['BTCUSDT', 'ETHUSDT', 'SOLUSDT']); // 현재 값과 무관하게 전체 목록
     await box.pressSequentially('et');
-    await expect(options).toHaveText(['ETHUSDT']);
-    await options.first().click();
+    await expect(names).toHaveText(['ETHUSDT']);
+    await page.getByTestId('symbol-option').first().click();
     await expect(box).toHaveValue('ETHUSDT');
     await expect(page.getByTestId('symbol-list')).toBeHidden();
   });

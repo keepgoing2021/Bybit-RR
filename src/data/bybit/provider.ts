@@ -1,6 +1,6 @@
-import type { Candle, SymbolInfo, Timeframe } from '../../core/types';
+import type { Candle, SymbolInfo, TickerStat, Timeframe } from '../../core/types';
 import type { FeedListener, MarketDataProvider } from '../provider';
-import { parseInstruments, parseKlineList, parseWsMessage } from './parse';
+import { parseInstruments, parseKlineList, parseTickers, parseWsMessage } from './parse';
 import { ReconnectingSocket, type Scheduler, type WebSocketLike } from './socket';
 
 export type FetchLike = (url: string) => Promise<{
@@ -50,6 +50,11 @@ export class BybitProvider implements MarketDataProvider {
       return i === -1 ? PINNED.length : i;
     };
     return out.sort((a, b) => rank(a.symbol) - rank(b.symbol) || a.symbol.localeCompare(b.symbol));
+  }
+
+  async fetchTickers(): Promise<TickerStat[]> {
+    const body = await this.getJson('/v5/market/tickers?category=linear');
+    return parseTickers(((body.result as { list?: unknown[] } | undefined)?.list ?? []) as unknown[]);
   }
 
   async fetchCandles(symbol: string, tf: Timeframe, limit: number): Promise<{ candles: Candle[]; serverTime: number }> {

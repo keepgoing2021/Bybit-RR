@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeQuery, resolveSymbol, searchSymbols } from '../../src/core/symbolSearch';
+import { formatTurnover, normalizeQuery, rankSymbols, resolveSymbol, searchSymbols } from '../../src/core/symbolSearch';
 import type { SymbolInfo } from '../../src/core/types';
 
 const list: SymbolInfo[] = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT', '1000PEPEUSDT', 'ETHFIUSDT', 'SOLAYERUSDT', 'DEMO-BTC']
@@ -43,5 +43,40 @@ describe('searchSymbols', () => {
     expect(names(searchSymbols('sol', list))).toEqual(['SOLUSDT', 'SOLAYERUSDT']);
     expect(names(searchSymbols('eth', list))).toEqual(['ETHUSDT', 'ETHFIUSDT']);
     expect(names(searchSymbols('btc', list))).toEqual(['BTCUSDT', 'DEMO-BTC']);
+  });
+});
+
+describe('rankSymbols (dropdown order like Bybit: volume, gainers, losers)', () => {
+  const syms = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'QUSDT', 'NOSTATUSDT', 'SOLAYERUSDT'].map((symbol) => ({ symbol, tickSize: 0.1 }));
+  const stats = new Map(
+    [
+      { symbol: 'BTCUSDT', lastPrice: 1, changePct: 0.99, turnover24h: 8.27e9 },
+      { symbol: 'ETHUSDT', lastPrice: 1, changePct: 0.49, turnover24h: 6.57e9 },
+      { symbol: 'SOLUSDT', lastPrice: 1, changePct: 0.94, turnover24h: 1.25e9 },
+      { symbol: 'QUSDT', lastPrice: 1, changePct: -13.91, turnover24h: 1.06e9 },
+      { symbol: 'SOLAYERUSDT', lastPrice: 1, changePct: 8.42, turnover24h: 0.76e9 },
+    ].map((t) => [t.symbol, t]),
+  );
+  const names = (q: string, sort: 'volume' | 'gainers' | 'losers') => rankSymbols(q, syms, stats, sort).map((s) => s.symbol);
+
+  it('empty search: every symbol, sorted; symbols without stats go last', () => {
+    expect(names('', 'volume')).toEqual(['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'QUSDT', 'SOLAYERUSDT', 'NOSTATUSDT']);
+    expect(names('', 'gainers')).toEqual(['SOLAYERUSDT', 'BTCUSDT', 'SOLUSDT', 'ETHUSDT', 'QUSDT', 'NOSTATUSDT']);
+    expect(names('', 'losers')).toEqual(['QUSDT', 'ETHUSDT', 'SOLUSDT', 'BTCUSDT', 'SOLAYERUSDT', 'NOSTATUSDT']);
+  });
+
+  it('a search keeps only matches, the exact coin first, the rest in the chosen order', () => {
+    expect(names('sol', 'gainers')).toEqual(['SOLUSDT', 'SOLAYERUSDT']);
+    expect(names('o', 'volume')).toEqual(['SOLUSDT', 'SOLAYERUSDT', 'NOSTATUSDT']);
+  });
+
+  it('without any stats it falls back to name order', () => {
+    expect(rankSymbols('', syms, new Map(), 'volume').map((s) => s.symbol)).toEqual(
+      ['BTCUSDT', 'ETHUSDT', 'NOSTATUSDT', 'QUSDT', 'SOLAYERUSDT', 'SOLUSDT'],
+    );
+  });
+
+  it('formats turnover short like Bybit', () => {
+    expect([8.27e9, 759.91e6, 12_300, 950].map(formatTurnover)).toEqual(['8.27B', '759.91M', '12.30K', '950']);
   });
 });

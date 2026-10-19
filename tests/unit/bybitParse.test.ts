@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseInstruments, parseKlineList, parseWsMessage } from '../../src/data/bybit/parse';
+import { parseInstruments, parseKlineList, parseTickers, parseWsMessage } from '../../src/data/bybit/parse';
 
 // Bybit V5 문서 형식: result.list는 최신순, 항목은 [start, open, high, low, close, volume, turnover] 문자열
 const REST_LIST = [
@@ -112,5 +112,24 @@ describe('parseWsMessage', () => {
 
   it('treats garbage as unknown', () => {
     expect(parseWsMessage('not json')).toEqual({ event: { type: 'unknown' }, ts: null });
+  });
+});
+
+describe('parseTickers (GET /v5/market/tickers?category=linear)', () => {
+  it('reads last price, 24h change (ratio → %) and 24h turnover; skips broken rows', () => {
+    expect(
+      parseTickers([
+        { symbol: 'BTCUSDT', lastPrice: '82452.6', price24hPcnt: '0.0099', turnover24h: '8270000000.12', volume24h: '100' },
+        { symbol: 'QUSDT', lastPrice: '0.109215', price24hPcnt: '-0.1391', turnover24h: '1060000000' },
+        { symbol: 'NEWUSDT', lastPrice: '1.5', price24hPcnt: '', turnover24h: '' },
+        { symbol: 'BAD', lastPrice: 'x' },
+        null,
+        { lastPrice: '1' },
+      ]),
+    ).toEqual([
+      { symbol: 'BTCUSDT', lastPrice: 82452.6, changePct: 0.99, turnover24h: 8270000000.12 },
+      { symbol: 'QUSDT', lastPrice: 0.109215, changePct: -13.91, turnover24h: 1060000000 },
+      { symbol: 'NEWUSDT', lastPrice: 1.5, changePct: 0, turnover24h: 0 },
+    ]);
   });
 });

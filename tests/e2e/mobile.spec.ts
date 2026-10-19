@@ -104,6 +104,19 @@ test('phone: theme switch is an icon button in the top bar and works by tap', as
   expect(barBg).toBe('rgba(255, 255, 255, 0.94)');
 });
 
+test('phone: the symbol list fits the screen and shows stats on every row', async ({ page }) => {
+  await open(page);
+  await page.getByTestId('symbol').tap();
+  const panel = await rect(page, 'symbol-panel');
+  expect(panel.left).toBeGreaterThanOrEqual(0);
+  expect(panel.right).toBeLessThanOrEqual(390);
+  await expect(page.getByTestId('symbol-name')).toHaveText(['DEMO-BTC', 'DEMO-ETH', 'DEMO-SOL']); // 테스트 시세: 거래대금 BTC > ETH > SOL
+  await expect(page.getByTestId('symbol-turnover')).toHaveText(['8.27B', '6.57B', '1.25B']);
+  const changeRight = await page.getByTestId('symbol-change').first().evaluate((el) => el.getBoundingClientRect().right);
+  expect(changeRight).toBeLessThanOrEqual(390);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+});
+
 test('phone: the SL candle label sits below the (wrapped) legend; SL 기준 shows "차트와 같음"', async ({ page }) => {
   await open(page);
   await expect(page.getByTestId('sltf').locator('option:checked')).toHaveText('차트와 같음');

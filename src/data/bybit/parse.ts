@@ -1,5 +1,5 @@
 import { barEnd } from '../../core/timeframe';
-import type { Candle, PriceTick, SymbolInfo, Timeframe } from '../../core/types';
+import type { Candle, PriceTick, SymbolInfo, TickerStat, Timeframe } from '../../core/types';
 
 /** REST /v5/market/kline result.list (최신순) → 오름차순 캔들. serverTime 기준으로 마감된 캔들만 확정 처리 */
 export function parseKlineList(list: string[][], serverTime: number, tf: Timeframe): Candle[] {
@@ -43,6 +43,26 @@ export function parseInstruments(list: unknown[]): SymbolInfo[] {
     if (minQty !== undefined) info.minQty = minQty;
     if (minNotional !== undefined) info.minNotional = minNotional;
     out.push(info);
+  }
+  return out;
+}
+
+/** GET /v5/market/tickers?category=linear 의 result.list. price24hPcnt는 비율('0.0099' = +0.99%) */
+export function parseTickers(list: unknown[]): TickerStat[] {
+  const out: TickerStat[] = [];
+  for (const item of list) {
+    if (item === null || typeof item !== 'object') continue;
+    const r = item as Record<string, unknown>;
+    const lastPrice = Number(r.lastPrice);
+    const ratio = Number(r.price24hPcnt);
+    const turnover24h = Number(r.turnover24h);
+    if (typeof r.symbol !== 'string' || r.lastPrice === undefined || !Number.isFinite(lastPrice)) continue;
+    out.push({
+      symbol: r.symbol,
+      lastPrice,
+      changePct: Number.isFinite(ratio) && r.price24hPcnt !== '' ? Math.round(ratio * 1e6) / 1e4 : 0,
+      turnover24h: Number.isFinite(turnover24h) ? turnover24h : 0,
+    });
   }
   return out;
 }

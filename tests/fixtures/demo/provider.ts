@@ -1,6 +1,6 @@
 import { snapToTick } from '../../../src/core/price';
 import { barStart } from '../../../src/core/timeframe';
-import type { Candle, SymbolInfo, Timeframe } from '../../../src/core/types';
+import type { Candle, SymbolInfo, TickerStat, Timeframe } from '../../../src/core/types';
 import type { Scheduler } from '../../../src/data/bybit/socket';
 import type { FeedListener, MarketDataProvider } from '../../../src/data/provider';
 import { DEMO_SYMBOLS, demoCandleAt, demoCandles, demoPrice, demoSymbolInfo } from './generator';
@@ -29,6 +29,16 @@ export class DemoProvider implements MarketDataProvider {
   async listSymbols(): Promise<SymbolInfo[]> {
     // 데모 주문 규칙은 Bybit 같은 종목과 비슷한 값 (최소 주문 금액 5 USDT)
     return DEMO_SYMBOLS.map(({ symbol, tickSize, qtyStep }) => ({ symbol, tickSize, qtyStep, minQty: qtyStep, minNotional: 5 }));
+  }
+
+  /** 24시간 요약: 가격은 합성 시세, 거래대금은 종목마다 고정 (BTC > ETH > SOL) */
+  async fetchTickers(): Promise<TickerStat[]> {
+    const now = this.o.now();
+    return DEMO_SYMBOLS.map(({ symbol, seed, base, tickSize }) => {
+      const last = snapToTick(demoPrice(seed, base, now), tickSize);
+      const prev = demoPrice(seed, base, now - 86_400_000);
+      return { symbol, lastPrice: last, changePct: Math.round(((last - prev) / prev) * 1e6) / 1e4, turnover24h: [8.27e9, 6.57e9, 1.25e9][seed - 1] ?? 1e6 };
+    });
   }
 
   async fetchCandles(symbol: string, tf: Timeframe, limit: number): Promise<{ candles: Candle[]; serverTime: number }> {

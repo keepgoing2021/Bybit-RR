@@ -543,6 +543,7 @@ export class App {
         void this.loadMarket();
       },
       (query) => this.toast(`'${query}'에 맞는 Bybit USDT 무기한 종목이 없습니다.`),
+      () => this.provider.fetchTickers(),
     );
     const tf = sel('tf');
     tf.append(...TIMEFRAMES.map((t) => h('option', { value: t }, tfName(t))));

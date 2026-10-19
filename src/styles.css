@@ -163,26 +163,117 @@ input[data-testid='symbol'] {
   position: relative;
 }
 
-.symbol-list {
+.symbol-panel {
   position: absolute;
   top: calc(100% + 4px);
   left: 0;
   z-index: 25;
-  width: 220px;
-  max-height: 340px;
-  overflow-y: auto;
-  margin: 0;
-  padding: 4px 0;
-  list-style: none;
+  width: 380px;
+  max-width: calc(100vw - 24px);
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: 8px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+}
+
+/* 정렬 탭 + 열 이름 */
+.symbol-head {
+  padding: 8px 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.symbol-tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+button.symbol-sort {
+  min-height: 0;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+button.symbol-sort.active {
+  color: var(--text);
+  border-color: var(--entry);
+  background: var(--ink-08);
+}
+
+.symbol-note {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.symbol-cols,
+.symbol-list li[data-symbol] {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) 72px;
+  gap: 8px;
+  align-items: center;
+}
+
+.symbol-cols {
+  padding: 8px 2px 6px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.symbol-cols span:nth-child(n + 2) {
+  text-align: right;
+}
+
+.symbol-list {
+  max-height: min(60vh, 520px);
+  overflow-y: auto;
+  margin: 0;
+  padding: 2px 0 4px;
+  list-style: none;
 }
 
 .symbol-list li {
   padding: 6px 12px;
   cursor: pointer;
   font-variant-numeric: tabular-nums;
+}
+
+.symbol-list li .sym {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.symbol-list li .sym b {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.symbol-list li .sym small {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.symbol-list li .px,
+.symbol-list li .chg {
+  text-align: right;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.symbol-list li .chg.up {
+  color: var(--profit);
+}
+
+.symbol-list li .chg.down {
+  color: var(--loss);
 }
 
 .symbol-list li[aria-selected='true'],
