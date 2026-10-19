@@ -1,3 +1,4 @@
+import { execSync } from 'node:child_process';
 import { defineConfig } from 'vitest/config';
 
 // 브라우저 → 이 개발 서버 → api.bybit.com 으로 REST를 중계한다.
@@ -19,18 +20,35 @@ export function siteUrl(env: Record<string, string | undefined> = process.env): 
   return DEFAULT_SITE_URL;
 }
 
-export default defineConfig({
-  plugins: [
-    {
-      name: 'site-url',
-      transformIndexHtml: (html) => html.replaceAll('%SITE_URL%', siteUrl()),
+// 배포 확인용: index.html의 %BUILD_ID%(<meta name="1rc-build">)에 커밋 앞 7자리.
+// Cloudflare 자동 배포(Workers Builds)는 WORKERS_CI_COMMIT_SHA를 주고, 그 밖에는 git에서 읽는다
+export function buildId(
+  env: Record<string, string | undefined> = process.env,
+  git: () => string = () => execSync('git rev-parse --short=7 HEAD', { stdio: ['ignore', 'pipe', 'ignore'] }).toString(),
+): string {
+  if (env.WORKERS_CI_COMMIT_SHA) return env.WORKERS_CI_COMMIT_SHA.slice(0, 7);
+  try {
+    return git().trim().slice(0, 7) || 'dev';
+  } catch {
+    return 'dev';
+  }
+}
+
+export default defineConfig(() => {
+  const build = buildId();
+  return {
+    plugins: [
+      {
+        name: 'site-url',
+        transformIndexHtml: (html: string) => html.replaceAll('%SITE_URL%', siteUrl()).replaceAll('%BUILD_ID%', build),
+      },
+    ],
+    server: { proxy: bybitProxy },
+    preview: { proxy: bybitProxy },
+    test: {
+      include: ['tests/unit/**/*.test.ts'],
+      environment: 'node' as const,
+      isolate: false,
     },
-  ],
-  server: { proxy: bybitProxy },
-  preview: { proxy: bybitProxy },
-  test: {
-    include: ['tests/unit/**/*.test.ts'],
-    environment: 'node',
-    isolate: false,
-  },
+  };
 });

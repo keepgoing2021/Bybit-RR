@@ -15,7 +15,7 @@
     "test": "vitest run",
     "e2e": "playwright test",
     "check:bybit": "node scripts/check-bybit.mjs",
-    "deploy": "npm run build && npx --yes wrangler deploy"
+    "deploy": "npx --yes wrangler deploy"
   },
   "dependencies": {
     "lightweight-charts": "5.2.1"

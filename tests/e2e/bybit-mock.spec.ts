@@ -124,10 +124,11 @@ test('the real app is named 1RC: tab title, icon, home-screen icons and the top-
   // 링크 미리보기: 큰 이미지 카드, 절대 주소, 1200×630 PNG
   const og = await page.evaluate(() => {
     const m = (sel: string) => document.querySelector(sel)?.getAttribute('content') ?? '';
-    return { image: m('meta[property="og:image"]'), card: m('meta[name="twitter:card"]'), tw: m('meta[name="twitter:image"]'), w: m('meta[property="og:image:width"]'), h: m('meta[property="og:image:height"]'), title: m('meta[property="og:title"]') };
+    return { image: m('meta[property="og:image"]'), card: m('meta[name="twitter:card"]'), tw: m('meta[name="twitter:image"]'), w: m('meta[property="og:image:width"]'), h: m('meta[property="og:image:height"]'), title: m('meta[property="og:title"]'), build: m('meta[name="1rc-build"]') };
   });
   expect(og.image).toMatch(/^https:\/\/[^%]+\/og\.png$/);
   expect(og).toMatchObject({ card: 'summary_large_image', tw: og.image, w: '1200', h: '630', title: '1RC — Crypto Risk Calculator' });
+  expect(og.build).toMatch(/^([0-9a-f]{7}|dev)$/); // 배포된 커밋 확인용
   const png = await request.get('/og.png');
   expect(png.status()).toBe(200);
   const buf = await png.body();

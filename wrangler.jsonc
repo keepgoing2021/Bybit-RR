@@ -4,6 +4,9 @@
   "name": "bybit-rr",
   "compatibility_date": "2026-10-01",
   "main": "worker/index.js",
+  // 배포 전에 테스트 → 빌드. Cloudflare 자동 배포(GitHub main에 올라가면)도 손 배포(npm run deploy)도
+  // `wrangler deploy`가 이것부터 돌리므로 대시보드의 빌드 명령은 비워 둬도 된다. 테스트가 실패하면 배포하지 않는다
+  "build": { "command": "npm test && npm run build" },
   "assets": {
     "directory": "./dist",
     "binding": "ASSETS",
