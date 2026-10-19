@@ -109,6 +109,7 @@ input,
 
 /* 상단 바 */
 .topbar {
+  position: relative;
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
@@ -2035,4 +2036,131 @@ button.buffer-chip.active {
     min-height: 36px;
     font-size: 13px;
   }
+}
+
+/* 우측 위 5분 순위판 (넓은 화면에서만: 상단 바 두 줄 높이 안에 겹쳐 둔다) */
+.flow {
+  display: none;
+}
+
+@media (min-width: 1320px) {
+  .flow:not([hidden]) {
+    position: absolute;
+    right: 16px;
+    top: 8px;
+    bottom: 8px;
+    width: 300px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 6px 10px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--panel);
+    font-size: 12px;
+    overflow: hidden;
+  }
+}
+
+.flow-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.flow-head b {
+  font-size: 12.5px;
+}
+
+.flow-src {
+  font-size: 11px;
+  color: var(--entry);
+  font-weight: 600;
+}
+
+.flow-coverage {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.flow-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 12px;
+  flex: 1;
+  min-height: 0;
+}
+
+.flow-col + .flow-col {
+  padding-left: 12px;
+  border-left: 1px solid var(--line);
+}
+
+.flow-col-title {
+  display: block;
+  font-size: 10.5px;
+  color: var(--muted);
+  margin-bottom: 2px;
+}
+
+.flow-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+button.flow-row {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 0;
+  padding: 2px 4px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+button.flow-row:hover {
+  background: var(--ink-08);
+}
+
+button.flow-row.current .flow-name {
+  color: var(--entry);
+}
+
+.flow-rank {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.flow-name {
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flow-value {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.flow-value.up {
+  color: var(--profit);
+  font-weight: 600;
+}
+
+.flow-empty {
+  color: var(--muted);
+  padding: 2px 4px;
 }

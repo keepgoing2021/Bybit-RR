@@ -96,15 +96,19 @@ export function parseWsMessage(raw: string): { event: WsEvent; ts: number | null
   const data = msg.data;
 
   if (topic.startsWith('kline.') && Array.isArray(data)) {
-    const candles: Candle[] = data.map((d: Record<string, unknown>) => ({
-      time: Number(d.start),
-      open: Number(d.open),
-      high: Number(d.high),
-      low: Number(d.low),
-      close: Number(d.close),
-      volume: Number(d.volume),
-      confirmed: d.confirm === true,
-    }));
+    const candles: Candle[] = data.map((d: Record<string, unknown>) => {
+      const turnover = Number(d.turnover);
+      return {
+        time: Number(d.start),
+        open: Number(d.open),
+        high: Number(d.high),
+        low: Number(d.low),
+        close: Number(d.close),
+        volume: Number(d.volume),
+        ...(d.turnover !== undefined && Number.isFinite(turnover) ? { turnover } : {}),
+        confirmed: d.confirm === true,
+      };
+    });
     return { event: { type: 'kline', topic, candles }, ts };
   }
 

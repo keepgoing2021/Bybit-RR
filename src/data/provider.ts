@@ -1,3 +1,4 @@
+import type { FlowBar } from '../core/flow';
 import type { Candle, PriceTick, SymbolInfo, TickerStat, Timeframe } from '../core/types';
 import type { SocketState } from './bybit/socket';
 
@@ -22,4 +23,9 @@ export interface MarketDataProvider {
   fetchCandles(symbol: string, tf: Timeframe, limit: number): Promise<{ candles: Candle[]; serverTime: number }>;
   /** 실시간 구독. 반환 함수로 해제한다. 한 번에 하나만 구독한다고 가정한다. */
   watch(symbol: string, tf: Timeframe, listener: FeedListener): () => void;
+  /**
+   * 전 종목 1분봉 실시간 구독 (5분 거래대금·상승률 순위판). 차트 구독과 따로 연결한다.
+   * 반환 함수로 해제. 지원하지 않는 공급원은 없어도 된다
+   */
+  watchFlow?(symbols: string[], onBar: (symbol: string, bar: FlowBar, receivedAt: number) => void): () => void;
 }

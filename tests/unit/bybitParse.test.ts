@@ -70,7 +70,7 @@ describe('parseWsMessage', () => {
     expect(event).toEqual({
       type: 'kline',
       topic: 'kline.5.BTCUSDT',
-      candles: [{ time: 1672324800000, open: 16649.5, high: 16677, low: 16608, close: 16677, volume: 2.081, confirmed: false }],
+      candles: [{ time: 1672324800000, open: 16649.5, high: 16677, low: 16608, close: 16677, volume: 2.081, turnover: 34666.4005, confirmed: false }],
     });
   });
 

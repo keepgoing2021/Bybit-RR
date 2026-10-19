@@ -43,6 +43,7 @@ import type { FeedListener, MarketDataProvider } from '../data/provider';
 import { h, setText, show } from './dom';
 import { formatClock, formatPct, formatTime, settingsSummary, SL_MODE_HELP, SL_MODE_NAMES, slRationale, tfName, tpRationale } from './format';
 import { HUNT_FAR_PCT, HUNT_NEAR_PCT, huntTip, huntZone, inHuntZone } from '../core/huntZone';
+import { FlowBoard } from './flowBoard';
 import { SymbolPicker } from './symbolPicker';
 import { Tour, type TourStep } from './tour';
 
@@ -305,6 +306,7 @@ export class App {
     }
     if (!this.symbols.some((s) => s.symbol === this.ui.symbol)) this.ui.symbol = this.symbols[0]?.symbol ?? '';
     this.el.picker.setSymbols(this.symbols);
+    this.el.flow.start(this.provider, this.symbols.map((s) => s.symbol));
     await this.loadMarket();
   }
 
@@ -732,6 +734,12 @@ export class App {
       }
     });
 
+    // 우측 위 5분 순위판: 줄을 누르면 그 종목으로 (종목 칸에서 고른 것과 같다)
+    const flow = new FlowBoard((symbol) => {
+      if (symbol === this.ui.symbol) return;
+      this.ui.symbol = symbol;
+      void this.loadMarket();
+    });
     const field = (label: string, control: HTMLElement) => h('label', { class: 'field' }, h('span', {}, label), control);
     const sizing = this.buildSizing(field);
     const topbar = h(
@@ -751,6 +759,7 @@ export class App {
       h('div', { class: 'status' }, status, statusReason, tourBtn, themeBtn),
       sizing.fold,
       sizing.bar,
+      flow.root,
     );
 
     const loadError = h('div', { class: 'banner error', 'data-testid': 'load-error', hidden: true });
@@ -1006,7 +1015,7 @@ export class App {
     return {
       picker, tf, sltf, long, short, status, statusReason, themeBtn,
       loadError, chart, empty, card, sideChip, title, entry, times, rr, rrInput, rrLabel, rrChips, reasons, bufferInput, bufferChips, bufferNote,
-      sl, tp, slWhy, tpWhy, sizing, restore, del, settingsInputs, settingRows, modeHelp, settingsSummaryEl, toast, undo, tools, tour,
+      sl, tp, slWhy, tpWhy, sizing, restore, del, settingsInputs, settingRows, modeHelp, settingsSummaryEl, toast, undo, tools, tour, flow,
     };
   }
 
@@ -1507,6 +1516,7 @@ export class App {
   private renderTopbar(): void {
     const e = this.el;
     e.picker.setValue(this.ui.symbol);
+    e.flow.setCurrent(this.ui.symbol);
     e.tf.value = this.ui.timeframe;
     // SL 기준: 모든 SL 방식에서 고를 수 있다. 차트와 같은 시간봉에는 '(차트)' 표시
     // 폰은 칸이 좁아 차트와 같은 시간봉을 '차트와 같음'으로 짧게 (옆 칸이 차트 시간봉)

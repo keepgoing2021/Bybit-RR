@@ -60,9 +60,12 @@ test('bybit provider reconnects and resubscribes after the server drops', async 
   await expect(page.getByTestId('feed-status')).toHaveAttribute('data-state', 'disconnected');
   await expect(page.getByTestId('btn-long')).toBeDisabled();
   await expect(page.getByTestId('feed-status')).toHaveAttribute('data-state', 'live', { timeout: 15_000 });
+  // 넓은 화면이라 차트 연결 + 5분 순위판 연결, 둘 다 다시 연결해 같은 주제를 재구독
+  await expect.poll(async () => (await (await request.get(`${MOCK}/mock/stats`)).json()).connections).toBe(before.connections + 2);
   const after = await (await request.get(`${MOCK}/mock/stats`)).json();
-  expect(after.connections).toBe(before.connections + 1);
-  expect(after.subscribes.at(-1)).toEqual(['kline.15.BTCUSDT', 'publicTrade.BTCUSDT', 'tickers.BTCUSDT']);
+  const resub = (after.subscribes as string[][]).slice(before.subscribes.length);
+  expect(resub).toContainEqual(['kline.15.BTCUSDT', 'publicTrade.BTCUSDT', 'tickers.BTCUSDT']);
+  expect(resub.some((a) => [...a].sort().join() === 'kline.1.BTCUSDT,kline.1.ETHUSDT,kline.1.SOLUSDT')).toBe(true);
 });
 
 test.describe('failure handling', () => {
@@ -130,6 +133,53 @@ test('the real app is named 1RC: tab title, icon, home-screen icons and the top-
   const buf = await png.body();
   expect([buf.readUInt32BE(16), buf.readUInt32BE(20)]).toEqual([1200, 630]);
   expect(buf.length).toBeLessThan(1_000_000);
+});
+
+test.describe('5-minute board (top right)', () => {
+  type Stats = { subscribes: string[][] };
+  const subs = async (request: import('@playwright/test').APIRequestContext) => ((await (await request.get(`${MOCK}/mock/stats`)).json()) as Stats).subscribes;
+
+  test('wide screen: kline.1 for every symbol on its own connection, ranks 5-min turnover BTC > ETH > SOL, gainers positive, a row switches the chart', async ({ page, request }) => {
+    await page.setViewportSize({ width: 1440, height: 860 });
+    const before = (await subs(request)).length;
+    await openBybit(page);
+    const board = page.getByTestId('flow');
+    await expect(board).toBeVisible();
+    // 차트 연결과 다른 구독 메시지에 세 종목 1분봉 (차트 주제는 섞이지 않음)
+    await expect.poll(async () => (await subs(request)).slice(before).some((a) => a.includes('kline.1.BTCUSDT'))).toBe(true);
+    const flowSub = (await subs(request)).slice(before).find((a) => a.includes('kline.1.BTCUSDT'))!;
+    expect([...flowSub].sort()).toEqual(['kline.1.BTCUSDT', 'kline.1.ETHUSDT', 'kline.1.SOLUSDT']);
+    // 가짜 Bybit 1분봉 거래대금 BTC 90만 > ETH 50만 > SOL 30만
+    const names = (id: string) => page.getByTestId(id).locator('.flow-name').allTextContents();
+    await expect.poll(() => names('flow-volume'), { timeout: 10_000 }).toEqual(['BTC', 'ETH', 'SOL']);
+    for (const v of await page.getByTestId('flow-volume').locator('.flow-value').allTextContents()) expect(v).toMatch(/^[\d.]+[KMB]?$/);
+    for (const v of await page.getByTestId('flow-gainers').locator('.flow-value').allTextContents()) expect(v).toMatch(/^\+\d+\.\d{2}%$/);
+    expect((await names('flow-gainers')).length).toBeLessThanOrEqual(3);
+    // 지금 종목은 표시, 다른 줄을 누르면 그 종목 차트로
+    await expect(page.getByTestId('flow-volume').locator('button.current .flow-name')).toHaveText('BTC');
+    await page.getByTestId('flow-volume').getByTestId('flow-row').filter({ hasText: 'ETH' }).click();
+    await expect(page.getByTestId('symbol')).toHaveValue('ETHUSDT');
+    await expect(page.getByTestId('feed-status')).toHaveAttribute('data-state', 'live', { timeout: 20_000 });
+    await expect(page.getByTestId('flow-volume').locator('button.current .flow-name')).toHaveText('ETH');
+    // 상단 바의 다른 칸과 겹치지 않는다
+    const overlap = await page.evaluate(() => {
+      const f = document.querySelector('[data-testid=flow]')!.getBoundingClientRect();
+      return [...document.querySelectorAll('.topbar > :not(.flow)')].some((el) => {
+        const r = el.getBoundingClientRect();
+        return r.width > 0 && r.left < f.right && f.left < r.right && r.top < f.bottom && f.top < r.bottom;
+      });
+    });
+    expect(overlap).toBe(false);
+  });
+
+  test('narrower screen: no board and no 1-minute subscriptions for all symbols', async ({ page, request }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const before = (await subs(request)).length;
+    await openBybit(page);
+    await page.waitForTimeout(1_500);
+    await expect(page.getByTestId('flow')).toBeHidden();
+    expect((await subs(request)).slice(before).flat().filter((t) => t.startsWith('kline.1.'))).toEqual([]);
+  });
 });
 
 test('the real app shows the first-use tour on a first visit only', async ({ page }) => {

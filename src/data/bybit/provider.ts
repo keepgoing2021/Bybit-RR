@@ -1,3 +1,4 @@
+import type { FlowBar } from '../../core/flow';
 import type { Candle, SymbolInfo, TickerStat, Timeframe } from '../../core/types';
 import type { FeedListener, MarketDataProvider } from '../provider';
 import { parseInstruments, parseKlineList, parseTickers, parseWsMessage } from './parse';
@@ -26,6 +27,8 @@ export interface BybitProviderOptions {
 }
 
 const PINNED = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT'];
+/** 연결 하나의 구독 목록 글자 수 상한 (Bybit 21,000자보다 여유 있게) */
+const FLOW_TOPIC_CHARS = 18_000;
 
 /** Bybit V5 USDT 무기한 선물(category=linear) 퍼블릭 시세 */
 export class BybitProvider implements MarketDataProvider {
@@ -112,6 +115,54 @@ export class BybitProvider implements MarketDataProvider {
     return () => {
       socket.close();
       if (this.active === socket) this.active = null;
+    };
+  }
+
+  /**
+   * 전 종목 1분봉(kline.1.*)을 차트와 다른 연결로 받는다.
+   * Bybit 공개 연결 하나의 구독 목록은 21,000자 이하라 18,000자씩 나눠 연결을 여러 개 연다.
+   */
+  watchFlow(symbols: string[], onBar: (symbol: string, bar: FlowBar, receivedAt: number) => void): () => void {
+    const chunks: string[][] = [];
+    let cur: string[] = [];
+    let len = 0;
+    for (const s of symbols) {
+      const t = `kline.1.${s}`;
+      if (cur.length && len + t.length + 3 > FLOW_TOPIC_CHARS) {
+        chunks.push(cur);
+        cur = [];
+        len = 0;
+      }
+      cur.push(t);
+      len += t.length + 3;
+    }
+    if (cur.length) chunks.push(cur);
+    const sockets = chunks.map((topics) => {
+      const socket = new ReconnectingSocket({
+        url: this.o.wsUrl,
+        createSocket: this.o.createSocket,
+        scheduler: this.o.scheduler,
+        pingIntervalMs: this.o.pingIntervalMs ?? 10_000,
+        backoffBaseMs: this.o.backoffBaseMs ?? 1_000,
+        backoffMaxMs: this.o.backoffMaxMs ?? 30_000,
+        // 거래가 드문 종목만 모인 연결도 있으니 오래 조용해도 끊지 않는다 (퐁은 10초마다 온다)
+        staleTimeoutMs: this.o.socketSilenceMs ?? 30_000,
+      });
+      socket.onMessage((raw) => {
+        const receivedAt = this.o.now();
+        const { event } = parseWsMessage(raw);
+        if (event.type !== 'kline' || !event.topic.startsWith('kline.1.')) return;
+        const symbol = event.topic.slice('kline.1.'.length);
+        for (const c of event.candles) {
+          onBar(symbol, { start: c.time, open: c.open, close: c.close, turnover: c.turnover ?? 0 }, receivedAt);
+        }
+      });
+      socket.setTopics(topics);
+      socket.connect();
+      return socket;
+    });
+    return () => {
+      for (const s of sockets) s.close();
     };
   }
 

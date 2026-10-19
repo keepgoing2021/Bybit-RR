@@ -219,3 +219,29 @@ describe('BybitProvider REST fallback', () => {
     expect(calls).toHaveLength(1);
   });
 });
+
+describe('BybitProvider.watchFlow (1-minute klines for every symbol, 5-minute board)', () => {
+  it('subscribes kline.1 for all symbols on its own connection(s), split under the 21,000-char topic limit, and passes bars with turnover', () => {
+    const { p, sockets } = makeProvider();
+    const symbols = Array.from({ length: 1500 }, (_, i) => `COIN${String(i).padStart(4, '0')}USDT`); // 주제 1개 ≈ 17자 → 여러 연결
+    const bars: [string, number, number][] = [];
+    const stop = p.watchFlow(symbols, (s, b) => bars.push([s, b.close, b.turnover]));
+    expect(sockets.sockets.length).toBeGreaterThan(1);
+    const all: string[] = [];
+    for (const s of sockets.sockets) {
+      s.open();
+      const subs = s.sentOps('subscribe') as { args: string[] }[];
+      const args = subs.flatMap((m) => m.args);
+      expect(JSON.stringify(args).length).toBeLessThan(21_000);
+      all.push(...args);
+    }
+    expect(all).toEqual(symbols.map((x) => `kline.1.${x}`));
+    sockets.sockets[0].receive({ topic: 'kline.1.COIN0000USDT', ts: 1, type: 'snapshot', data: [
+      { start: 60_000, end: 119_999, interval: '1', open: '1', close: '1.2', high: '1.3', low: '0.9', volume: '10', turnover: '12345.5', confirm: false, timestamp: 1 },
+    ] });
+    sockets.sockets[0].receive({ topic: 'kline.15.COIN0000USDT', ts: 1, type: 'snapshot', data: [] }); // 다른 주기는 무시
+    expect(bars).toEqual([['COIN0000USDT', 1.2, 12345.5]]);
+    stop();
+    for (const s of sockets.sockets) expect(s.clientClosed).toBe(true);
+  });
+});

@@ -269,3 +269,8 @@ test('phone: SL 여유 row under the SL row fits the screen with tappable chips'
   await expect(page.getByTestId('sl-buffer')).toHaveValue('1');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 });
+
+test('phone: no 5-minute board (top right is for wide screens only)', async ({ page }) => {
+  await open(page);
+  await expect(page.getByTestId('flow')).toBeHidden();
+});

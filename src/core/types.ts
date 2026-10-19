@@ -11,6 +11,8 @@ export interface Candle {
   low: number;
   close: number;
   volume: number;
+  /** 거래대금 (USDT). 실시간 푸시에만 있고, 5분 순위판에서 쓴다 */
+  turnover?: number;
   /** 공급원이 확정(마감)으로 표시한 캔들인지 */
   confirmed: boolean;
 }

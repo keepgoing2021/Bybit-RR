@@ -15,6 +15,9 @@ const SYMBOLS = {
   SOLUSDT: { tick: 0.01, base: 150 },
 };
 // 24시간 요약 (GET /v5/market/tickers): 거래대금 BTC > ETH > SOL, 등락률 SOL > ETH > BTC
+// 실시간 캔들 거래대금 (5분 순위판 시험용): BTC > ETH > SOL
+const KLINE_TURNOVER = { BTCUSDT: '900000', ETHUSDT: '500000', SOLUSDT: '300000' };
+
 const TICKERS = {
   BTCUSDT: { price24hPcnt: '-0.0081', turnover24h: '8270000000.5' },
   ETHUSDT: { price24hPcnt: '0.0049', turnover24h: '6570000000' },
@@ -154,7 +157,7 @@ wss.on('connection', (ws) => {
           topic, type: 'snapshot', ts: now,
           data: items.map((c) => ({
             start: c.start, end: c.start + dur - 1, interval: a, open: fmt(b, c.open), close: fmt(b, c.close), high: fmt(b, c.high),
-            low: fmt(b, c.low), volume: '1.5', turnover: '90000', confirm: c.confirm, timestamp: now,
+            low: fmt(b, c.low), volume: '1.5', turnover: KLINE_TURNOVER[b] ?? '90000', confirm: c.confirm, timestamp: now,
           })),
         }));
       }

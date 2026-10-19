@@ -3,6 +3,7 @@ import { barStart } from '../../../src/core/timeframe';
 import type { Candle, SymbolInfo, TickerStat, Timeframe } from '../../../src/core/types';
 import type { Scheduler } from '../../../src/data/bybit/socket';
 import type { FeedListener, MarketDataProvider } from '../../../src/data/provider';
+import type { FlowBar } from '../../../src/core/flow';
 import { DEMO_SYMBOLS, demoCandleAt, demoCandles, demoPrice, demoSymbolInfo } from './generator';
 
 export interface DemoProviderOptions {
@@ -46,6 +47,32 @@ export class DemoProvider implements MarketDataProvider {
     if (!info) throw new Error(`데모 종목 아님: ${symbol}`);
     const now = this.o.now();
     return { candles: demoCandles(info.seed, tf, now, limit, info.tickSize, info.base), serverTime: now };
+  }
+
+  /** 5분 순위판용 1분봉: 합성 시세의 1분봉, 거래대금은 종목마다 고정 비율 (분당 BTC 250만 > ETH 120만 > SOL 40만) */
+  watchFlow(symbols: string[], onBar: (symbol: string, bar: FlowBar, receivedAt: number) => void): () => void {
+    const s = this.o.scheduler;
+    const PER_MIN = [2_500_000, 1_200_000, 400_000];
+    const push = () => {
+      const now = this.o.now();
+      for (const sym of symbols) {
+        const info = demoSymbolInfo(sym);
+        if (!info) continue;
+        // 지난 4분 + 이번 1분
+        for (let k = 4; k >= 0; k--) {
+          const start = barStart('1', now) - k * 60_000;
+          const c = demoCandleAt(info.seed, info.base, '1', start, now, info.tickSize);
+          const frac = k === 0 ? (now - start) / 60_000 : 1;
+          onBar(sym, { start, open: c.open, close: c.close, turnover: (PER_MIN[info.seed - 1] ?? 1e5) * frac }, this.o.realNow());
+        }
+      }
+    };
+    const first = s.setTimeout(push, CONNECT_DELAY_MS);
+    const timer = s.setInterval(push, 1_000);
+    return () => {
+      s.clearTimeout(first);
+      s.clearInterval(timer);
+    };
   }
 
   watch(symbol: string, tf: Timeframe, l: FeedListener): () => void {
