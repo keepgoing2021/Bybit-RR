@@ -1170,6 +1170,68 @@ test('fee tier buttons (일반 · VIP1–5) switch the Bybit fee used for the fe
   expect(await lit()).toEqual(['일반']);
 });
 
+test('stop-hunting zone: 2–10% beyond the SL wick, from the SL candle to the right edge, with a skull label; warns when SL sits inside', async ({ page }) => {
+  await open(page, { tf: '15' });
+  await page.getByTestId('btn-long').click();
+  await expect.poll(() => scenario(page)).not.toBeNull();
+  let s = (await scenario(page))!;
+  if (s.auto.sl.price === null) {
+    await page.getByTestId('btn-short').click();
+    await expect.poll(async () => (await scenario(page))?.side).toBe('SHORT');
+    s = (await scenario(page))!;
+  }
+  const c = s.auto.sl.candle!;
+  const long = s.side === 'LONG';
+  const wick = long ? c.low : c.high;
+  const near = wick * (long ? 0.98 : 1.02);
+  const far = wick * (long ? 0.9 : 1.1);
+  const r = await chartRect(page);
+  const hunt = async () => (await rendered(page))!.hunt!;
+  const yOf = async (p: number) => (await page.evaluate((v) => window.__rrDebug.priceToClientY(v), p))! - r.top;
+  await expect.poll(async () => (await rendered(page))?.hunt ?? null).not.toBeNull();
+  let h = await hunt();
+  expect(Math.abs(h.yNear - (await yOf(near)))).toBeLessThan(1);
+  expect(Math.abs(h.yFar - (await yOf(far)))).toBeLessThan(1);
+  // 꼬리 바깥쪽으로: LONG은 아래(좌표가 커짐), SHORT는 위
+  expect(long ? h.yFar > h.yNear : h.yFar < h.yNear).toBe(true);
+  // 왼쪽 끝 = SL 캔들
+  expect(Math.abs(h.x - (await page.evaluate((t) => window.__rrDebug.timeToX(t), c.time))!)).toBeLessThan(1);
+  expect(h.label).toBe('스탑헌팅존 2~10%');
+  expect(h.slInside).toBe(false);
+  // 그린 방식: 보이는 띠가 이름표(22px)보다 두꺼우면 빗금 띠, 아니면 화면 끝 칩
+  const paneH = await page.evaluate(() => {
+    const c = [...document.querySelectorAll('[data-testid=chart] canvas')].map((e) => e.getBoundingClientRect());
+    return Math.max(...c.filter((b) => b.left < 50).map((b) => b.height));
+  });
+  const visible = (g: typeof h) => Math.min(paneH, Math.max(g.yNear, g.yFar)) - Math.max(0, Math.min(g.yNear, g.yFar));
+  expect(h.drawn).toBe(visible(h) >= 22 ? 'band' : 'edge');
+  // 해골 이름표는 목표·손절·손익비 이름표와 겹치지 않는다
+  const noOverlap = (g: typeof h) =>
+    (g.avoided ?? []).every((a) => !(g.chip!.x < a.x + a.w && a.x < g.chip!.x + g.chip!.w && g.chip!.y < a.y + a.h && a.y < g.chip!.y + g.chip!.h));
+  expect(h.chip).toBeTruthy();
+  expect(noOverlap(h)).toBe(true);
+  // 가격축을 끌어 넓게 보면 띠가 화면에 들어오고 빗금 띠로 그린다
+  for (let k = 0; k < 6 && visible(await hunt()) < 60; k++) {
+    await page.mouse.move(r.left + r.width - 30, r.top + r.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(r.left + r.width - 30, r.top + r.height / 2 + 160, { steps: 6 });
+    await page.mouse.up();
+  }
+  h = await hunt();
+  expect(visible(h)).toBeGreaterThanOrEqual(60);
+  expect(h.drawn).toBe('band');
+  expect(noOverlap(h)).toBe(true);
+  // SL을 구간 안(꼬리에서 5% 바깥)으로 옮기면 이름표가 경고로, 꼬리 1% 바깥이면 다시 보통
+  await setLevel(page, 'sl', (wick * (long ? 0.95 : 1.05)).toFixed(1));
+  await expect.poll(async () => (await hunt()).slInside).toBe(true);
+  expect((await hunt()).label).toBe('스탑헌팅존 · SL이 안에 있음');
+  await setLevel(page, 'sl', (wick * (long ? 0.99 : 1.01)).toFixed(1));
+  await expect.poll(async () => (await hunt()).slInside).toBe(false);
+  // 구간은 SL이 아니라 꼬리 기준이라 SL을 옮겨도 그대로
+  h = await hunt();
+  expect(Math.abs(h.yNear - (await yOf(near)))).toBeLessThan(1);
+});
+
 test('RR and the profit roll in when they change, but not on every price tick or while dragging', async ({ page }) => {
   await open(page, { tf: '15', speed: 4 });
   await page.getByTestId('btn-long').click();

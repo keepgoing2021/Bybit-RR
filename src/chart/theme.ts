@@ -28,6 +28,10 @@ export interface Palette {
   inkSoft: string;
   /** 마우스가 올라간 손익비 칩 바탕 */
   chipHot: string;
+  /** 스탑헌팅존: 바탕 · 빗금 · 경계 점선 */
+  huntFill: string;
+  huntHatch: string;
+  huntEdge: string;
   font: string;
 }
 
@@ -50,6 +54,9 @@ export const DARK: Palette = {
   ink: '#FFFFFF',
   inkSoft: 'rgba(255, 255, 255, 0.7)',
   chipHot: '#123A2C',
+  huntFill: 'rgba(240, 97, 109, 0.05)',
+  huntHatch: 'rgba(240, 97, 109, 0.2)',
+  huntEdge: 'rgba(240, 97, 109, 0.55)',
   font: FONT,
 };
 
@@ -72,6 +79,9 @@ export const LIGHT: Palette = {
   ink: '#14171C',
   inkSoft: 'rgba(20, 23, 28, 0.55)',
   chipHot: '#DDF3EA',
+  huntFill: 'rgba(224, 62, 77, 0.04)',
+  huntHatch: 'rgba(224, 62, 77, 0.18)',
+  huntEdge: 'rgba(224, 62, 77, 0.5)',
   font: FONT,
 };
 

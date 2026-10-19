@@ -42,6 +42,7 @@ import { CandleStore } from '../data/candleStore';
 import type { FeedListener, MarketDataProvider } from '../data/provider';
 import { h, setText, show } from './dom';
 import { formatClock, formatPct, formatTime, settingsSummary, SL_MODE_HELP, SL_MODE_NAMES, slRationale, tfName, tpRationale } from './format';
+import { HUNT_FAR_PCT, HUNT_NEAR_PCT, huntZone, inHuntZone } from '../core/huntZone';
 import { SymbolPicker } from './symbolPicker';
 import { Tour, type TourStep } from './tour';
 
@@ -1599,8 +1600,20 @@ export class App {
             })
           : [],
       shiftBars: boxShiftOf(s),
+      huntZone: this.huntZoneFor(s),
     };
     this.chart.setOverlay(overlay);
+  }
+
+  /** SL 기준 꼬리 끝(자동 SL을 고른 캔들의 저가·고가)에서 2~10% 바깥. 지금 SL이 그 안이면 이름표가 경고로 */
+  private huntZoneFor(s: Scenario): OverlayInput['huntZone'] {
+    const c = s.auto.sl.candle;
+    if (!c) return null;
+    const z = huntZone(s.side, s.side === 'LONG' ? c.low : c.high, s.entry);
+    if (!z) return null;
+    const slInside = s.applied.sl !== null && inHuntZone(z, s.applied.sl);
+    const label = slInside ? '스탑헌팅존 · SL이 안에 있음' : `스탑헌팅존 ${HUNT_NEAR_PCT}~${HUNT_FAR_PCT}%`;
+    return { ...z, time: c.time, label, slInside };
   }
 
   /** E2E 검증용 읽기 전용 정보 */

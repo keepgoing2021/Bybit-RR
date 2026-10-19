@@ -220,3 +220,24 @@ test('phone: fee tier buttons fit one row, big enough to tap, and change the fee
   await expect(page.getByTestId('sizing-fee')).not.toHaveText(before!);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 });
+
+test('phone: the stop-hunting zone label stays clear of the SL / target / RR labels', async ({ page }) => {
+  await open(page);
+  await page.getByTestId('tf').selectOption('D');
+  await expect(page.getByTestId('feed-status')).toHaveAttribute('data-state', 'live', { timeout: 20_000 });
+  await page.getByTestId('btn-long').tap();
+  await expect.poll(() => page.evaluate(() => (window as unknown as W).__rrDebug.getScenario())).not.toBeNull();
+  type Hunt = { chip: { x: number; y: number; w: number; h: number } | null; avoided?: { x: number; y: number; w: number; h: number }[]; drawn?: string | null };
+  const hunt = () => page.evaluate(() => (window as unknown as { __rrDebug: { getRenderedGeometry(): { hunt: Hunt | null } | null } }).__rrDebug.getRenderedGeometry()?.hunt ?? null);
+  await expect.poll(async () => (await hunt())?.drawn ?? null).not.toBeNull();
+  const h = (await hunt())!;
+  expect(h.chip).toBeTruthy();
+  const c = h.chip!;
+  for (const a of h.avoided ?? []) expect(c.x < a.x + a.w && a.x < c.x + c.w && c.y < a.y + a.h && a.y < c.y + c.h).toBe(false);
+  expect(c.x).toBeGreaterThanOrEqual(0);
+  expect(c.x + c.w).toBeLessThanOrEqual(390);
+  // 차트 칸 안 (아래로 잘리지 않게)
+  const paneH = await page.evaluate(() => Math.max(...[...document.querySelectorAll('[data-testid=chart] canvas')].map((e) => e.getBoundingClientRect()).filter((b) => b.left < 50).map((b) => b.height)));
+  expect(c.y).toBeGreaterThanOrEqual(0);
+  expect(c.y + c.h).toBeLessThanOrEqual(paneH);
+});

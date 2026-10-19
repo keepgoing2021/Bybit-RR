@@ -11,7 +11,7 @@ import type {
 } from 'lightweight-charts';
 import type { PresetLevel } from '../core/presets';
 import type { Side } from '../core/types';
-import { computeBoxGeometry, type AvgLine, type BoxGeometry, type CoordMapper, type SplitLine } from './geometry';
+import { computeBoxGeometry, type AvgLine, type BoxGeometry, type CoordMapper, type HuntGeometry, type HuntInput, type SplitLine } from './geometry';
 import { THEME } from './theme';
 
 type DrawTarget = Parameters<IPrimitivePaneRenderer['draw']>[0];
@@ -38,6 +38,8 @@ export interface OverlayModel {
   avgLines: AvgLine[];
   /** 박스가 선택됨 (Delete로 지우기) */
   selected: boolean;
+  /** 스탑헌팅존 (SL 기준 꼬리 끝에서 2~10% 바깥) */
+  hunt: HuntInput | null;
 }
 
 /**
@@ -113,7 +115,7 @@ export class RRBoxPrimitive implements ISeriesPrimitive<Time> {
     return computeBoxGeometry(
       {
         side: m.side, entry: m.entry, sl: m.sl, tp: m.tp, startLogical: m.startLogical, endLogical: m.endLogical,
-        presets: m.presets, splits: m.splits, avgLines: m.avgLines,
+        presets: m.presets, splits: m.splits, avgLines: m.avgLines, hunt: m.hunt,
       },
       mapper,
     );
@@ -141,6 +143,10 @@ export class RRBoxPrimitive implements ISeriesPrimitive<Time> {
           chip(ctx, m.highlight.label, (xa + xb) / 2 - barSpacing / 2, m.highlight.labelY, THEME.chipDark, THEME.entry, mediaSize.width);
         }
       }
+
+      // 스탑헌팅존: 박스보다 먼저(아래에) 빗금으로
+      const hunt = g.hunt ? drawHuntBand(ctx, g.hunt, mediaSize.width, mediaSize.height, (m.highlight?.labelY ?? 0) + 24) : null;
+      if (g.hunt) g.hunt.drawn = hunt?.mode ?? null;
 
       if (g.profit) {
         ctx.fillStyle = THEME.profitFill;
@@ -250,12 +256,173 @@ export class RRBoxPrimitive implements ISeriesPrimitive<Time> {
         mediaSize.width,
         THEME.entry,
       );
+      // 스탑헌팅존 이름표는 목표·손절·손익비 이름표를 피해서 맨 위에
+      if (hunt?.chip && g.hunt) {
+        // 왼쪽 아래 TradingView 로고(라이선스 표시)도 가리지 않는다
+        const avoid: Box[] = [chipBox(ctx, m.labels.center, cx, g.yEntry, mediaSize.width), { x: 0, y: mediaSize.height - 44, w: 60, h: 44 }];
+        if (m.labels.profit && g.yTp !== null) avoid.push(chipBox(ctx, m.labels.profit, cx, g.yTp + outward(g.yTp) * 14, mediaSize.width));
+        if (m.labels.loss && g.ySl !== null) avoid.push(chipBox(ctx, m.labels.loss, cx, g.ySl + outward(g.ySl) * 14, mediaSize.width));
+        g.hunt.chip = huntChip(ctx, hunt.chip.text, hunt.chip.left, hunt.chip.cy, mediaSize.width, g.hunt.slInside, avoid, g.hunt.x, mediaSize.height);
+        g.hunt.avoided = avoid;
+      } else if (g.hunt) {
+        g.hunt.chip = null;
+      }
       ctx.restore();
     });
   }
 }
 
 type Ctx = CanvasRenderingContext2D;
+
+/**
+ * 빗금 띠 + 가까운·먼 경계 점선 + 해골 이름표 (경계가 화면 밖이면 보이는 부분만).
+ * 띠가 화면 밖이거나 이름표보다 얇게만 보이면, 그 쪽 화면 끝에 '스탑헌팅존 ↓/↑' 칩만 붙인다.
+ * topReserve: 위쪽 끝에 붙일 때 피할 높이 (캔들 범례·SL 캔들 이름표)
+ */
+type HuntChipSpec = { text: string; left: number; cy: number };
+
+function drawHuntBand(
+  ctx: Ctx,
+  h: HuntGeometry,
+  width: number,
+  height: number,
+  topReserve: number,
+): { mode: 'band' | 'edge' | null; chip: HuntChipSpec | null } {
+  const top = Math.max(0, Math.min(h.yNear, h.yFar));
+  const bottom = Math.min(height, Math.max(h.yNear, h.yFar));
+  const left = Math.max(0, h.x);
+  if (left >= width) return { mode: null, chip: null };
+  const below = h.yFar > h.yNear; // 화면 아래쪽으로 뻗는 구간 (LONG)
+  let edgeChip: HuntChipSpec | null = null;
+  if (bottom - top < 22) {
+    // 화면 밖: 구간이 있는 쪽 끝에 방향 칩
+    const offscreen = below ? h.yNear > height - 22 : h.yNear < 22;
+    if (offscreen || bottom - top >= 1) edgeChip = { text: below ? '스탑헌팅존 ↓' : '스탑헌팅존 ↑', left, cy: below ? height - 14 : topReserve };
+    if (bottom - top < 1) return { mode: edgeChip ? 'edge' : null, chip: edgeChip };
+  }
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(left, top, width - left, bottom - top);
+  ctx.clip();
+  ctx.fillStyle = THEME.huntFill;
+  ctx.fillRect(left, top, width - left, bottom - top);
+  ctx.strokeStyle = THEME.huntHatch;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  const step = 9;
+  const span = bottom - top;
+  for (let x = left - span; x < width; x += step) {
+    ctx.moveTo(x, bottom);
+    ctx.lineTo(x + span, top);
+  }
+  ctx.stroke();
+  ctx.restore();
+  ctx.save();
+  ctx.strokeStyle = THEME.huntEdge;
+  ctx.lineWidth = 1;
+  ctx.setLineDash([3, 3]);
+  for (const y of [h.yNear, h.yFar]) {
+    if (y < 0 || y > height) continue;
+    ctx.beginPath();
+    ctx.moveTo(left, Math.round(y) + 0.5);
+    ctx.lineTo(width, Math.round(y) + 0.5);
+    ctx.stroke();
+  }
+  ctx.restore();
+  // 이름표: 꼬리 쪽 경계 바로 안쪽, 왼쪽 끝 (보이는 띠가 이름표보다 얇으면 위에서 끝 칩으로 대신)
+  if (bottom - top < 22) return { mode: 'edge', chip: edgeChip };
+  const inward = below ? 1 : -1;
+  const edge = h.yNear >= 0 && h.yNear <= height ? h.yNear : inward > 0 ? top : bottom;
+  const cy = Math.max(top + 11, Math.min(bottom - 11, edge + inward * 13));
+  return { mode: 'band', chip: { text: h.label, left, cy } };
+}
+
+type Box = { x: number; y: number; w: number; h: number };
+
+/** chip()이 그릴 자리 (겹침 피하기용) */
+function chipBox(ctx: Ctx, text: string, x: number, y: number, paneWidth: number): Box {
+  ctx.font = `600 12px ${THEME.font}`;
+  const w = ctx.measureText(text).width + 14;
+  return { x: Math.max(4, Math.min(x - w / 2, paneWidth - w - 4)), y: y - 10, w, h: 20 };
+}
+
+const overlaps = (a: Box, b: Box) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+
+/**
+ * 해골 + 글자 칩 (지금 SL이 구간 안이면 경고색).
+ * 기본은 구간 왼쪽 끝 안쪽. 다른 이름표·로고와 겹치면 그 옆 → 한 칸 위·아래 → 줄인 칩(해골 + 화살표) 순으로 자리를 찾는다
+ */
+function huntChip(ctx: Ctx, text: string, left: number, cy: number, width: number, warn: boolean, avoid: Box[] = [], zoneX = left, height = Infinity): Box {
+  ctx.font = `700 11px ${THEME.font}`;
+  const compact = text.endsWith('↓') ? '↓' : text.endsWith('↑') ? '↑' : '';
+  const widthOf = (t: string) => (t ? ctx.measureText(t).width + 32 : 24);
+  const place = (w: number): { x: number; y: number } | null => {
+    const clampX = (x: number) => Math.max(4, Math.min(x, width - w - 4));
+    const xs = [left + 6, ...avoid.flatMap((a) => [a.x + a.w + 6, a.x - w - 6]), zoneX - w - 6, width - w - 4].map(clampX);
+    for (const dy of [0, -22, 22]) {
+      const y = cy + dy;
+      if (y - 9 < 0 || y + 9 > height) continue;
+      for (const x of xs) if (avoid.every((a) => !overlaps({ x, y: y - 9, w, h: 18 }, a))) return { x, y };
+    }
+    return null;
+  };
+  let label = text;
+  let w = widthOf(text);
+  let spot = place(w);
+  if (!spot) {
+    label = compact;
+    w = widthOf(compact);
+    spot = place(w) ?? { x: Math.max(4, Math.min(left + 6, width - w - 4)), y: cy };
+  }
+  const { x } = spot;
+  cy = spot.y;
+  const fg = warn ? THEME.warning : THEME.loss;
+  ctx.fillStyle = THEME.chipDark;
+  roundRect(ctx, x, cy - 9, w, 18, 4);
+  ctx.fill();
+  ctx.strokeStyle = fg;
+  ctx.lineWidth = 1;
+  roundRect(ctx, x + 0.5, cy - 8.5, w - 1, 17, 4);
+  ctx.stroke();
+  skull(ctx, x + 6, cy - 6, fg);
+  if (label) {
+    ctx.fillStyle = fg;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, x + 24, cy + 0.5);
+  }
+  return { x, y: cy - 9, w, h: 18 };
+}
+
+/** 12px 해골 (머리 · 눈 · 코 · 이) — 글꼴(이모지)에 기대지 않고 선으로 그린다 */
+function skull(ctx: Ctx, x: number, y: number, color: string): void {
+  ctx.save();
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(x + 6, y + 5, 5.2, Math.PI, 0); // 정수리
+  ctx.lineTo(x + 11.2, y + 7);
+  ctx.quadraticCurveTo(x + 11.2, y + 8.6, x + 9.4, y + 8.8);
+  ctx.lineTo(x + 9.4, y + 11.4);
+  ctx.lineTo(x + 2.6, y + 11.4);
+  ctx.lineTo(x + 2.6, y + 8.8);
+  ctx.quadraticCurveTo(x + 0.8, y + 8.6, x + 0.8, y + 7);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = THEME.chipDark;
+  ctx.beginPath();
+  ctx.arc(x + 3.9, y + 5.6, 1.55, 0, Math.PI * 2);
+  ctx.arc(x + 8.1, y + 5.6, 1.55, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(x + 6, y + 7.2);
+  ctx.lineTo(x + 5.1, y + 8.7);
+  ctx.lineTo(x + 6.9, y + 8.7);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillRect(x + 4.7, y + 9.6, 0.7, 1.8);
+  ctx.fillRect(x + 6.6, y + 9.6, 0.7, 1.8);
+  ctx.restore();
+}
 
 function hline(ctx: Ctx, x1: number, x2: number, y: number, color: string, width: number): void {
   ctx.strokeStyle = color;

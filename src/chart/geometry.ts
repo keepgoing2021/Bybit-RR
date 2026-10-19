@@ -21,6 +21,31 @@ export interface BoxInput {
   splits?: SplitLine[];
   /** 분할별 예상 평단 (2차 체결 시 … 전부 체결 시). 분할이 없으면 없음 */
   avgLines?: AvgLine[];
+  /** 스탑헌팅존 (SL 기준 꼬리 끝에서 2~10% 바깥). SL 캔들 봉부터 오른쪽 끝까지 */
+  hunt?: HuntInput | null;
+}
+
+export interface HuntInput {
+  near: number;
+  far: number;
+  startLogical: number;
+  label: string;
+  /** 지금 SL이 구간 안 (이름표를 경고색으로) */
+  slInside: boolean;
+}
+
+export interface HuntGeometry {
+  /** 왼쪽 끝 (SL 캔들). 오른쪽은 차트 끝까지 */
+  x: number;
+  yNear: number;
+  yFar: number;
+  label: string;
+  slInside: boolean;
+  /** 마지막으로 그린 방식 (검증용): 띠 / 화면 끝 칩만 / 안 그림 */
+  drawn?: 'band' | 'edge' | null;
+  /** 마지막으로 그린 해골 이름표 자리와, 피한 이름표(목표·손절·손익비) 자리 (검증용) */
+  chip?: Rect | null;
+  avoided?: Rect[];
 }
 
 export interface AvgLine {
@@ -60,6 +85,7 @@ export interface BoxGeometry {
   splits: (SplitLine & { y: number; showLabel: boolean })[];
   /** 분할별 예상 평단 선. showLabel=false면 이름표가 다른 것과 겹쳐서 선만 그린다 */
   avgLines: (AvgLine & { y: number; showLabel: boolean })[];
+  hunt: HuntGeometry | null;
 }
 
 export const HANDLE_SIZE = 10;
@@ -94,7 +120,17 @@ export function computeBoxGeometry(i: BoxInput, m: CoordMapper): BoxGeometry | n
     handles: { sl: handle(ySl), tp: handle(yTp) },
     presets: spaced(i.presets ?? [], m, yEntry),
     ...labeledInside(i, m, yEntry, x2 - x1),
+    hunt: huntGeometry(i.hunt ?? null, m),
   };
+}
+
+function huntGeometry(h: HuntInput | null, m: CoordMapper): HuntGeometry | null {
+  if (!h) return null;
+  const x = m.logicalToX(h.startLogical);
+  const yNear = m.priceToY(h.near);
+  const yFar = m.priceToY(h.far);
+  if (x === null || yNear === null || yFar === null) return null;
+  return { x, yNear, yFar, label: h.label, slInside: h.slInside };
 }
 
 /**
