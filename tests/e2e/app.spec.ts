@@ -318,14 +318,15 @@ test('order table numbers copy on click', async ({ page }) => {
   await page.getByTestId('sizing-capital').press('Enter');
   const qty = page.getByTestId('sizing-row').first().locator('td:nth-child(4) [data-testid=copy]');
   const text = (await qty.textContent())!;
-  const tableBox = async () => page.getByTestId('sizing-table').evaluate((el) => {
-    const r = el.getBoundingClientRect();
-    return [Math.round(r.width), Math.round(r.height)];
+  // 체크가 칸 크기를 바꾸지 않는지: 누른 칸의 폭·높이와 그 줄의 높이 (패널 스크롤바가 생겨 표 폭이 바뀌는 것과는 무관하게)
+  const cellBox = async () => page.getByTestId('sizing-row').first().evaluate((row) => {
+    const b = row.querySelector('td:nth-child(4) [data-testid=copy]')!.getBoundingClientRect();
+    return [Math.round(b.width), Math.round(b.height), Math.round(row.getBoundingClientRect().height)];
   });
-  const before = await tableBox();
+  const before = await cellBox();
   await qty.click();
   await expect.poll(() => page.evaluate(() => window.__rrDebug.getLastCopied())).toBe(text);
-  // 누른 숫자 자리가 초록 체크로 (아래 알림은 없음), 옆 칸을 덮지 않고 표 크기도 그대로, 1.2초 뒤 원래대로
+  // 누른 숫자 자리가 초록 체크로 (아래 알림은 없음), 옆 칸을 덮지 않고 칸 크기도 그대로, 1.2초 뒤 원래대로
   await expect(qty).toHaveClass(/copied/);
   await expect(qty).toHaveAttribute('title', '복사됨');
   const badge = await qty.evaluate((el) => {
@@ -334,7 +335,7 @@ test('order table numbers copy on click', async ({ page }) => {
   });
   expect(badge).toEqual({ content: '"✓"', left: '-3px', right: '-3px' });
   await expect(page.getByTestId('toast')).toBeHidden();
-  expect(await tableBox()).toEqual(before);
+  expect(await cellBox()).toEqual(before);
   await expect(qty).not.toHaveClass(/copied/, { timeout: 3_000 });
   const money = page.getByTestId('sizing-row').first().locator('td:nth-child(3) [data-testid=copy]');
   await money.click();

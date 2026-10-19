@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<title>1RC 공유 이미지 원본 (1200×630)</title>
+<!-- 링크 미리보기(og:image) 원본. node scripts/og/render.mjs 로 public/og.png 를 다시 만든다 -->
+<style>
+  :root {
+    --bg: #000000; --panel: #0b0c0f; --line: #262a31; --text: #e6e8eb; --muted: #8b929c;
+    --profit: #2ebd85; --loss: #f0616d; --entry: #e8b44c;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    width: 1200px; height: 630px; overflow: hidden; position: relative;
+    background: radial-gradient(900px 500px at 82% 30%, rgba(46, 189, 133, 0.10), transparent 70%), var(--bg);
+    color: var(--text);
+    font-family: 'Inter', 'Noto Sans CJK KR', sans-serif;
+  }
+  .left { position: absolute; left: 72px; top: 78px; width: 560px; }
+  .logo { display: flex; align-items: center; gap: 26px; }
+  .logo img { width: 104px; height: 104px; display: block; }
+  .word { font-size: 124px; font-weight: 800; letter-spacing: -0.02em; line-height: 1; }
+  .word .one { color: var(--entry); }
+  .head { margin-top: 38px; font-size: 50px; font-weight: 700; letter-spacing: -0.015em; line-height: 1.08; }
+  .tag { margin-top: 18px; font-family: 'DejaVu Sans Mono', monospace; font-size: 32px; color: var(--entry); }
+  .ko { margin-top: 30px; font-family: 'Noto Sans CJK KR', sans-serif; font-size: 26px; line-height: 1.5; color: var(--muted); font-weight: 500; }
+  .ko b { color: var(--text); font-weight: 700; }
+  .foot { position: absolute; left: 72px; bottom: 58px; display: flex; gap: 12px; }
+  .pill { font-family: 'Noto Sans CJK KR', 'Inter', sans-serif; font-size: 20px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 6px 16px; }
+  .card {
+    position: absolute; right: 64px; top: 64px; width: 470px; height: 502px;
+    border: 1px solid var(--line); border-radius: 18px; background: var(--panel); overflow: hidden;
+  }
+  .stats { position: absolute; left: 0; right: 0; bottom: 0; height: 86px; border-top: 1px solid var(--line); display: grid; grid-template-columns: repeat(3, 1fr); }
+  .stat { padding: 16px 0 0 22px; font-family: 'Noto Sans CJK KR', 'Inter', sans-serif; }
+  .stat small { display: block; font-size: 16px; color: var(--muted); }
+  .stat b { display: block; margin-top: 4px; font-family: 'Inter', sans-serif; font-size: 24px; font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+  <div class="left">
+    <div class="logo"><img src="../../public/favicon.svg" alt="" /><div class="word"><span class="one">1</span>RC</div></div>
+    <div class="head">Crypto Risk Calculator</div>
+    <div class="tag">risk 1. repeat.</div>
+    <div class="ko"><b>LONG / SHORT 한 번에</b><br />손절 · 목표 · 포지션 크기 · 분할 주문표</div>
+  </div>
+  <div class="foot"><span class="pill">Bybit USDT 무기한</span><span class="pill">1-click risk calc</span></div>
+
+  <div class="card">
+    <svg id="chart" width="470" height="416" viewBox="0 0 470 416"></svg>
+    <div class="stats">
+      <div class="stat"><small>손절 시</small><b style="color: var(--loss)">−1.00%</b></div>
+      <div class="stat"><small>목표 시</small><b style="color: var(--profit)">+2.00%</b></div>
+      <div class="stat"><small>주문</small><b>3분할 1:2:3</b></div>
+    </div>
+  </div>
+
+<script>
+  // 캔들: 오르다 눌린 뒤 반등 → 진입. 고정된 값이라 언제 만들어도 같은 그림
+  const closes = [318, 312, 300, 304, 290, 276, 282, 266, 250, 256, 238, 226, 232, 214, 200, 206, 222, 238, 230, 246, 240, 228, 234, 222, 216];
+  const svg = document.getElementById('chart');
+  const NS = 'http://www.w3.org/2000/svg';
+  const el = (tag, attrs, text) => {
+    const e = document.createElementNS(NS, tag);
+    for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+    if (text) e.textContent = text;
+    svg.append(e);
+    return e;
+  };
+  // 옅은 가로 격자
+  for (let y = 60; y < 400; y += 60) el('line', { x1: 0, x2: 470, y1: y, y2: y, stroke: '#15171c', 'stroke-width': 1 });
+  let prev = 324;
+  closes.forEach((c, i) => {
+    const x = 26 + i * 11.6;
+    const o = prev;
+    const hi = Math.min(o, c) - 6 - ((i * 7) % 9);
+    const lo = Math.max(o, c) + 5 + ((i * 5) % 8);
+    el('line', { x1: x, x2: x, y1: hi, y2: lo, stroke: '#ffffff', 'stroke-width': 1.2 });
+    const up = c < o; // 화면 좌표: 위로 갈수록 값이 큼
+    el('rect', { x: x - 3.6, y: Math.min(o, c), width: 7.2, height: Math.max(2, Math.abs(c - o)), fill: up ? '#2ebd85' : '#f0616d' });
+    prev = c;
+  });
+  // 손익비 박스 (1:2): 진입 218, 손절 268, 목표 118
+  const x1 = 322, x2 = 452, yE = 218, yS = 268, yT = 118;
+  el('rect', { x: x1, y: yT, width: x2 - x1, height: yE - yT, fill: 'rgba(46,189,133,0.17)' });
+  el('rect', { x: x1, y: yE, width: x2 - x1, height: yS - yE, fill: 'rgba(240,97,109,0.17)' });
+  // 손익비 점선 칩 (목표 아래의 1:1, 1:1.5)
+  for (const [rr, y] of [['1:1', 168], ['1:1.5', 143]]) {
+    el('line', { x1, x2, y1: y, y2: y, stroke: '#2ebd85', 'stroke-width': 1, 'stroke-dasharray': '3 4', opacity: 0.7 });
+    el('rect', { x: x2 - 44, y: y - 9, width: 40, height: 18, rx: 4, fill: '#000', stroke: '#2ebd85', 'stroke-width': 1 });
+    el('text', { x: x2 - 24, y: y + 4.5, 'text-anchor': 'middle', 'font-size': 11, 'font-weight': 700, fill: '#2ebd85', 'font-family': 'Inter' }, rr);
+  }
+  // 분할 진입 2차·3차 (진입~손절을 3등분)
+  for (const [n, y] of [['2차', 234.7], ['3차', 251.3]]) {
+    el('line', { x1, x2, y1: y, y2: y, stroke: '#ffffff', 'stroke-width': 1, 'stroke-dasharray': '2 4', opacity: 0.55 });
+    el('text', { x: x2 - 6, y: y - 3, 'text-anchor': 'end', 'font-size': 10, fill: '#c9ccd1', 'font-family': 'Noto Sans CJK KR' }, n);
+  }
+  el('line', { x1, x2: 470, y1: yT, y2: yT, stroke: '#2ebd85', 'stroke-width': 2 });
+  el('line', { x1: 0, x2: 470, y1: yE, y2: yE, stroke: '#e8b44c', 'stroke-width': 1.6, 'stroke-dasharray': '5 4' });
+  el('line', { x1, x2: 470, y1: yS, y2: yS, stroke: '#f0616d', 'stroke-width': 2 });
+  const chip = (x, y, w, text, fg, bg) => {
+    el('rect', { x, y, width: w, height: 24, rx: 5, fill: bg, stroke: fg, 'stroke-width': 1.2 });
+    el('text', { x: x + w / 2, y: y + 16.5, 'text-anchor': 'middle', 'font-size': 13, 'font-weight': 700, fill: fg, 'font-family': 'Noto Sans CJK KR' }, text);
+  };
+  chip(x1 + 5, yT - 32, 120, '목표 +1.24%', '#2ebd85', '#000');
+  chip(x1 + 5, yS + 8, 120, '손절 −0.62%', '#f0616d', '#000');
+  chip(x1 + 18, yE - 12, 94, '손익비 1:2', '#e8b44c', '#15171c');
+</script>
+</body>
+</html>
