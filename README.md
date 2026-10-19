@@ -35,8 +35,18 @@ npm run check:bybit -- ETHUSDT # 다른 종목
 
 주소: https://1rc.app (2026-10-19 Vercel에서 이사, 도메인은 Cloudflare Registrar)
 
-1. `npx wrangler login` (처음 한 번 — Cloudflare 계정으로 로그인)
-2. `npm run deploy` — 빌드 후 `wrangler deploy`
+**자동 배포:** GitHub `main`에 올라가면 Cloudflare(Workers Builds)가 받아서 테스트 → 빌드 → 배포까지 합니다 (1~2분). PC에서 할 일은 없습니다. 테스트가 하나라도 실패하면 배포하지 않고 이전 버전이 그대로 떠 있습니다. 진행 상황·실패 기록은 Cloudflare 대시보드 → Workers & Pages → `bybit-rr` → Deployments(배포)에서 봅니다.
+
+처음 한 번만 연결 (Cloudflare 대시보드):
+
+1. Workers & Pages → `bybit-rr` → Settings(설정) → Builds(빌드) → **Connect(연결)**
+2. GitHub 계정 연결 → 저장소 `keepgoing2021/Bybit-RR` 선택 (Cloudflare GitHub 앱에 이 저장소 권한 허용)
+3. 브랜치 `main`, Build command(빌드 명령) **`npm test && npm run build`**, Deploy command(배포 명령)은 기본값 `npx wrangler deploy`, 루트 디렉터리는 비워 둠 → 저장
+4. 빌드 변수는 필요 없습니다 (공유 미리보기 주소는 기본값 1rc.app). Node 버전은 저장소의 `.node-version`(22)을 따릅니다
+
+Worker 이름(`bybit-rr`)이 `wrangler.jsonc`의 `name`과 같아야 빌드가 됩니다. 무료 플랜은 빌드 월 3,000분·동시 1개(한 번에 1~2분이라 충분).
+
+**손으로 배포 (예비):** `npx wrangler login`(처음 한 번) → `npm run deploy`
 
 설정은 `wrangler.jsonc`, 중계 코드는 `worker/index.js`입니다. 화면(`dist/`)은 그대로 내보내고 `/bybit-api/*`만 Worker가 Bybit로 넘깁니다 — 열린 중계가 되지 않게 **공개 시세 조회(`GET /v5/market/*`)만** 통과합니다.
 
