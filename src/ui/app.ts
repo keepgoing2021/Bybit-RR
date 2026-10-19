@@ -63,8 +63,14 @@ const CORE_SETTINGS: SettingField[] = [
   { key: 'defaultRR', label: '기본 손익비 1:', hint: '새 계산의 TP 자리', step: '0.1' },
 ];
 const ADVANCED_SETTINGS: SettingField[] = [
-  { key: 'atrPeriod', label: 'ATR 기간 (가장 큰 캔들 방식)' },
-  { key: 'atrMethod', label: 'ATR 계산 (가장 큰 캔들 방식)', options: [['wilder', 'Wilder (TradingView 기본)'], ['sma', '단순 평균']] },
+  // 평소 캔들 크기 = ATR (캔들 하나가 보통 위아래로 움직이는 폭). '가장 큰 캔들' 방식에서만 쓴다
+  { key: 'atrPeriod', label: '평소 캔들 크기: 잴 봉 수', hint: "캔들 하나가 보통 움직이는 폭을 최근 몇 봉으로 잴지 ('가장 큰 캔들' 방식)" },
+  {
+    key: 'atrMethod',
+    label: '평소 캔들 크기: 재는 법',
+    hint: "'가장 큰 캔들' 방식 · 기본값은 TradingView와 같은 방식",
+    options: [['wilder', '최근 봉에 더 무게'], ['sma', '모든 봉 똑같이']],
+  },
   { key: 'boxOffsetBars', label: '박스 시작 (진입 봉에서 오른쪽 봉 수)' },
   { key: 'boxExtendBars', label: '박스 오른쪽 연장 (봉)' },
   { key: 'staleAfterSec', label: '연결 지연으로 볼 시간 (초)' },
@@ -668,7 +674,7 @@ export class App {
     const advanced = h(
       'details',
       { class: 'settings-advanced', 'data-testid': 'settings-advanced' },
-      h('summary', {}, '고급 (ATR · 박스 · 연결)'),
+      h('summary', {}, '고급 (평소 캔들 크기 · 박스 · 연결)'),
       h('div', { class: 'settings-grid' }, ...buildRows(ADVANCED_SETTINGS)),
     );
     const resetSettings = h('button', { type: 'button', class: 'link' }, '기본값으로 되돌리기');

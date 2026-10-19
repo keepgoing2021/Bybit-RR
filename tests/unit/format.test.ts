@@ -37,12 +37,12 @@ describe('tfName', () => {
 
 describe('slRationale', () => {
   it('matches the spec example for LONG', () => {
-    expect(slRationale(sl(), 'LONG', TZ)).toBe('SL: 15분봉 10월 18일 14:15 캔들 저가 (고저폭이 직전 ATR의 3.21배)');
+    expect(slRationale(sl(), 'LONG', TZ)).toBe('SL: 15분봉 10월 18일 14:15 캔들 저가 (평소 캔들보다 3.21배 길게 움직임)');
   });
 
   it('mentions the buffer and uses the high for SHORT', () => {
     expect(slRationale(sl({ bufferTicks: 3 }), 'SHORT', TZ)).toBe(
-      'SL: 15분봉 10월 18일 14:15 캔들 고가 + 버퍼 3틱 (고저폭이 직전 ATR의 3.21배)',
+      'SL: 15분봉 10월 18일 14:15 캔들 고가 + 버퍼 3틱 (평소 캔들보다 3.21배 길게 움직임)',
     );
   });
 

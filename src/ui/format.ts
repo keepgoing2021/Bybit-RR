@@ -41,7 +41,7 @@ export function formatPct(v: number, signed = false): string {
   return `${v < 0 ? '−' : '+'}${s}%`;
 }
 
-/** SL 선정 근거. 예: 'SL: 15분봉 10월 18일 14:15 캔들 저가 (고저폭이 직전 ATR의 3.21배)' */
+/** SL 선정 근거. 예: 'SL: 15분봉 10월 18일 14:15 캔들 저가 (평소 캔들보다 3.21배 길게 움직임)' */
 export function slRationale(a: AutoSL, side: Side, timeZone?: string): string {
   if (a.status !== 'ok' || !a.candle) {
     const reason = a.reason ?? '유효한 자동 SL 없음';
@@ -61,7 +61,8 @@ export function slRationale(a: AutoSL, side: Side, timeZone?: string): string {
   if (a.method === 'prevCandle') {
     return `SL: ${tfName(a.timeframe)} 직전 마감 봉 ${edge}${buffer} (${formatTime(a.candle.time, timeZone)} 캔들)`;
   }
-  const score = a.score === null ? '' : ` (고저폭이 직전 ATR의 ${a.score.toFixed(2)}배)`;
+  // score = 그 캔들 위아래 길이 ÷ 그 전까지의 평소 캔들 크기(ATR)
+  const score = a.score === null ? '' : ` (평소 캔들보다 ${a.score.toFixed(2)}배 길게 움직임)`;
   return `SL: ${tfName(a.timeframe)} ${formatTime(a.candle.time, timeZone)} 캔들 ${edge}${buffer}${score}`;
 }
 
@@ -84,7 +85,7 @@ export const SL_MODE_HELP: Record<SlMode, string> = {
   swing: '최근에 꺾였던 자리. 좌우 N봉보다 낮은 꼬리(SHORT는 높은 꼬리) 중 엔트리 너머 가장 최근 것',
   lowestN: '최근 N봉(진행 중인 봉 포함) 중 가장 낮은 값(SHORT는 가장 높은 값)',
   prevCandle: '방금 마감된 봉 하나의 저가(SHORT는 고가)',
-  spike: '최근 범위에서 평소(ATR)보다 가장 크게 움직인 캔들의 꼬리 끝',
+  spike: '최근 봉들 중 평소 캔들 크기보다 가장 길게 움직인 캔들의 꼬리 끝',
 };
 
 /** 자동 제안 설정 접힌 상태에서도 보이는 한 줄 요약. 예: '스윙 저점·고점 (좌우 2봉) · 여유 0틱 · 손익비 1:1.5' */

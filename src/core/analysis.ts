@@ -198,7 +198,7 @@ function analyzeSpikeSL(i: AnalyzeInput): AutoSL {
   if (!spike) {
     return {
       ...base,
-      reason: `유효한 자동 SL 없음: 데이터 부족 (확정 캔들 ${closed.length}개, ATR ${settings.atrPeriod} 계산에 최소 ${settings.atrPeriod + 1}개 필요)`,
+      reason: `유효한 자동 SL 없음: 데이터 부족 (확정 캔들 ${closed.length}개, 평소 캔들 크기를 재려면 최소 ${settings.atrPeriod + 1}개 필요)`,
     };
   }
   return finishSL(i, base, spike.candle, { score: spike.score, atr: spike.atr });
