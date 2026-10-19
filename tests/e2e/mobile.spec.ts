@@ -227,12 +227,14 @@ test('phone: the stop-hunting zone label stays clear of the SL / target / RR lab
   await expect(page.getByTestId('feed-status')).toHaveAttribute('data-state', 'live', { timeout: 20_000 });
   await page.getByTestId('btn-long').tap();
   await expect.poll(() => page.evaluate(() => (window as unknown as W).__rrDebug.getScenario())).not.toBeNull();
-  type Hunt = { chip: { x: number; y: number; w: number; h: number } | null; avoided?: { x: number; y: number; w: number; h: number }[]; drawn?: string | null };
+  type Hunt = { x: number; yNear: number; yFar: number; chip: { x: number; y: number; w: number; h: number } | null; avoided?: { x: number; y: number; w: number; h: number }[]; drawn?: string | null };
   const hunt = () => page.evaluate(() => (window as unknown as { __rrDebug: { getRenderedGeometry(): { hunt: Hunt | null } | null } }).__rrDebug.getRenderedGeometry()?.hunt ?? null);
   await expect.poll(async () => (await hunt())?.drawn ?? null).not.toBeNull();
   const h = (await hunt())!;
-  expect(h.chip).toBeTruthy();
-  const c = h.chip!;
+  // 화면 끝 칩은 다른 이름표와 겹칠 자리밖에 없으면 생략 (띠가 보이면 이름표는 꼭 있다)
+  if (h.drawn === 'band') expect(h.chip).toBeTruthy();
+  if (!h.chip) return;
+  const c = h.chip;
   for (const a of h.avoided ?? []) expect(c.x < a.x + a.w && a.x < c.x + c.w && c.y < a.y + a.h && a.y < c.y + c.h).toBe(false);
   expect(c.x).toBeGreaterThanOrEqual(0);
   expect(c.x + c.w).toBeLessThanOrEqual(390);
@@ -240,4 +242,10 @@ test('phone: the stop-hunting zone label stays clear of the SL / target / RR lab
   const paneH = await page.evaluate(() => Math.max(...[...document.querySelectorAll('[data-testid=chart] canvas')].map((e) => e.getBoundingClientRect()).filter((b) => b.left < 50).map((b) => b.height)));
   expect(c.y).toBeGreaterThanOrEqual(0);
   expect(c.y + c.h).toBeLessThanOrEqual(paneH);
+  // 화면 왼쪽으로 빠지지 않고 구간 안 (SL 캔들보다 오른쪽, 띠가 보이면 띠 안)
+  expect(c.x).toBeGreaterThanOrEqual(h.x);
+  if (h.drawn === 'band') {
+    expect(c.y).toBeGreaterThanOrEqual(Math.max(0, Math.min(h.yNear, h.yFar)) - 0.5);
+    expect(c.y + c.h).toBeLessThanOrEqual(Math.min(paneH, Math.max(h.yNear, h.yFar)) + 0.5);
+  }
 });

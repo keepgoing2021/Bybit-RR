@@ -1206,10 +1206,20 @@ test('stop-hunting zone: 2–10% beyond the SL wick, from the SL candle to the r
   const visible = (g: typeof h) => Math.min(paneH, Math.max(g.yNear, g.yFar)) - Math.max(0, Math.min(g.yNear, g.yFar));
   expect(h.drawn).toBe(visible(h) >= 22 ? 'band' : 'edge');
   // 해골 이름표는 목표·손절·손익비 이름표와 겹치지 않는다
+  // (화면 끝 칩은 자리가 없으면 생략될 수 있다. 띠가 보이면 이름표는 꼭 있다)
   const noOverlap = (g: typeof h) =>
-    (g.avoided ?? []).every((a) => !(g.chip!.x < a.x + a.w && a.x < g.chip!.x + g.chip!.w && g.chip!.y < a.y + a.h && a.y < g.chip!.y + g.chip!.h));
-  expect(h.chip).toBeTruthy();
+    !g.chip || (g.avoided ?? []).every((a) => !(g.chip!.x < a.x + a.w && a.x < g.chip!.x + g.chip!.w && g.chip!.y < a.y + a.h && a.y < g.chip!.y + g.chip!.h));
+  if (h.drawn === 'band') expect(h.chip).toBeTruthy();
   expect(noOverlap(h)).toBe(true);
+  // 해골 이름표는 늘 구간 안: 가로는 SL 캔들(구간 왼쪽 끝)보다 오른쪽, 띠가 보이면 세로도 띠 안
+  const inside = (g: typeof h) => {
+    const c = g.chip;
+    if (!c) return g.drawn !== 'band';
+    const top = Math.max(0, Math.min(g.yNear, g.yFar));
+    const bottom = Math.min(paneH, Math.max(g.yNear, g.yFar));
+    return c.x >= g.x && (g.drawn !== 'band' || (c.y >= top - 0.5 && c.y + c.h <= bottom + 0.5));
+  };
+  expect(inside(h)).toBe(true);
   // 가격축을 끌어 넓게 보면 띠가 화면에 들어오고 빗금 띠로 그린다
   for (let k = 0; k < 6 && visible(await hunt()) < 60; k++) {
     await page.mouse.move(r.left + r.width - 30, r.top + r.height / 2);
@@ -1220,7 +1230,34 @@ test('stop-hunting zone: 2–10% beyond the SL wick, from the SL candle to the r
   h = await hunt();
   expect(visible(h)).toBeGreaterThanOrEqual(60);
   expect(h.drawn).toBe('band');
+  expect(h.chip).toBeTruthy();
   expect(noOverlap(h)).toBe(true);
+  expect(inside(h)).toBe(true);
+  // 빗금은 잘 보이는 보라: 구간 안 빈 곳(박스 오른쪽, 없으면 SL 캔들과 박스 사이)의 평균 색이 보라 쪽
+  const g = (await rendered(page))!;
+  const paneW = await page.evaluate(() => Math.max(...[...document.querySelectorAll('[data-testid=chart] canvas')].map((e) => e.getBoundingClientRect()).filter((b) => b.left < 50).map((b) => b.width)));
+  const yMid = (Math.max(0, Math.min(h.yNear, h.yFar)) + Math.min(paneH, Math.max(h.yNear, h.yFar))) / 2;
+  const [rx1, rx2] = paneW - g.x2 > 40 ? [g.x2 + 8, paneW - 8] : [h.x + 30, g.x1 - 4];
+  const rgb = await page.evaluate(({ x1, x2, y }) => {
+    const cv = [...document.querySelectorAll('[data-testid=chart] canvas')] as HTMLCanvasElement[];
+    const sum = [0, 0, 0];
+    let n = 0;
+    for (const c of cv) {
+      const b = c.getBoundingClientRect();
+      if (b.left >= 50) continue;
+      const k = c.width / b.width;
+      const ctx = c.getContext('2d');
+      if (!ctx) continue;
+      const d = ctx.getImageData(Math.round(x1 * k), Math.round((y - 10) * k), Math.max(1, Math.round((x2 - x1) * k)), Math.round(20 * k)).data;
+      for (let i = 0; i < d.length; i += 4) {
+        if (d[i + 3] === 0) continue;
+        sum[0] += d[i]; sum[1] += d[i + 1]; sum[2] += d[i + 2]; n++;
+      }
+    }
+    return sum.map((v) => (n ? v / n : 0));
+  }, { x1: rx1, x2: rx2, y: yMid });
+  expect(rgb[2]).toBeGreaterThan(rgb[1] + 15); // 파랑 > 초록
+  expect(rgb[0]).toBeGreaterThan(rgb[1]); // 빨강 > 초록 → 보라
   // SL을 구간 안(꼬리에서 5% 바깥)으로 옮기면 이름표가 경고로, 꼬리 1% 바깥이면 다시 보통
   await setLevel(page, 'sl', (wick * (long ? 0.95 : 1.05)).toFixed(1));
   await expect.poll(async () => (await hunt()).slInside).toBe(true);
