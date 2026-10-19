@@ -128,13 +128,34 @@ input,
   margin-right: 6px;
 }
 
-.brand::before {
-  content: '';
-  width: 18px;
-  height: 12px;
-  border-top: 2px solid var(--entry);
-  background: linear-gradient(var(--profit) 0 0) top / 100% 0, rgba(46, 189, 133, 0.35);
-  border-bottom: 4px solid rgba(240, 97, 109, 0.6);
+/* 1RC 로고: 아이콘 + '1RC'(1만 노랑, IRC로 읽히지 않게) + 작은 설명어 */
+.brand-mark {
+  display: block;
+  width: 22px;
+  height: 22px;
+}
+
+.brand-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.05;
+}
+
+.brand-name {
+  font-size: 17px;
+  letter-spacing: 0.02em;
+}
+
+.brand-one {
+  color: var(--entry);
+}
+
+.brand-sub {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
 }
 
 .field {

@@ -733,7 +733,13 @@ export class App {
     const topbar = h(
       'header',
       { class: 'topbar' },
-      h('div', { class: 'brand' }, 'RR 박스'),
+      // 1RC = 1R calc · 1-click risk calc. 로고는 탭 아이콘과 같은 그림 (손익비 박스 위의 '1')
+      h(
+        'div',
+        { class: 'brand', 'data-testid': 'brand', title: '1RC — Crypto Risk Calculator' },
+        h('img', { class: 'brand-mark', src: '/favicon.svg', alt: '', width: '22', height: '22' }),
+        h('span', { class: 'brand-text' }, h('b', { class: 'brand-name' }, h('span', { class: 'brand-one' }, '1'), 'RC'), h('small', { class: 'brand-sub' }, 'crypto risk calc')),
+      ),
       field('종목', picker.root),
       field('차트', tf),
       field('SL 기준', sltf),

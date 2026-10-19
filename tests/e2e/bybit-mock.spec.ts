@@ -90,6 +90,36 @@ test.describe('failure handling', () => {
   });
 });
 
+test('the real app is named 1RC: tab title, icon, home-screen icons and the top-left logo', async ({ page, request }) => {
+  await openBybit(page);
+  await expect(page).toHaveTitle('1RC — Crypto Risk Calculator');
+  const head = await page.evaluate(() => ({
+    icon: document.querySelector('link[rel=icon][type="image/svg+xml"]')?.getAttribute('href'),
+    png: document.querySelector('link[rel=icon][type="image/png"]')?.getAttribute('href'),
+    apple: document.querySelector('link[rel=apple-touch-icon]')?.getAttribute('href'),
+    manifest: document.querySelector('link[rel=manifest]')?.getAttribute('href'),
+    desc: document.querySelector('meta[name=description]')?.getAttribute('content') ?? '',
+  }));
+  expect(head).toMatchObject({ icon: '/favicon.svg', png: '/favicon-32.png', apple: '/apple-touch-icon.png', manifest: '/manifest.webmanifest' });
+  expect(head.desc).toContain('리스크 계산기');
+  // 파일이 실제로 서빙된다
+  for (const [path, type] of [['/favicon.svg', 'svg'], ['/favicon-32.png', 'png'], ['/apple-touch-icon.png', 'png'], ['/icon-192.png', 'png'], ['/icon-512.png', 'png']]) {
+    const r = await request.get(path);
+    expect(r.status(), path).toBe(200);
+    expect(r.headers()['content-type'], path).toContain(type);
+  }
+  const m = await (await request.get('/manifest.webmanifest')).json();
+  expect(m).toMatchObject({ short_name: '1RC', start_url: '/' });
+  expect(m.icons.map((i: { sizes: string }) => i.sizes)).toEqual(['192x192', '512x512']);
+  // 좌상단: 아이콘 + 1RC(1만 노랑) + 설명어
+  const brand = page.getByTestId('brand');
+  await expect(brand.locator('.brand-name')).toHaveText('1RC');
+  await expect(brand.locator('.brand-sub')).toHaveText('crypto risk calc');
+  expect(await brand.locator('.brand-one').evaluate((el) => getComputedStyle(el).color)).toBe('rgb(232, 180, 76)');
+  expect(await brand.locator('img.brand-mark').evaluate((el) => (el as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+  await expect(page.locator('body')).not.toContainText('RR 박스');
+});
+
 test('the real app shows the first-use tour on a first visit only', async ({ page }) => {
   await page.goto('/');
   await page.evaluate(() => localStorage.clear());
