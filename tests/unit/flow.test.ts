@@ -38,9 +38,14 @@ describe('FlowBook (5-minute turnover and gainers from 1-minute bars)', () => {
     f.update('BUSDT', { start: T0, open: 10, close: 11, turnover: 200_000 }, T0);
     f.update('CUSDT', { start: T0, open: 10, close: 10.5, turnover: 300_000 }, T0);
     f.update('DUSDT', { start: T0, open: 10, close: 10.2, turnover: 400_000 }, T0);
-    const r = f.rank(T0 + 1_000);
+    // +0.00%로 보일 만큼 작은 오름(0.004%)은 상승률에 없음, 0.005%(+0.01%로 보임)부터
+    f.update('FLATUSDT', { start: T0, open: 100_000, close: 100_004, turnover: 900_000 }, T0);
+    f.update('TINYUSDT', { start: T0, open: 100_000, close: 100_005, turnover: 900_000 }, T0);
+    let r = f.rank(T0 + 1_000, 10);
+    expect(r.gainers.map((x) => x.symbol)).toEqual(['BUSDT', 'AUSDT', 'CUSDT', 'DUSDT', 'TINYUSDT']);
+    r = f.rank(T0 + 1_000);
     expect(r.gainers.map((x) => x.symbol)).toEqual(['BUSDT', 'AUSDT', 'CUSDT']);
-    expect(r.volume.map((x) => x.symbol)).toEqual(['DUSDT', 'CUSDT', 'BUSDT']);
+    expect(r.volume.map((x) => x.symbol)).toEqual(['FLATUSDT', 'TINYUSDT', 'DUSDT']);
   });
 
   it('coverage: minutes since the earliest bar received, up to 5; ignores bad bars; clear resets', () => {

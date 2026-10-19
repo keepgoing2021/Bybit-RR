@@ -138,6 +138,27 @@ test('the real app is named 1RC: tab title, icon, home-screen icons and the top-
 test.describe('5-minute board (top right)', () => {
   type Stats = { subscribes: string[][] };
   const subs = async (request: import('@playwright/test').APIRequestContext) => ((await (await request.get(`${MOCK}/mock/stats`)).json()) as Stats).subscribes;
+  /** 판의 자리(side/inline), 바 안에 다 들어가는지, 순위 3줄이 판 안에 다 보이는지, 바의 다른 칸과 겹치는지 */
+  const boardLayout = (page: Page) =>
+    page.evaluate(() => {
+      const bar = document.querySelector('.topbar')!.getBoundingClientRect();
+      const board = document.querySelector('[data-testid=flow]') as HTMLElement;
+      const f = board.getBoundingClientRect();
+      const lists = [...board.querySelectorAll('.flow-list')].map((l) => l.getBoundingClientRect());
+      const overlap = [...document.querySelectorAll('.topbar > :not(.flow)')].some((el) => {
+        const r = el.getBoundingClientRect();
+        return r.width > 0 && r.left < f.right && f.left < r.right && r.top < f.bottom && f.top < r.bottom;
+      });
+      return {
+        place: board.dataset.place,
+        inBar: f.width > 0 && f.left >= bar.left && f.right <= bar.right + 0.5 && f.top >= bar.top && f.bottom <= bar.bottom + 0.5,
+        fullLists: lists.length === 2 && lists.every((r) => r.height >= 60 && r.bottom <= f.bottom + 0.5),
+        overlap,
+        rightGap: bar.right - f.right,
+        barH: bar.height,
+        boardH: f.height,
+      };
+    });
 
   test('wide screen: kline.1 for every symbol on its own connection, ranks 5-min turnover BTC > ETH > SOL, gainers positive, a row switches the chart', async ({ page, request }) => {
     await page.setViewportSize({ width: 1440, height: 860 });
@@ -161,19 +182,28 @@ test.describe('5-minute board (top right)', () => {
     await expect(page.getByTestId('symbol')).toHaveValue('ETHUSDT');
     await expect(page.getByTestId('feed-status')).toHaveAttribute('data-state', 'live', { timeout: 20_000 });
     await expect(page.getByTestId('flow-volume').locator('button.current .flow-name')).toHaveText('ETH');
-    // 상단 바의 다른 칸과 겹치지 않는다
-    const overlap = await page.evaluate(() => {
-      const f = document.querySelector('[data-testid=flow]')!.getBoundingClientRect();
-      return [...document.querySelectorAll('.topbar > :not(.flow)')].some((el) => {
-        const r = el.getBoundingClientRect();
-        return r.width > 0 && r.left < f.right && f.left < r.right && r.top < f.bottom && f.top < r.bottom;
-      });
-    });
-    expect(overlap).toBe(false);
+    // 상단 바 오른쪽 빈 자리에, 다른 칸과 겹치지 않고 바 안에 다 들어간다
+    expect(await boardLayout(page)).toMatchObject({ place: 'side', inBar: true, fullLists: true, overlap: false });
   });
 
-  test('narrower screen: no board and no 1-minute subscriptions for all symbols', async ({ page, request }) => {
-    await page.setViewportSize({ width: 1280, height: 800 });
+  // 윈도우 배율 125~150%면 1920px 화면도 1536·1280px로 보인다. 1920px에서는 바가 한 줄이라 판보다 낮다
+  test('every desktop width: the board fits inside the top bar without overlapping or clipping, top right when there is room', async ({ page }) => {
+    for (const [width, place] of [[1920, 'side'], [1280, 'side'], [1100, 'inline'], [800, 'inline']] as const) {
+      await page.setViewportSize({ width, height: 860 });
+      if (width === 1920) await openBybit(page);
+      await expect(page.getByTestId('flow-volume').locator('.flow-name')).toHaveCount(3, { timeout: 10_000 });
+      await expect.poll(() => boardLayout(page), { message: `${width}px` }).toMatchObject({ place, inBar: true, fullLists: true, overlap: false });
+      if (place === 'side') expect((await boardLayout(page)).rightGap, `${width}px`).toBeLessThanOrEqual(17);
+    }
+    // 다시 넓히면 우측 위로 돌아가고, 바는 판이 들어갈 만큼만 (한 줄짜리 바도 판보다 조금만 높다)
+    await page.setViewportSize({ width: 1920, height: 860 });
+    await expect.poll(() => boardLayout(page)).toMatchObject({ place: 'side', inBar: true, fullLists: true, overlap: false });
+    const { barH, boardH } = await boardLayout(page);
+    expect(barH - boardH).toBeLessThanOrEqual(2 * 8 + 1 + 1);
+  });
+
+  test('phone: no board and no 1-minute subscriptions for all symbols', async ({ page, request }) => {
+    await page.setViewportSize({ width: 600, height: 800 });
     const before = (await subs(request)).length;
     await openBybit(page);
     await page.waitForTimeout(1_500);

@@ -31,6 +31,8 @@ const MIN = 60_000;
 export const FLOW_WINDOW_MIN = 5;
 /** 상승률 순위에 넣는 최소 5분 거래대금 (USDT). 몇 건 체결로 튀는 종목은 뺀다 */
 export const FLOW_MIN_TURNOVER = 50_000;
+/** 상승률 순위에 넣는 최소 상승률 (%). 소수 둘째 자리로 '+0.00%'가 될 만큼 작은 오름은 뺀다 */
+export const FLOW_MIN_CHANGE_PCT = 0.005;
 
 export class FlowBook {
   private readonly bars = new Map<string, FlowBar[]>();
@@ -77,7 +79,7 @@ export class FlowBook {
     }
     const volume = rows.filter((r) => r.turnover > 0).sort((a, b) => b.turnover - a.turnover || a.symbol.localeCompare(b.symbol)).slice(0, top);
     const gainers = rows
-      .filter((r) => r.changePct > 0 && r.turnover >= minTurnover)
+      .filter((r) => r.changePct >= FLOW_MIN_CHANGE_PCT && r.turnover >= minTurnover)
       .sort((a, b) => b.changePct - a.changePct || b.turnover - a.turnover)
       .slice(0, top);
     const coverageMin = this.earliestStart === Infinity ? 0 : Math.min(windowMin, Math.floor((Math.floor(ref / MIN) * MIN - this.earliestStart) / MIN) + 1);
