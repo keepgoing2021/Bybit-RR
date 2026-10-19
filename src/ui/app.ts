@@ -99,6 +99,9 @@ const PHONE = typeof window !== 'undefined' && window.matchMedia ? window.matchM
 /** 화면 테마 (다크 = 기본, 검정 바탕). index.html의 첫 스크립트도 같은 키를 읽어 깜빡임 없이 연다 */
 export const THEME_KEY = 'rrtool.v1.theme';
 
+/** 패널의 손익비 빠른 선택 칩 */
+const RR_CHIPS = [1, 1.5, 2, 2.5, 3];
+
 /** 첫 사용 안내를 봤는지 (끝까지 보거나 건너뛰면 '1'. 그 뒤로는 '?' 버튼으로만 다시 연다) */
 export const TOUR_KEY = 'rrtool.v1.tourDone';
 
@@ -789,17 +792,28 @@ export class App {
     const slWhy = h('p', { class: 'rationale', 'data-testid': 'sl-rationale' });
     const tpWhy = h('p', { class: 'rationale', 'data-testid': 'tp-rationale' });
     const restore = h('button', { type: 'button', 'data-testid': 'btn-restore' }, '자동값으로 되돌리기');
+    // 손익비 빠른 선택: 누르면 TP가 그 손익비 자리로 (차트의 1:x 칩과 같은 동작)
+    const rrChips = RR_CHIPS.map((v) => {
+      const b = h('button', { type: 'button', class: 'rr-chip num', 'data-testid': 'rr-chip', 'data-rr': String(v), 'aria-pressed': 'false' }, `1:${v}`);
+      b.addEventListener('click', () => this.applyRR(String(v)));
+      return b;
+    });
+    // 패널은 카드 묶음: 가격 / 손익비 / 주문표 / 근거
     const card = h(
       'div',
       { class: 'card', hidden: true },
       h('div', { class: 'card-head' }, sideChip, title, del),
-      h('div', { class: 'prices' }, entry.row, sl.row, tp.row),
-      times,
-      h('div', { class: 'rr-row' }, rrLabel, rr),
-      h('p', { class: 'rr-hint', 'data-testid': 'rr-hint' }, '✎ 빨간 숫자를 고치거나 차트의 1:x 칩을 누르면 TP 이동'),
+      h('div', { class: 'panel-card levels', 'data-testid': 'group-levels' }, h('div', { class: 'prices' }, entry.row, sl.row, tp.row), times),
+      h(
+        'div',
+        { class: 'panel-card rr-group', 'data-testid': 'group-rr' },
+        h('div', { class: 'rr-row' }, rrLabel, rr),
+        h('div', { class: 'rr-chips', 'data-testid': 'rr-chips', role: 'group', 'aria-label': '손익비 빠른 선택' }, ...rrChips),
+        h('p', { class: 'rr-hint', 'data-testid': 'rr-hint' }, '✎ 숫자를 고치거나 1:x 칩을 누르면 TP 이동'),
+      ),
       reasons,
       sizing.box,
-      h('div', { class: 'why' }, h('p', { class: 'why-title' }, '자동 제안 근거'), slWhy, tpWhy),
+      h('div', { class: 'panel-card why', 'data-testid': 'group-why' }, h('p', { class: 'why-title' }, '자동 제안 근거'), slWhy, tpWhy),
       h('div', { class: 'actions' }, restore),
       h('p', { class: 'note' }, '가격 기준 계산입니다. 수수료·슬리피지·펀딩비는 반영하지 않았습니다. 주문은 Bybit에서 직접 넣습니다.'),
     );
@@ -934,7 +948,7 @@ export class App {
 
     return {
       picker, tf, sltf, long, short, status, statusReason, themeBtn,
-      loadError, chart, empty, card, sideChip, title, entry, times, rr, rrInput, rrLabel, reasons,
+      loadError, chart, empty, card, sideChip, title, entry, times, rr, rrInput, rrLabel, rrChips, reasons,
       sl, tp, slWhy, tpWhy, sizing, restore, del, settingsInputs, settingRows, modeHelp, settingsSummaryEl, toast, undo, tools, tour,
     };
   }
@@ -1167,7 +1181,8 @@ export class App {
       h('dt', { title: feeTitle }, '손절 시 수수료'), sum.fee,
       feeMeter,
       h('dt', { class: 'group' }, '모두 체결되면'), h('dd', { class: 'group' }, avgToggle),
-      h('dt', { class: 'avg' }, '전부 체결 시 예상 평단'), sum.avg,
+      // 강조 띠는 두 칸을 묶은 한 줄 (긴 이름이 왼쪽 칸 폭을 넓혀 숫자들이 줄바꿈되지 않게)
+      h('div', { class: 'avg-row' }, h('dt', { class: 'avg' }, '전부 체결 시 예상 평단'), sum.avg),
       h('dt', {}, '손절 시'), sum.loss,
       h('dt', {}, '목표 시'), sum.profit,
       h('dt', {}, '손익비'), sum.rr,
@@ -1197,7 +1212,7 @@ export class App {
     });
     const box = h(
       'section',
-      { class: 'sizing', 'data-testid': 'sizing' },
+      { class: 'sizing panel-card', 'data-testid': 'sizing' },
       h('div', { class: 'level-head' }, h('span', { class: 'level-name' }, '주문표'), h('span', { class: 'muted small' }, '숫자를 누르면 복사')),
       reason,
       table,
@@ -1452,6 +1467,15 @@ export class App {
       e.rrInput.style.width = `${Math.max(2, e.rrInput.value.length) + 0.4}ch`;
     }
     const rrNow = e.rrInput.value;
+    // 지금 손익비와 같은 칩을 켜고, SL이 진입가 반대편에 없어 TP를 정할 수 없으면 칩을 잠근다
+    const rrCan = tpForRR(s.side, s.entry, s.applied.sl, 1, tick) !== null;
+    const rrShown = m.rr === null ? null : formatRR(m.rr);
+    for (const b of e.rrChips) {
+      const on = rrShown === `1:${b.dataset.rr}`;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-pressed', String(on));
+      b.disabled = !rrCan;
+    }
     setText(e.rrLabel, this.sizing.splits > 1 ? '손익비 (1차만 체결 시)' : '손익비');
     e.rr.dataset.valid = String(m.valid);
     e.reasons.replaceChildren(...m.reasons.map((r) => h('li', {}, r)));

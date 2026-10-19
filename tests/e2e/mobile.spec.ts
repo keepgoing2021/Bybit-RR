@@ -174,3 +174,24 @@ test('phone: the first-use tour fits the screen at every step; the fold button s
   expect(q.right).toBeLessThanOrEqual((await rect(page, 'theme-toggle')).left);
   await expect(page.getByTestId('tour-open').locator('.label')).toBeHidden();
 });
+
+test('phone: panel RR chips sit in one row inside the screen, big enough to tap, and move TP', async ({ page }) => {
+  await open(page);
+  await page.getByTestId('btn-long').tap();
+  await expect.poll(() => page.evaluate(() => (window as unknown as W).__rrDebug.getScenario())).not.toBeNull();
+  const chips = page.getByTestId('rr-chip');
+  await chips.first().scrollIntoViewIfNeeded();
+  const boxes = await chips.evaluateAll((els) => els.map((e) => e.getBoundingClientRect().toJSON() as DOMRect));
+  expect(new Set(boxes.map((b) => Math.round(b.top))).size).toBe(1);
+  for (const b of boxes) {
+    expect(b.left).toBeGreaterThanOrEqual(0);
+    expect(b.right).toBeLessThanOrEqual(390);
+    expect(b.height).toBeGreaterThanOrEqual(36);
+    expect(b.width).toBeGreaterThanOrEqual(52);
+  }
+  await chips.nth(2).tap();
+  await expect(page.getByTestId('rr-input')).toHaveValue('2');
+  await expect(chips.nth(2)).toHaveAttribute('aria-pressed', 'true');
+  // 카드로 묶여도 주문표·패널이 옆으로 넘치지 않는다
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+});

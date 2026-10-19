@@ -795,6 +795,98 @@ test('RR looks editable: red box with a pencil, and chart chips say what a click
   await expect.poll(async () => (await scenario(page))!.applied.tp).toBe(chip.price);
 });
 
+test('panel RR chips 1:1–1:3 move TP like the chart chips; the current RR is lit; locked when SL is on the wrong side', async ({ page }) => {
+  await open(page, { tf: '15' });
+  const s = await validLong(page); // SL = 진입 − 10, TP = 진입 + 30 → 1:3
+  const chips = page.getByTestId('rr-chip');
+  await expect(chips).toHaveText(['1:1', '1:1.5', '1:2', '1:2.5', '1:3']);
+  const lit = async () => (await chips.evaluateAll((els) => els.filter((e) => e.getAttribute('aria-pressed') === 'true').map((e) => e.textContent)));
+  expect(await lit()).toEqual(['1:3']);
+  await expect(chips.nth(4)).toHaveClass(/active/);
+  // 1:1.5 → TP = 진입 + 15, 진입·SL 그대로, 그 칩만 켜짐
+  await chips.nth(1).click();
+  await expect.poll(async () => (await scenario(page))!.applied.tp).toBe(Number((s.entry + 15).toFixed(1)));
+  const s2 = (await scenario(page))!;
+  expect(s2.entry).toBe(s.entry);
+  expect(s2.applied.sl).toBe(s.applied.sl);
+  await expect(page.getByTestId('rr-input')).toHaveValue('1.5');
+  expect(await lit()).toEqual(['1:1.5']);
+  // 칩에 없는 손익비면 아무것도 안 켜짐
+  await setLevel(page, 'tp', (s.entry + 17).toFixed(1));
+  await expect(page.getByTestId('rr-input')).toHaveValue('1.7');
+  expect(await lit()).toEqual([]);
+  // 한 줄에 다섯 개
+  const tops = await chips.evaluateAll((els) => new Set(els.map((e) => Math.round(e.getBoundingClientRect().top))).size);
+  expect(tops).toBe(1);
+  // SL이 진입가 위(롱인데)면 TP를 손익비로 정할 수 없어 칩이 잠긴다
+  await setLevel(page, 'sl', (s.entry + 5).toFixed(1));
+  for (let i = 0; i < 5; i++) await expect(chips.nth(i)).toBeDisabled();
+  await setLevel(page, 'sl', (s.entry - 10).toFixed(1));
+  await expect(chips.first()).toBeEnabled();
+});
+
+test('the panel is grouped into cards (prices / RR / order table / reasons); SL in red and TP in green', async ({ page }) => {
+  await open(page, { tf: '15' });
+  await validLong(page);
+  // 큰 금액(총 포지션 7만대)에서도 요약 숫자가 한 줄로 들어가는지 함께 본다
+  await page.getByTestId('sizing-capital').fill('100000');
+  await page.getByTestId('sizing-capital').press('Enter');
+  await expect(page.getByTestId('sizing-row')).toHaveCount(3);
+  const look = () =>
+    page.evaluate(() => {
+      const panelBg = getComputedStyle(document.querySelector('.panel')!).backgroundColor;
+      const groups = ['group-levels', 'group-rr', 'sizing', 'group-why'].map((id) => {
+        const el = document.querySelector(`[data-testid=${id}]`)!;
+        const cs = getComputedStyle(el);
+        return { id, border: cs.borderTopStyle, card: cs.backgroundColor !== panelBg && cs.backgroundColor !== 'rgba(0, 0, 0, 0)', radius: cs.borderTopLeftRadius };
+      });
+      const color = (sel: string) => getComputedStyle(document.querySelector(sel)!).color;
+      return {
+        groups,
+        inLevels: !!document.querySelector('[data-testid=group-levels] [data-testid=sl-input]'),
+        inRr: !!document.querySelector('[data-testid=group-rr] [data-testid=rr-input]') && !!document.querySelector('[data-testid=group-rr] [data-testid=rr-chips]'),
+        slName: color('.price-row.sl .price-name'),
+        slInput: color('[data-testid=sl-input]'),
+        tpName: color('.price-row.tp .price-name'),
+        tpInput: color('[data-testid=tp-input]'),
+        entryInput: color('[data-testid=entry-input]'),
+        // 주문표 요약의 '모두 체결되면' 줄은 카드가 아니라 위 선 하나만
+        foldRow: (() => {
+          const cs = getComputedStyle(document.querySelector('.sizing .metrics dt.group')!);
+          return [cs.borderLeftStyle, cs.borderTopStyle, cs.backgroundColor];
+        })(),
+        // 요약 숫자들은 한 줄씩 (카드 여백이 생겨도 줄바꿈되지 않게)
+        wrappedSummary: [...document.querySelectorAll('[data-testid=sizing-summary] dd:not(.group)')]
+          .filter((el) => (el as HTMLElement).offsetParent && el.textContent)
+          .filter((el) => {
+            const r = document.createRange();
+            r.selectNodeContents(el);
+            return new Set([...r.getClientRects()].map((x) => Math.round(x.top))).size > 1;
+          })
+          .map((el) => el.textContent),
+        hintLines: (() => {
+          const r = document.createRange();
+          r.selectNodeContents(document.querySelector('[data-testid=rr-hint]')!);
+          return new Set([...r.getClientRects()].map((x) => Math.round(x.top))).size;
+        })(),
+      };
+    });
+  const d = await look();
+  for (const g of d.groups) expect(g, g.id).toEqual({ id: g.id, border: 'solid', card: true, radius: '8px' });
+  expect(d.inLevels && d.inRr).toBe(true);
+  expect([d.slName, d.slInput]).toEqual(['rgb(240, 97, 109)', 'rgb(240, 97, 109)']);
+  expect([d.tpName, d.tpInput]).toEqual(['rgb(46, 189, 133)', 'rgb(46, 189, 133)']);
+  expect(d.entryInput).toBe('rgb(230, 232, 235)'); // 진입은 기본 글자색
+  expect(d.foldRow).toEqual(['none', 'solid', 'rgba(0, 0, 0, 0)']);
+  expect(d.wrappedSummary).toEqual([]);
+  expect(d.hintLines).toBe(1); // 안내 문구는 한 줄
+  // 라이트에서도 카드가 패널과 구분된다
+  await page.getByTestId('theme-toggle').click();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  await expect.poll(async () => (await look()).groups.every((g) => g.card)).toBe(true);
+  expect((await look()).slInput).toBe('rgb(224, 62, 77)');
+});
+
 test('typing an RR moves TP to that RR, keeping entry and SL', async ({ page }) => {
   await open(page, { tf: '15' });
   const s = await validLong(page); // SL = 진입 − 10
