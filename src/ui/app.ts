@@ -14,7 +14,7 @@ import {
 import { DRAW_PALETTE, DRAWING_KINDS, DRAWING_NAMES, isColor, placingHint, type Drawing, type DrawingKind } from '../core/drawings';
 import { decimalsOf, formatPrice, snapToTick } from '../core/price';
 import { boxShiftOf, createScenario, replaceAuto, restoreAuto, setBoxShift, setEntry, setLevel, type Scenario } from '../core/scenario';
-import { DEFAULT_SETTINGS, SL_MODES, sanitizeSettings, type AnalysisSettings, type SlMode } from '../core/settings';
+import { DEFAULT_SETTINGS, SL_BUFFER_PCT_RANGE, SL_MODES, sanitizeSettings, type AnalysisSettings, type SlMode } from '../core/settings';
 import {
   DEFAULT_SIZING,
   DEFAULT_FEE_TIER,
@@ -68,7 +68,7 @@ const CORE_SETTINGS: SettingField[] = [
   { key: 'swingBars', label: '좌우 봉 수', modes: ['swing'] },
   { key: 'slLowestBars', label: '봉 수', modes: ['lowestN'] },
   { key: 'lookback', label: '찾을 봉 수', modes: ['spike'] },
-  { key: 'slBufferPct', label: 'SL 여유 (%)', hint: '꼬리 끝 바깥으로', step: '0.01' },
+  // SL 여유(%)는 자주 바꾸는 핵심 값이라 여기 대신 패널 손절 줄 바로 아래에 둔다
   { key: 'defaultRR', label: '기본 손익비 1:', step: '0.1' },
 ];
 const ADVANCED_SETTINGS: SettingField[] = [
@@ -108,6 +108,9 @@ export const THEME_KEY = 'rrtool.v1.theme';
 
 /** 손절 시 수수료에 쓰는 Bybit 수수료 등급 (일반·VIP1~5) */
 export const FEE_TIER_KEY = 'rrtool.v1.feetier';
+
+/** 패널 손절 줄 아래 SL 여유 빠른 선택 (%) */
+const SL_BUFFER_CHIPS = [0, 0.5, 1, 2];
 
 /** 패널의 손익비 빠른 선택 칩 */
 const RR_CHIPS = [1, 1.5, 2, 2.5, 3];
@@ -806,6 +809,42 @@ export class App {
     };
     const entry = priceRow('entry', '진입');
     const sl = priceRow('sl', '손절');
+    // SL 여유: 손절 줄 바로 아래. 꼬리 끝에서 바깥으로 몇 % 더 둘지 (칩 또는 직접 입력)
+    const bufferInput = h('input', {
+      class: 'num', 'data-testid': 'sl-buffer', inputmode: 'decimal', autocomplete: 'off', 'aria-label': 'SL 여유 % (꼬리 끝 바깥으로)',
+    });
+    const bufferChips = SL_BUFFER_CHIPS.map((v) => {
+      const b = h('button', { type: 'button', class: 'buffer-chip num', 'data-testid': 'sl-buffer-chip', 'data-pct': String(v), 'aria-pressed': 'false' }, `${v}%`);
+      b.addEventListener('click', () => void this.setSlBuffer(v));
+      return b;
+    });
+    const bufferNote = h('span', { class: 'buffer-note', 'data-testid': 'sl-buffer-note' });
+    // 가격 줄과 같은 칸: 이름(여유) | 입력 % | 설명 / 아래 줄에 빠른 선택 칩, 그 아래 안내
+    const bufferRow = h(
+      'div',
+      { class: 'buffer-row', 'data-testid': 'sl-buffer-row', title: '자동 SL을 꼬리 끝(롱은 저가, 숏은 고가)에서 바깥으로 이만큼 더 둡니다' },
+      h('span', { class: 'buffer-name' }, '여유'),
+      h('label', { class: 'buffer-input' }, bufferInput, h('span', { class: 'buffer-unit' }, '%')),
+      h('span', { class: 'buffer-hint' }, 'SL을 꼬리 끝 바깥으로'),
+      h('div', { class: 'buffer-chips', role: 'group', 'aria-label': 'SL 여유 빠른 선택' }, ...bufferChips),
+      bufferNote,
+    );
+    bufferInput.addEventListener('change', () => {
+      const v = Number(bufferInput.value.replace('%', '').replace(',', '.').trim());
+      if (bufferInput.value.trim() === '' || !Number.isFinite(v)) {
+        this.toast(`SL 여유는 ${SL_BUFFER_PCT_RANGE[0]}~${SL_BUFFER_PCT_RANGE[1]} 사이 숫자로 적으세요 (예: 0.5).`);
+        bufferInput.value = String(this.settings.slBufferPct);
+        return;
+      }
+      void this.setSlBuffer(v);
+    });
+    bufferInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') bufferInput.blur();
+      if (e.key === 'Escape') {
+        bufferInput.value = String(this.settings.slBufferPct);
+        bufferInput.blur();
+      }
+    });
     const tp = priceRow('tp', '목표');
     const slWhy = h('p', { class: 'rationale', 'data-testid': 'sl-rationale' });
     const tpWhy = h('p', { class: 'rationale', 'data-testid': 'tp-rationale' });
@@ -821,7 +860,7 @@ export class App {
       'div',
       { class: 'card', hidden: true },
       h('div', { class: 'card-head' }, sideChip, title, del),
-      h('div', { class: 'panel-card levels', 'data-testid': 'group-levels' }, h('div', { class: 'prices' }, entry.row, sl.row, tp.row), times),
+      h('div', { class: 'panel-card levels', 'data-testid': 'group-levels' }, h('div', { class: 'prices' }, entry.row, sl.row, bufferRow, tp.row), times),
       h(
         'div',
         { class: 'panel-card rr-group', 'data-testid': 'group-rr' },
@@ -966,7 +1005,7 @@ export class App {
 
     return {
       picker, tf, sltf, long, short, status, statusReason, themeBtn,
-      loadError, chart, empty, card, sideChip, title, entry, times, rr, rrInput, rrLabel, rrChips, reasons,
+      loadError, chart, empty, card, sideChip, title, entry, times, rr, rrInput, rrLabel, rrChips, reasons, bufferInput, bufferChips, bufferNote,
       sl, tp, slWhy, tpWhy, sizing, restore, del, settingsInputs, settingRows, modeHelp, settingsSummaryEl, toast, undo, tools, tour,
     };
   }
@@ -1419,8 +1458,18 @@ export class App {
     return plan;
   }
 
+  /** SL 여유(%)를 바꾸고 지금 계산의 자동 SL을 다시 계산 (직접 옮긴 SL은 그대로) */
+  private async setSlBuffer(pct: number): Promise<void> {
+    this.settings = sanitizeSettings({ ...this.settings, slBufferPct: pct });
+    saveSettings(this.d.storage, this.settings);
+    this.renderSettings();
+    this.renderNow();
+    await this.recalcAuto();
+  }
+
   private async applySettings(changed: keyof AnalysisSettings): Promise<void> {
-    const raw: Record<string, unknown> = {};
+    // 설정 칸에 없는 값(SL 여유 등)은 지금 값을 그대로 둔다
+    const raw: Record<string, unknown> = { ...this.settings };
     for (const [key, control] of this.el.settingsInputs) {
       raw[key] = control instanceof HTMLSelectElement ? control.value : Number(control.value);
     }
@@ -1479,6 +1528,24 @@ export class App {
     for (const { row, modes } of e.settingRows.values()) show(row, !modes || modes.includes(this.settings.slMode));
     setText(e.modeHelp, SL_MODE_HELP[this.settings.slMode]);
     setText(e.settingsSummaryEl, settingsSummary(this.settings));
+    this.renderSlBuffer();
+  }
+
+  /** 손절 줄 아래 SL 여유: 입력칸·칩, 직접 옮긴 SL이면 안내, SL이 헌팅존 안이면 경고 */
+  private renderSlBuffer(): void {
+    const e = this.el;
+    const v = this.settings.slBufferPct;
+    if (document.activeElement !== e.bufferInput) e.bufferInput.value = String(v);
+    for (const b of e.bufferChips) {
+      const on = Number(b.dataset.pct) === v;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-pressed', String(on));
+    }
+    const s = this.scenario;
+    const hunt = s ? this.huntZoneFor(s) : null;
+    const note = !s ? '' : s.source.sl === 'manual' ? '직접 옮긴 SL은 그대로' : hunt?.slInside ? '💀 SL이 헌팅존 안' : '';
+    setText(e.bufferNote, note);
+    e.bufferNote.dataset.kind = !note ? '' : s?.source.sl === 'manual' ? 'manual' : 'hunt';
   }
 
   private renderStatus(): void {
@@ -1561,6 +1628,7 @@ export class App {
       rows[which].badge.dataset.source = s.source[which];
     }
     setText(e.slWhy, slRationale(s.auto.sl, s.side));
+    this.renderSlBuffer();
     setText(e.tpWhy, tpRationale(s.auto.tp, s.side));
     const plan = this.renderSizing(s);
     this.rollChanged(s.id, rrNow);

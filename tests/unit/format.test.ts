@@ -107,10 +107,10 @@ describe('formatPct', () => {
 });
 
 describe('settingsSummary (one line shown even when the settings box is closed)', () => {
-  it('names the SL method with its one number, the margin and the RR', () => {
-    expect(settingsSummary(DEFAULT_SETTINGS)).toBe('스윙 2봉 · 여유 0% · 1:1.5');
-    expect(settingsSummary({ ...DEFAULT_SETTINGS, slMode: 'lowestN', slLowestBars: 30, slBufferPct: 0.1, defaultRR: 2 })).toBe('최근 30봉 최저 · 여유 0.1% · 1:2');
-    expect(settingsSummary({ ...DEFAULT_SETTINGS, slMode: 'spike' })).toBe('큰 캔들 50봉 · 여유 0% · 1:1.5');
-    expect(settingsSummary({ ...DEFAULT_SETTINGS, slMode: 'prevCandle' })).toBe('직전 봉 · 여유 0% · 1:1.5');
+  it('names the SL method with its one number and the RR (the SL margin lives under the SL row)', () => {
+    expect(settingsSummary(DEFAULT_SETTINGS)).toBe('스윙 2봉 · 1:1.5');
+    expect(settingsSummary({ ...DEFAULT_SETTINGS, slMode: 'lowestN', slLowestBars: 30, slBufferPct: 0.1, defaultRR: 2 })).toBe('최근 30봉 최저 · 1:2');
+    expect(settingsSummary({ ...DEFAULT_SETTINGS, slMode: 'spike' })).toBe('큰 캔들 50봉 · 1:1.5');
+    expect(settingsSummary({ ...DEFAULT_SETTINGS, slMode: 'prevCandle' })).toBe('직전 봉 · 1:1.5');
   });
 });

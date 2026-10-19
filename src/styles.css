@@ -1942,3 +1942,97 @@ button.fee-tier.active {
     font-size: 12.5px;
   }
 }
+
+/* SL 여유: 손절 줄 바로 아래. 가격 줄과 같은 칸 (이름 | 입력 % | 설명), 아래 줄에 칩과 안내 */
+.buffer-row {
+  display: grid;
+  grid-template-columns: 36px 1fr 64px 52px;
+  align-items: center;
+  gap: 6px 8px;
+  margin-top: -2px;
+  padding-left: 8px;
+  /* 손절 줄의 빨간 막대를 옅게 이어 같은 묶음으로 */
+  border-left: 3px solid color-mix(in srgb, var(--loss) 35%, transparent);
+}
+
+.buffer-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--loss);
+}
+
+.buffer-input {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.buffer-input input {
+  width: 100%;
+  min-width: 0;
+  font-size: 14px;
+}
+
+.buffer-unit {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.buffer-hint {
+  grid-column: 3 / -1;
+  font-size: 11px;
+  color: var(--muted);
+  text-align: right;
+  line-height: 1.25;
+}
+
+.buffer-chips {
+  grid-column: 2 / -1;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+}
+
+button.buffer-chip {
+  min-height: 26px;
+  padding: 0;
+  border-radius: 5px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+button.buffer-chip:hover {
+  color: var(--text);
+  border-color: var(--line-hover);
+}
+
+button.buffer-chip.active {
+  color: var(--text);
+  border-color: var(--loss);
+  background: var(--ink-08);
+}
+
+.buffer-note {
+  grid-column: 2 / -1;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.buffer-note:empty {
+  display: none;
+}
+
+.buffer-note[data-kind='hunt'] {
+  color: var(--warning);
+}
+
+@media (max-width: 640px) {
+  button.buffer-chip {
+    min-height: 36px;
+    font-size: 13px;
+  }
+}

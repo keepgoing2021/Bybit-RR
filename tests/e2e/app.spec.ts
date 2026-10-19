@@ -518,19 +518,20 @@ test('auto-suggestion settings: one-line summary, only the core items, the chose
   const summary = page.getByTestId('settings-summary');
   // 접혀 있어도 지금 적용 중인 값이 보인다
   await expect(summary).toBeVisible();
-  await expect(summary).toHaveText('스윙 2봉 · 여유 0% · 1:1.5');
+  await expect(summary).toHaveText('스윙 2봉 · 1:1.5'); // SL 여유는 패널 손절 줄 아래로 옮겨 요약에서 뺐다
   await details.locator(':scope > summary').click();
   const visible = async () =>
     page.locator('details.settings .setting').evaluateAll((rows) =>
       rows.filter((r) => (r as HTMLElement).checkVisibility()).map((r) => (r as HTMLElement).dataset.key),
     );
-  expect(await visible()).toEqual(['slMode', 'swingBars', 'slBufferPct', 'defaultRR']);
+  expect(await visible()).toEqual(['slMode', 'swingBars', 'defaultRR']);
+  await expect(page.getByTestId('setting-slBufferPct')).toHaveCount(0);
   await expect(page.getByTestId('setting-mode-help')).toHaveText('최근 꺾인 저점 (숏은 고점)');
   await page.getByTestId('setting-slMode').selectOption('lowestN');
-  expect(await visible()).toEqual(['slMode', 'slLowestBars', 'slBufferPct', 'defaultRR']);
-  await expect(summary).toHaveText('최근 20봉 최저 · 여유 0% · 1:1.5');
+  expect(await visible()).toEqual(['slMode', 'slLowestBars', 'defaultRR']);
+  await expect(summary).toHaveText('최근 20봉 최저 · 1:1.5');
   await page.getByTestId('setting-slMode').selectOption('prevCandle');
-  expect(await visible()).toEqual(['slMode', 'slBufferPct', 'defaultRR']);
+  expect(await visible()).toEqual(['slMode', 'defaultRR']);
   await page.getByTestId('setting-slMode').selectOption('swing');
   // 고급은 접혀 있다가 펼치면 보인다
   await expect(page.getByTestId('setting-staleAfterSec')).toBeHidden();
@@ -543,18 +544,81 @@ test('auto-suggestion settings: one-line summary, only the core items, the chose
   await expect.poll(() => scenario(page)).not.toBeNull();
   const s0 = (await scenario(page))!;
   expect(s0.auto.sl.status).toBe('ok');
-  // 여유 0.1%: 꼬리 끝(현재 SL)의 0.1% 아래, 틱(0.1)은 아래쪽으로
-  await setSetting(page, 'slBufferPct', '0.1');
-  const expectSl = Math.floor(Math.round(s0.applied.sl! * 10) * 0.999 + 1e-6) / 10;
-  await expect.poll(async () => (await scenario(page))!.applied.sl).toBe(expectSl);
-  expect(s0.applied.sl! - expectSl).toBeGreaterThan(s0.applied.sl! * 0.001 - 0.0001); // 0.1% 이상 넓게
-  await expect(page.getByTestId('sl-rationale')).toContainText('− 여유 0.1%');
+  // 스윙 좌우 봉 수를 바꾸면 같은 엔트리·시각으로 자동 SL을 다시 고른다
+  await setSetting(page, 'swingBars', '3');
+  await expect(summary).toHaveText('스윙 3봉 · 1:1.5');
   const s1 = (await scenario(page))!;
   expect([s1.id, s1.entry, s1.priceTime]).toEqual([s0.id, s0.entry, s0.priceTime]);
-  await expect(summary).toHaveText('스윙 2봉 · 여유 0.1% · 1:1.5');
-  // 기본값으로 되돌리면 다시 원래 SL
+  await expect(page.getByTestId('sl-rationale')).toContainText('스윙');
+  // 다른 설정을 바꿔도 패널의 SL 여유는 그대로 (설정 칸에 없다고 0으로 돌아가지 않는다)
+  await page.getByTestId('sl-buffer').fill('0.1');
+  await page.getByTestId('sl-buffer').press('Enter');
+  await setSetting(page, 'defaultRR', '2');
+  await expect(page.getByTestId('sl-buffer')).toHaveValue('0.1');
+  // 기본값으로 되돌리면 다시 원래 SL (여유 0 · 스윙 2봉)
   await page.locator('details.settings button.link').click();
   await expect.poll(async () => (await scenario(page))!.applied.sl).toBe(s0.applied.sl);
+});
+
+test('SL 여유 sits right under the SL row: chips 0/0.5/1/2% or typed %, recalculates the auto SL, warns inside the hunting zone, keeps a dragged SL', async ({ page }) => {
+  await open(page, { tf: '15' });
+  await page.getByTestId('btn-long').click();
+  await expect.poll(() => scenario(page)).not.toBeNull();
+  let s0 = (await scenario(page))!;
+  if (s0.auto.sl.price === null) {
+    await page.getByTestId('btn-short').click();
+    await expect.poll(async () => (await scenario(page))?.side).toBe('SHORT');
+    s0 = (await scenario(page))!;
+  }
+  const long = s0.side === 'LONG';
+  // 손절 줄 바로 다음, 가격 카드 안
+  const row = page.getByTestId('sl-buffer-row');
+  await expect(row).toBeVisible();
+  expect(await row.evaluate((el) => el.previousElementSibling?.classList.contains('sl') && !!el.closest('[data-testid=group-levels]'))).toBe(true);
+  const chips = page.getByTestId('sl-buffer-chip');
+  await expect(chips).toHaveText(['0%', '0.5%', '1%', '2%']);
+  const lit = () => chips.evaluateAll((els) => els.filter((e) => e.getAttribute('aria-pressed') === 'true').map((e) => e.textContent));
+  expect(await lit()).toEqual(['0%']);
+  await expect(page.getByTestId('sl-buffer')).toHaveValue('0');
+  // 여유 p%: 꼬리 끝에서 바깥으로 p%, 틱(0.1)은 바깥쪽으로
+  const wickTicks = Math.round((long ? s0.auto.sl.candle!.low : s0.auto.sl.candle!.high) * 10);
+  const slFor = (p: number) => (long ? Math.floor(wickTicks * (1 - p / 100) + 1e-6) : Math.ceil(wickTicks * (1 + p / 100) - 1e-6)) / 10;
+  expect(s0.applied.sl).toBe(slFor(0));
+  await chips.filter({ hasText: /^1%$/ }).click();
+  await expect.poll(async () => (await scenario(page))!.applied.sl).toBe(slFor(1));
+  expect(await lit()).toEqual(['1%']);
+  await expect(page.getByTestId('sl-rationale')).toContainText('여유 1%');
+  const s1 = (await scenario(page))!;
+  expect([s1.id, s1.entry, s1.priceTime, s1.source.sl]).toEqual([s0.id, s0.entry, s0.priceTime, 'auto']);
+  // 직접 적기 (칩에 없는 값이면 칩은 꺼짐)
+  await page.getByTestId('sl-buffer').fill('0.25');
+  await page.getByTestId('sl-buffer').press('Enter');
+  await expect.poll(async () => (await scenario(page))!.applied.sl).toBe(slFor(0.25));
+  expect(await lit()).toEqual([]);
+  // 잘못 적으면 알려 주고 그대로
+  await page.getByTestId('sl-buffer').fill('abc');
+  await page.getByTestId('sl-buffer').press('Enter');
+  await expect(page.getByTestId('toast')).toContainText('SL 여유는');
+  await expect(page.getByTestId('sl-buffer')).toHaveValue('0.25');
+  // 2%면 SL이 헌팅존(꼬리 끝 2~10%) 안 → 경고
+  await chips.filter({ hasText: /^2%$/ }).click();
+  await expect.poll(async () => (await scenario(page))!.applied.sl).toBe(slFor(2));
+  await expect(page.getByTestId('sl-buffer-note')).toHaveText('💀 SL이 헌팅존 안');
+  await chips.filter({ hasText: /^0\.5%$/ }).click();
+  await expect(page.getByTestId('sl-buffer-note')).toHaveText('');
+  // 새로고침해도 남는다
+  await page.reload();
+  await waitLive(page);
+  await expect(page.getByTestId('sl-buffer')).toHaveValue('0.5');
+  // 직접 옮긴 SL은 여유를 바꿔도 그대로 (안내 표시)
+  const s2 = (await scenario(page))!;
+  const moved = Number((s2.applied.sl! + (long ? -15 : 15)).toFixed(1));
+  await setLevel(page, 'sl', moved.toFixed(1));
+  await expect(page.getByTestId('sl-buffer-note')).toHaveText('직접 옮긴 SL은 그대로');
+  await chips.filter({ hasText: /^1%$/ }).click();
+  await page.waitForTimeout(300);
+  expect((await scenario(page))!.applied.sl).toBe(moved);
+  expect((await scenario(page))!.auto.sl.price).toBe(slFor(1)); // 자동값은 새 여유로
 });
 
 test('SL timeframe can be picked in every SL mode: default = chart, picking another recalculates the open SL', async ({ page }) => {

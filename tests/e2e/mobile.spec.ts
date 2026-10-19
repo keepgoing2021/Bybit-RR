@@ -250,3 +250,22 @@ test('phone: the stop-hunting zone label stays clear of the SL / target / RR lab
     expect(c.y + c.h).toBeLessThanOrEqual(Math.min(paneH, Math.max(h.yNear, h.yFar)) + 0.5);
   }
 });
+
+test('phone: SL 여유 row under the SL row fits the screen with tappable chips', async ({ page }) => {
+  await open(page);
+  await page.getByTestId('btn-long').tap();
+  await expect.poll(() => page.evaluate(() => (window as unknown as W).__rrDebug.getScenario())).not.toBeNull();
+  const row = page.getByTestId('sl-buffer-row');
+  await row.scrollIntoViewIfNeeded();
+  const r = await rect(page, 'sl-buffer-row');
+  expect(r.right).toBeLessThanOrEqual(390);
+  const chips = await page.getByTestId('sl-buffer-chip').evaluateAll((els) => els.map((e) => e.getBoundingClientRect().toJSON() as DOMRect));
+  expect(new Set(chips.map((b) => Math.round(b.top))).size).toBe(1);
+  for (const b of chips) {
+    expect(b.height).toBeGreaterThanOrEqual(36);
+    expect(b.right).toBeLessThanOrEqual(390);
+  }
+  await page.getByTestId('sl-buffer-chip').nth(2).tap();
+  await expect(page.getByTestId('sl-buffer')).toHaveValue('1');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+});

@@ -100,5 +100,6 @@ export function settingsSummary(s: AnalysisSettings): string {
         : s.slMode === 'spike'
           ? `큰 캔들 ${s.lookback}봉`
           : '직전 봉';
-  return `${how} · 여유 ${s.slBufferPct}% · 1:${s.defaultRR}`;
+  // SL 여유는 패널 손절 줄 아래에 따로 있어서 요약에서 뺀다
+  return `${how} · 1:${s.defaultRR}`;
 }
