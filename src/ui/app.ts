@@ -17,7 +17,13 @@ import { boxShiftOf, createScenario, replaceAuto, restoreAuto, setBoxShift, setE
 import { DEFAULT_SETTINGS, SL_MODES, sanitizeSettings, type AnalysisSettings, type SlMode } from '../core/settings';
 import {
   DEFAULT_SIZING,
+  DEFAULT_FEE_TIER,
+  FEE_RATES,
+  FEE_TIERS,
   feeAtStop,
+  feePctText,
+  isFeeTier,
+  type FeeTier,
   MAX_SPLITS,
   parseSplitCount,
   planSizing,
@@ -99,6 +105,9 @@ const PHONE = typeof window !== 'undefined' && window.matchMedia ? window.matchM
 /** 화면 테마 (다크 = 기본, 검정 바탕). index.html의 첫 스크립트도 같은 키를 읽어 깜빡임 없이 연다 */
 export const THEME_KEY = 'rrtool.v1.theme';
 
+/** 손절 시 수수료에 쓰는 Bybit 수수료 등급 (일반·VIP1~5) */
+export const FEE_TIER_KEY = 'rrtool.v1.feetier';
+
 /** 패널의 손익비 빠른 선택 칩 */
 const RR_CHIPS = [1, 1.5, 2, 2.5, 3];
 
@@ -147,6 +156,7 @@ export class App {
   private lastCopied: string | null = null;
   /** 방금 복사한 주문표 칸 (표는 매번 새로 그려지므로 앱이 기억). 1.2초 동안 초록 체크 */
   private copied: { key: string; until: number } | null = null;
+  private feeTier: FeeTier = DEFAULT_FEE_TIER;
   /** 되돌리기 알림 (마지막 지우기 하나만) */
   private undoAction: { run: () => void; timer: number } | null = null;
   /** SL·TP 선을 끄는 중이면 숫자 굴림 효과를 끈다 */
@@ -162,6 +172,7 @@ export class App {
   async start(): Promise<void> {
     this.settings = loadSettings(this.d.storage);
     this.sizing = loadSizing(this.d.storage);
+    this.feeTier = this.loadFeeTier();
     this.drawingsBySymbol = loadDrawings(this.d.storage);
     const saved = loadState(this.d.storage);
     // 계산기라 '종료된 시나리오'는 없다 (이전 버전에서 종료한 것은 버린다)
@@ -1104,6 +1115,26 @@ export class App {
       });
   }
 
+  private loadFeeTier(): FeeTier {
+    try {
+      const v = this.d.storage.getItem(FEE_TIER_KEY);
+      return isFeeTier(v) ? v : DEFAULT_FEE_TIER;
+    } catch {
+      return DEFAULT_FEE_TIER;
+    }
+  }
+
+  /** 수수료 등급 버튼: 고르면 저장하고 수수료 줄만 다시 계산 */
+  private setFeeTier(tier: FeeTier): void {
+    this.feeTier = tier;
+    try {
+      this.d.storage.setItem(FEE_TIER_KEY, tier);
+    } catch {
+      // 저장 못 해도 이번 화면에는 적용
+    }
+    this.renderNow();
+  }
+
   private loadDrawColor(): string | null {
     try {
       const c = this.d.storage.getItem(DRAW_COLOR_KEY);
@@ -1163,12 +1194,26 @@ export class App {
     const sum = { total: mk('total'), lev: mk('lev'), fee: mk('fee'), loss: mk('loss'), profit: mk('profit'), avg: mk('avg'), rr: mk('rr') };
     // 손절 시 수수료가 손실에서 차지하는 몫: 한 줄 + 얇은 막대 (10% 미만 초록, 20% 미만 노랑, 그 이상 빨강)
     const feeFill = h('span', { class: 'fee-fill', 'data-testid': 'sizing-fee-fill' });
-    const feeTitle = '전부 체결 후 손절 시: 지정가 진입 0.02% + 시장가 손절 0.055% (Bybit 기본 등급). 막대 끝 = 50%';
+    // 설명(마우스를 올리면 보임)은 고른 등급의 수수료로 그릴 때마다 바꾼다
+    const feeDt = h('dt', {}, '손절 시 수수료');
+    // Bybit 수수료 등급 버튼 (일반 · VIP1~5). 고른 등급은 브라우저에 기억
+    const feeTierBtns = FEE_TIERS.map((t) => {
+      const b = h('button', { type: 'button', class: 'fee-tier', 'data-testid': 'fee-tier', 'data-tier': t, 'aria-pressed': 'false' }, FEE_RATES[t].label);
+      b.addEventListener('click', () => this.setFeeTier(t));
+      return b;
+    });
+    const feeRates = h('span', { class: 'fee-rates num', 'data-testid': 'fee-rates' });
+    const feeTiers = h(
+      'div',
+      { class: 'fee-tier-row' },
+      h('div', { class: 'fee-tiers', role: 'group', 'aria-label': 'Bybit 수수료 등급' }, ...feeTierBtns),
+      feeRates,
+    );
     // 금액은 윗줄, '손실의 몇 %'는 얇은 막대 오른쪽에 (한 줄이 길어져 줄바꿈되지 않게)
     const feeShare = h('span', { class: 'fee-share num', 'data-testid': 'sizing-fee-share' });
     const feeMeter = h(
       'div',
-      { class: 'fee-row', title: feeTitle },
+      { class: 'fee-row' },
       h('div', { class: 'fee-meter', 'aria-hidden': 'true' }, feeFill, h('span', { class: 'fee-tick', style: 'left: 20%' }), h('span', { class: 'fee-tick', style: 'left: 40%' })),
       feeShare,
     );
@@ -1178,8 +1223,9 @@ export class App {
       { class: 'metrics', 'data-testid': 'sizing-summary' },
       h('dt', {}, '총 포지션'), sum.total,
       h('dt', {}, '필요 레버리지'), sum.lev,
-      h('dt', { title: feeTitle }, '손절 시 수수료'), sum.fee,
+      feeDt, sum.fee,
       feeMeter,
+      feeTiers,
       h('dt', { class: 'group' }, '모두 체결되면'), h('dd', { class: 'group' }, avgToggle),
       // 강조 띠는 두 칸을 묶은 한 줄 (긴 이름이 왼쪽 칸 폭을 넓혀 숫자들이 줄바꿈되지 않게)
       h('div', { class: 'avg-row' }, h('dt', { class: 'avg' }, '전부 체결 시 예상 평단'), sum.avg),
@@ -1258,7 +1304,7 @@ export class App {
     linear.addEventListener('click', () => apply('linear'));
     equal.addEventListener('click', () => apply('equal'));
     for (const c of [capital, splits, weights]) c.addEventListener('keydown', (e) => e.key === 'Enter' && c.blur());
-    return { bar, fold, box, capital, risk, splits, weights, linear, equal, reason, table, body, summary, sum, avgShow, feeFill, feeMeter, feeShare };
+    return { bar, fold, box, capital, risk, splits, weights, linear, equal, reason, table, body, summary, sum, avgShow, feeFill, feeMeter, feeShare, feeDt, feeTierBtns, feeRates };
   }
 
   /** 상단 바의 분할 진입 입력칸을 저장된 값으로 맞춘다 (시나리오가 없어도 보인다) */
@@ -1340,7 +1386,18 @@ export class App {
     const lev = plan.leverage;
     setText(z.sum.total, `${usdt(plan.totalNotional)} USDT`);
     setText(z.sum.lev, lev > 1 ? `${(Math.ceil(lev * 10) / 10).toFixed(1)}배 이상` : '없음 (1배 이하)');
-    const fee = feeAtStop(plan);
+    const fee = feeAtStop(plan, this.feeTier);
+    const rate = FEE_RATES[this.feeTier];
+    const tierName = this.feeTier === 'vip0' ? 'Bybit 일반 등급' : `Bybit ${rate.label}`;
+    const why = `전부 체결 후 손절 시: 지정가 진입 ${feePctText(rate.maker)} + 시장가 손절 ${feePctText(rate.taker)} (${tierName}). 막대 끝 = 50%`;
+    z.feeDt.title = why;
+    z.feeMeter.title = why;
+    setText(z.feeRates, `지정가 ${feePctText(rate.maker)} · 시장가 ${feePctText(rate.taker)}`);
+    for (const b of z.feeTierBtns) {
+      const on = b.dataset.tier === this.feeTier;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-pressed', String(on));
+    }
     const zone = fee.sharePct === null ? '' : fee.sharePct < 10 ? 'low' : fee.sharePct < 20 ? 'mid' : 'high';
     setText(z.sum.fee, `${usdt(fee.fee)} USDT`);
     setText(z.feeShare, fee.sharePct === null ? '' : `손실의 ${fee.sharePct.toFixed(0)}%`);

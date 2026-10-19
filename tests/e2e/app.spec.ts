@@ -685,7 +685,15 @@ test('previous-candle SL mode uses the previous closed candle of the SL timefram
   await setSlMode(page, 'prevCandle');
   await page.getByTestId('btn-long').click();
   await expect.poll(() => scenario(page)).not.toBeNull();
-  const s = (await scenario(page))!;
+  let s = (await scenario(page))!;
+  // 가짜 시세는 시각에 따라 움직여서, 지금가가 직전 4시간봉 저가 아래면 LONG의 SL이 무효다.
+  // 그때는 고가가 반드시 지금가 위이므로 SHORT로 확인한다 (어느 한쪽은 늘 유효)
+  if (s.auto.sl.price === null) {
+    await page.getByTestId('btn-short').click();
+    await expect.poll(async () => (await scenario(page))?.side).toBe('SHORT');
+    s = (await scenario(page))!;
+  }
+  expect(s.auto.sl.price).not.toBeNull();
   const H4 = 4 * 3600_000;
   expect(s.auto.sl.method).toBe('prevCandle');
   expect(s.auto.sl.timeframe).toBe('240');
@@ -1109,6 +1117,58 @@ test('fee at stop: amount and share of the loss, colored by zone, with a small m
   expect(colors).not.toBe('');
 });
 
+test('fee tier buttons (일반 · VIP1–5) switch the Bybit fee used for the fee at stop, and are remembered', async ({ page }) => {
+  await open(page, { tf: '15' });
+  await validLong(page);
+  await page.getByTestId('sizing-capital').fill('10,000');
+  await page.getByTestId('sizing-capital').press('Enter');
+  const tiers = page.getByTestId('fee-tier');
+  await expect(tiers).toHaveText(['일반', 'VIP1', 'VIP2', 'VIP3', 'VIP4', 'VIP5']);
+  const lit = () => tiers.evaluateAll((els) => els.filter((e) => e.getAttribute('aria-pressed') === 'true').map((e) => e.textContent));
+  expect(await lit()).toEqual(['일반']);
+  await expect(page.getByTestId('fee-rates')).toHaveText('지정가 0.02% · 시장가 0.055%');
+  const num = (t: string) => Number(t.replace(/,/g, ''));
+  const read = async () => ({
+    total: num((await page.getByTestId('sizing-total').textContent())!.match(/([\d,.]+) USDT/)![1]),
+    fee: num((await page.getByTestId('sizing-fee').textContent())!.match(/^([\d,.]+) USDT$/)![1]),
+    share: Number((await page.getByTestId('sizing-fee-share').textContent())!.match(/(\d+)%/)![1]),
+  });
+  const base = await read();
+  expect(Math.abs(base.fee - base.total * 0.00075)).toBeLessThan(0.011);
+  // Bybit 파생상품 표: (메이커 + 테이커) %
+  const table: [string, number, string][] = [
+    ['VIP1', 0.058, '지정가 0.018% · 시장가 0.04%'],
+    ['VIP2', 0.0535, '지정가 0.016% · 시장가 0.0375%'],
+    ['VIP3', 0.049, '지정가 0.014% · 시장가 0.035%'],
+    ['VIP4', 0.044, '지정가 0.012% · 시장가 0.032%'],
+    ['VIP5', 0.042, '지정가 0.01% · 시장가 0.032%'],
+  ];
+  let prev = base.fee;
+  for (const [name, pct, rates] of table) {
+    await tiers.filter({ hasText: name }).click();
+    await expect(page.getByTestId('fee-rates')).toHaveText(rates);
+    expect(await lit()).toEqual([name]);
+    const r = await read();
+    expect(Math.abs(r.fee - (r.total * pct) / 100)).toBeLessThan(0.011);
+    expect(r.fee).toBeLessThan(prev); // 등급이 오를수록 수수료가 준다
+    expect(r.total).toBe(base.total); // 포지션 크기·손실 계산은 그대로
+    prev = r.fee;
+    await expect(page.locator('.metrics dt', { hasText: '손절 시 수수료' })).toHaveAttribute('title', new RegExp(`Bybit ${name}`));
+  }
+  // 버튼 여섯 개는 한 줄
+  expect(await tiers.evaluateAll((els) => new Set(els.map((e) => Math.round(e.getBoundingClientRect().top))).size)).toBe(1);
+  // 새로고침해도 VIP5
+  await page.reload();
+  await waitLive(page);
+  expect(await page.evaluate(() => localStorage.getItem('rrtool.v1.feetier'))).toBe('vip5');
+  await page.getByTestId('btn-long').click();
+  await expect(page.getByTestId('sizing-row').first()).toBeVisible();
+  expect(await lit()).toEqual(['VIP5']);
+  await expect(page.getByTestId('fee-rates')).toHaveText('지정가 0.01% · 시장가 0.032%');
+  await tiers.filter({ hasText: '일반' }).click();
+  expect(await lit()).toEqual(['일반']);
+});
+
 test('RR and the profit roll in when they change, but not on every price tick or while dragging', async ({ page }) => {
   await open(page, { tf: '15', speed: 4 });
   await page.getByTestId('btn-long').click();
@@ -1125,12 +1185,11 @@ test('RR and the profit roll in when they change, but not on every price tick or
   // 시세만 흐를 때는 그대로
   await page.waitForTimeout(1500);
   expect(await cls()).toEqual(before);
-  // 칩으로 RR을 바꾸면 세 곳 모두 다시 굴러간다 (roll-a ↔ roll-b)
-  await expect.poll(async () => (await rendered(page))?.presets.length ?? 0).toBeGreaterThan(2);
-  const { g, r, shown } = await visiblePresets(page);
-  const pick = shown.find((p) => p.label !== '1:1.5')!;
-  await page.mouse.click(r.left + (g.x1 + g.x2) / 2, r.top + pick.y);
-  await expect(page.getByTestId('rr-input')).toHaveValue(pick.label.slice(2));
+  // 칩으로 RR을 바꾸면 세 곳 모두 다시 굴러간다 (roll-a ↔ roll-b).
+  // 패널 칩을 쓴다: 차트 칩은 손절폭이 좁으면(가짜 시세가 그런 시각이면) 겹쳐서 숨겨진다
+  await page.locator('[data-testid=rr-chip][data-rr="2.5"]').click();
+  await expect(page.getByTestId('rr-input')).toHaveValue('2.5');
+  const r = await chartRect(page);
   const after = await cls();
   for (const k of ['rr', 'sum', 'profit'] as const) {
     expect(after[k]).toMatch(/^roll-[ab]$/);

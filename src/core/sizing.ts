@@ -247,15 +247,44 @@ export function resizeSplits(s: SizingSettings, n: number): SizingSettings {
   return { ...s, splits: n, customWeights: Array.from({ length: n }, (_, k) => cw[Math.min(k, cw.length - 1)] ?? 1) };
 }
 
-/** Bybit 기본 등급 수수료 (지정가 진입 = 메이커, 시장가 손절 = 테이커). 2026-10 Bybit 수수료 표 기준 */
-export const FEE_MAKER = 0.0002;
-export const FEE_TAKER = 0.00055;
+/**
+ * Bybit USDT 무기한 기본 수수료 (등급별, 지정가 = 메이커 · 시장가 = 테이커).
+ * 출처: Bybit 도움말 'Trading Fee Structure'(2026-09-02 갱신)·'Benefits of the VIP Program'(2026-10-12 갱신)의 파생상품 표.
+ * 지역·이노베이션 존 종목은 다를 수 있다
+ */
+export const FEE_TIERS = ['vip0', 'vip1', 'vip2', 'vip3', 'vip4', 'vip5'] as const;
+export type FeeTier = (typeof FEE_TIERS)[number];
+export const FEE_RATES: Record<FeeTier, { label: string; maker: number; taker: number }> = {
+  vip0: { label: '일반', maker: 0.0002, taker: 0.00055 },
+  vip1: { label: 'VIP1', maker: 0.00018, taker: 0.0004 },
+  vip2: { label: 'VIP2', maker: 0.00016, taker: 0.000375 },
+  vip3: { label: 'VIP3', maker: 0.00014, taker: 0.00035 },
+  vip4: { label: 'VIP4', maker: 0.00012, taker: 0.00032 },
+  vip5: { label: 'VIP5', maker: 0.0001, taker: 0.00032 },
+};
+export const DEFAULT_FEE_TIER: FeeTier = 'vip0';
+/** 기본 등급(일반) 수수료 */
+export const FEE_MAKER = FEE_RATES.vip0.maker;
+export const FEE_TAKER = FEE_RATES.vip0.taker;
+
+export function isFeeTier(v: unknown): v is FeeTier {
+  return typeof v === 'string' && (FEE_TIERS as readonly string[]).includes(v);
+}
+
+/** 0.00018 → '0.018%' (Bybit 표처럼, 끝의 0은 지움) */
+export function feePctText(rate: number): string {
+  return `${Number((rate * 100).toFixed(4))}%`;
+}
 
 /**
  * 전부 체결된 뒤 SL에 맞았을 때 내는 수수료와, 그것이 손실(가격 손실)에서 차지하는 비율(%).
  * 진입은 지정가(메이커), 손절은 시장가(테이커)로 가정. 손실이 0이면 비율은 null
  */
-export function feeAtStop(plan: Pick<SizingPlan, 'totalNotional' | 'lossAtSl'>): { fee: number; sharePct: number | null } {
-  const fee = plan.totalNotional * (FEE_MAKER + FEE_TAKER);
+export function feeAtStop(
+  plan: Pick<SizingPlan, 'totalNotional' | 'lossAtSl'>,
+  tier: FeeTier = DEFAULT_FEE_TIER,
+): { fee: number; sharePct: number | null } {
+  const r = FEE_RATES[tier];
+  const fee = plan.totalNotional * (r.maker + r.taker);
   return { fee, sharePct: plan.lossAtSl > 0 ? (fee / plan.lossAtSl) * 100 : null };
 }

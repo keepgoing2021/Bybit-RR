@@ -2,7 +2,11 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_SIZING,
   EQUAL_RISK_WORD,
+  FEE_RATES,
+  FEE_TIERS,
   feeAtStop,
+  feePctText,
+  isFeeTier,
   linearRatio,
   MAX_SPLITS,
   parseSplitCount,
@@ -279,5 +283,40 @@ describe('feeAtStop (fee meter under the order table)', () => {
     if (!r.ok) throw new Error(r.reason);
     expect(feeAtStop(r.plan).fee).toBeCloseTo(r.plan.totalNotional * 0.00075, 9);
     expect(feeAtStop({ totalNotional: 0, lossAtSl: 0 }).sharePct).toBeNull();
+  });
+
+  it('Bybit VIP tiers (derivatives table): maker + taker per tier, lower tiers never cheaper', () => {
+    // Bybit 도움말 파생상품 표 (메이커 / 테이커 %)
+    const table: [string, number, number][] = [
+      ['vip0', 0.02, 0.055],
+      ['vip1', 0.018, 0.04],
+      ['vip2', 0.016, 0.0375],
+      ['vip3', 0.014, 0.035],
+      ['vip4', 0.012, 0.032],
+      ['vip5', 0.01, 0.032],
+    ];
+    expect(FEE_TIERS).toEqual(table.map((t) => t[0]));
+    for (const [tier, maker, taker] of table) {
+      const r = FEE_RATES[tier as (typeof FEE_TIERS)[number]];
+      expect(r.maker * 100).toBeCloseTo(maker, 9);
+      expect(r.taker * 100).toBeCloseTo(taker, 9);
+      // 2.5만 USDT 포지션 → 수수료 = 2.5만 × (메이커 + 테이커)
+      expect(feeAtStop({ totalNotional: 25_000, lossAtSl: 100 }, tier as (typeof FEE_TIERS)[number]).fee).toBeCloseTo(25_000 * (maker + taker) / 100, 9);
+    }
+    // VIP1: 2.5만 × 0.058% = 14.5 USDT → 손실 100의 14.5% (일반 18.75%보다 낮음)
+    expect(feeAtStop({ totalNotional: 25_000, lossAtSl: 100 }, 'vip1').sharePct).toBeCloseTo(14.5, 9);
+    const sums = FEE_TIERS.map((t) => FEE_RATES[t].maker + FEE_RATES[t].taker);
+    for (let k = 1; k < sums.length; k++) expect(sums[k]).toBeLessThan(sums[k - 1]);
+    expect(feeAtStop({ totalNotional: 25_000, lossAtSl: 100 }).fee).toBeCloseTo(18.75, 9); // 기본 = 일반
+  });
+
+  it('fee text and tier check', () => {
+    expect(feePctText(0.00018)).toBe('0.018%');
+    expect(feePctText(0.000375)).toBe('0.0375%');
+    expect(feePctText(0.00055)).toBe('0.055%');
+    expect(feePctText(0.0001)).toBe('0.01%');
+    expect(isFeeTier('vip3')).toBe(true);
+    expect(isFeeTier('vip6')).toBe(false);
+    expect(isFeeTier(null)).toBe(false);
   });
 });

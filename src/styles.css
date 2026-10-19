@@ -1870,3 +1870,54 @@ button.undo-btn {
   animation: none;
   mix-blend-mode: normal;
 }
+
+/* 수수료 등급 버튼 (일반 · VIP1~5): 수수료 막대 바로 아래 한 줄 */
+.fee-tier-row {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: -2px 0 4px;
+}
+
+.fee-tiers {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 4px;
+}
+
+button.fee-tier {
+  min-height: 26px;
+  padding: 0;
+  border-radius: 5px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+button.fee-tier:hover {
+  color: var(--text);
+  border-color: var(--line-hover);
+}
+
+button.fee-tier.active {
+  color: var(--text);
+  border-color: var(--entry);
+  background: var(--ink-08);
+}
+
+.fee-rates {
+  font-size: 11px;
+  color: var(--muted);
+  text-align: right;
+}
+
+@media (max-width: 640px) {
+  button.fee-tier {
+    min-height: 36px;
+    font-size: 12.5px;
+  }
+}

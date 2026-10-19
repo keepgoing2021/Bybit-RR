@@ -195,3 +195,28 @@ test('phone: panel RR chips sit in one row inside the screen, big enough to tap,
   // 카드로 묶여도 주문표·패널이 옆으로 넘치지 않는다
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 });
+
+test('phone: fee tier buttons fit one row, big enough to tap, and change the fee', async ({ page }) => {
+  await open(page);
+  await page.getByTestId('sizing-toggle').tap();
+  await page.getByTestId('sizing-capital').fill('10000');
+  await page.getByTestId('sizing-capital').press('Enter');
+  await page.getByTestId('sizing-toggle').tap();
+  await page.getByTestId('btn-long').tap();
+  await expect(page.getByTestId('sizing-row').first()).toBeVisible();
+  const tiers = page.getByTestId('fee-tier');
+  await tiers.first().scrollIntoViewIfNeeded();
+  const boxes = await tiers.evaluateAll((els) => els.map((e) => e.getBoundingClientRect().toJSON() as DOMRect));
+  expect(boxes).toHaveLength(6);
+  expect(new Set(boxes.map((b) => Math.round(b.top))).size).toBe(1);
+  for (const b of boxes) {
+    expect(b.left).toBeGreaterThanOrEqual(0);
+    expect(b.right).toBeLessThanOrEqual(390);
+    expect(b.height).toBeGreaterThanOrEqual(36);
+  }
+  const before = await page.getByTestId('sizing-fee').textContent();
+  await tiers.nth(3).tap();
+  await expect(page.getByTestId('fee-rates')).toHaveText('지정가 0.014% · 시장가 0.035%');
+  await expect(page.getByTestId('sizing-fee')).not.toHaveText(before!);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+});
