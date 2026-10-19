@@ -1,17 +1,56 @@
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap');
 
 :root {
-  --bg: #0e1420;
-  --panel: #141c2b;
-  --raised: #1a2436;
-  --line: #243045;
-  --text: #dce3ee;
-  --muted: #8c98ad;
+  /* 다크 (기본): 검정 바탕. 값은 src/chart/theme.ts의 DARK와 같게 */
+  --bg: #000000;
+  --panel: #0b0c0f;
+  --raised: #15171c;
+  --line: #262a31;
+  --line-hover: #3d434d;
+  --text: #e6e8eb;
+  --muted: #8b929c;
   --profit: #2ebd85;
   --loss: #f0616d;
   --entry: #e8b44c;
+  --warning: #f5a524;
+  /* 강조 글자·선 (다크 = 흰색, 라이트 = 거의 검정) */
+  --ink: #ffffff;
+  --ink-04: rgba(255, 255, 255, 0.04);
+  --ink-08: rgba(255, 255, 255, 0.08);
+  --ink-10: rgba(255, 255, 255, 0.1);
+  --ink-25: rgba(255, 255, 255, 0.25);
+  --ink-40: rgba(255, 255, 255, 0.4);
+  /* 차트 위에 뜨는 막대·하단 버튼 줄 배경 */
+  --overlay: rgba(0, 0, 0, 0.92);
+  --error-text: #ffc9ce;
+  --danger-text: #ffb3ba;
   --font: 'IBM Plex Sans KR', system-ui, -apple-system, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
   color-scheme: dark;
+}
+
+/* 라이트: 값은 src/chart/theme.ts의 LIGHT와 같게 */
+:root[data-theme='light'] {
+  --bg: #ffffff;
+  --panel: #f5f6f8;
+  --raised: #ffffff;
+  --line: #dde1e6;
+  --line-hover: #b9c0c9;
+  --text: #14171c;
+  --muted: #5d6673;
+  --profit: #12a06b;
+  --loss: #e03e4d;
+  --entry: #c4870c;
+  --warning: #b86e00;
+  --ink: #14171c;
+  --ink-04: rgba(20, 23, 28, 0.03);
+  --ink-08: rgba(20, 23, 28, 0.06);
+  --ink-10: rgba(20, 23, 28, 0.07);
+  --ink-25: rgba(20, 23, 28, 0.25);
+  --ink-40: rgba(20, 23, 28, 0.4);
+  --overlay: rgba(255, 255, 255, 0.94);
+  --error-text: #b4232f;
+  --danger-text: #c62f3c;
+  color-scheme: light;
 }
 
 [hidden] {
@@ -171,7 +210,7 @@ button {
 }
 
 button:hover:not(:disabled) {
-  border-color: #3a4a66;
+  border-color: var(--line-hover);
 }
 
 button:disabled {
@@ -253,7 +292,7 @@ button:disabled {
 
 .banner.error {
   background: rgba(240, 97, 109, 0.12);
-  color: #ffc9ce;
+  color: var(--error-text);
 }
 
 button.link {
@@ -446,22 +485,22 @@ button.copy:hover {
   white-space: nowrap;
   align-items: baseline;
   padding: 2px 10px 4px 12px;
-  border: 1px solid rgba(255, 255, 255, 0.4);
+  border: 1px solid var(--ink-40);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--ink-04);
   cursor: text;
   transition: background 0.12s, border-color 0.12s;
 }
 
 .rr-edit:hover,
 .rr-edit:focus-within {
-  border-color: #ffffff;
-  background: rgba(255, 255, 255, 0.08);
+  border-color: var(--ink);
+  background: var(--ink-08);
 }
 
-/* '1:'은 흰색, 고칠 수 있는 숫자만 빨강 */
+/* '1:'은 흰색(라이트에선 검정), 고칠 수 있는 숫자만 빨강 */
 .rr-edit .rr-head {
-  color: #ffffff;
+  color: var(--ink);
 }
 
 .rr-edit input.rr {
@@ -485,7 +524,7 @@ button.copy:hover {
   align-self: center;
   margin-left: 6px;
   font-size: 15px;
-  color: #ffffff;
+  color: var(--ink);
   opacity: 0.85;
 }
 
@@ -559,7 +598,7 @@ button.copy:hover {
 }
 
 button.danger {
-  color: #ffb3ba;
+  color: var(--danger-text);
 }
 
 .note {
@@ -643,14 +682,14 @@ button.danger {
 .sizing .metrics dt.avg,
 .sizing .metrics dd.avg {
   padding: 6px 8px;
-  background: rgba(255, 255, 255, 0.1);
-  color: #ffffff;
+  background: var(--ink-10);
+  color: var(--ink);
   font-weight: 700;
   font-size: 16px;
 }
 
 .sizing .metrics dt.avg {
-  border-left: 3px solid #ffffff;
+  border-left: 3px solid var(--ink);
   border-radius: 4px 0 0 4px;
 }
 
@@ -674,7 +713,7 @@ button.danger {
 
 .avg-toggle input {
   margin: 0;
-  accent-color: #ffffff;
+  accent-color: var(--ink);
   cursor: pointer;
 }
 
@@ -713,12 +752,12 @@ button.danger {
 }
 
 .sizing-table .stage-avg.final {
-  color: #ffffff;
+  color: var(--ink);
   font-weight: 700;
 }
 
 .sizing-table tr.too-small td {
-  color: var(--warning, #f5a524);
+  color: var(--warning);
 }
 
 /* 차트 왼쪽 위 범례: 캔들 정보 + 이동평균 */
@@ -940,7 +979,7 @@ button.weights-preset.active {
   padding: 5px 12px;
   border: 1px solid rgba(38, 198, 218, 0.6);
   border-radius: 6px;
-  background: rgba(14, 20, 32, 0.92);
+  background: var(--overlay);
   color: #26c6da;
   font-size: 12px;
   font-weight: 600;
@@ -961,7 +1000,7 @@ button.weights-preset.active {
   padding: 5px 8px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: rgba(14, 20, 32, 0.95);
+  background: var(--overlay);
   white-space: nowrap;
 }
 
@@ -980,12 +1019,12 @@ button.weights-preset.active {
   width: 18px;
   height: 18px;
   padding: 0;
-  border: 1px solid rgba(255, 255, 255, 0.25);
+  border: 1px solid var(--ink-25);
   border-radius: 50%;
 }
 
 .swatch.active {
-  outline: 2px solid #ffffff;
+  outline: 2px solid var(--ink);
   outline-offset: 1px;
 }
 
@@ -1126,7 +1165,7 @@ button.weights-preset.active {
     display: flex;
     gap: 10px;
     padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
-    background: rgba(14, 20, 32, 0.94);
+    background: var(--overlay);
     border-top: 1px solid var(--line);
     backdrop-filter: blur(6px);
   }
@@ -1172,5 +1211,35 @@ button.weights-preset.active {
   .panel {
     padding: 14px 12px 20px;
     gap: 16px;
+  }
+}
+
+/* 다크/라이트 전환 버튼 (상단 연결 상태 옆) */
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 30px;
+  padding: 3px 10px;
+  font-size: 12.5px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.theme-toggle .icon {
+  font-size: 14px;
+  color: var(--text);
+}
+
+@media (max-width: 640px) {
+  .theme-toggle {
+    min-width: 34px;
+    min-height: 34px;
+    justify-content: center;
+    padding: 0;
+  }
+
+  .theme-toggle .label {
+    display: none;
   }
 }

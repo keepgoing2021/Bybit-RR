@@ -1,5 +1,6 @@
 import { ChartView, type OverlayInput } from '../chart/chartView';
 import { DRAW_COLOR, DRAW_LINE_WIDTH } from '../chart/drawingsPrimitive';
+import { isThemeMode, setThemeMode, THEME, type ThemeMode } from '../chart/theme';
 import { CONFIG } from '../config';
 import { analyzeAutoLevels, type AutoSL } from '../core/analysis';
 import { captureEntry, evaluateFreshness, type FeedSnapshot, type Freshness } from '../core/freshness';
@@ -92,6 +93,9 @@ function slBandLabel(a: AutoSL, side: Side, chartTf: Timeframe): string {
 /** 폰 화면 (styles.css의 640px 구간과 같은 기준) */
 const PHONE = typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(max-width: 640px)') : ({ matches: false } as MediaQueryList);
 
+/** 화면 테마 (다크 = 기본, 검정 바탕). index.html의 첫 스크립트도 같은 키를 읽어 깜빡임 없이 연다 */
+export const THEME_KEY = 'rrtool.v1.theme';
+
 const DRAW_TOOLS_KEY = 'rrtool.v1.drawtools';
 const DRAW_COLOR_KEY = 'rrtool.v1.drawcolor';
 
@@ -133,6 +137,7 @@ export class App {
   private countdown: { text: string; remainingMs: number } | null = null;
   private lastCopied: string | null = null;
   private chart!: ChartView;
+  private themeMode: ThemeMode = 'dark';
   private el!: ReturnType<App['buildDom']>;
 
   constructor(private readonly d: AppDeps) {}
@@ -155,6 +160,8 @@ export class App {
       }
     }
 
+    this.themeMode = this.loadTheme();
+    this.setTheme(this.themeMode, false);
     this.el = this.buildDom();
     this.chart = new ChartView(this.el.chart, {
       onDrawingsChange: (list) => {
@@ -186,6 +193,7 @@ export class App {
       formatTime: (ms) => formatTime(ms),
     });
     this.chart.setDefaultDrawColor(this.loadDrawColor());
+    this.setTheme(this.themeMode, false); // 버튼 글자 (차트는 이미 이 테마 색으로 만들어짐)
     PHONE.addEventListener?.('change', () => this.renderTopbar());
     window.setInterval(() => {
       this.renderStatus();
@@ -534,6 +542,9 @@ export class App {
     const short = h('button', { class: 'side short', 'data-testid': 'btn-short', type: 'button' }, 'SHORT');
     const status = h('span', { class: 'pill', 'data-testid': 'feed-status', 'data-state': 'connecting' }, '연결 중');
     const statusReason = h('span', { class: 'status-reason' });
+    // 다크/라이트 전환 (누르면 반대 테마로). 폰에서는 아이콘만
+    const themeBtn = h('button', { type: 'button', class: 'theme-toggle', 'data-testid': 'theme-toggle' });
+    themeBtn.addEventListener('click', () => this.setTheme(this.themeMode === 'dark' ? 'light' : 'dark', true));
 
     const field = (label: string, control: HTMLElement) => h('label', { class: 'field' }, h('span', {}, label), control);
     const sizing = this.buildSizing(field);
@@ -545,7 +556,7 @@ export class App {
       field('차트', tf),
       field('SL 기준', sltf),
       h('div', { class: 'sides' }, long, short),
-      h('div', { class: 'status' }, status, statusReason),
+      h('div', { class: 'status' }, status, statusReason, themeBtn),
       sizing.fold,
       sizing.bar,
     );
@@ -721,7 +732,7 @@ export class App {
     });
 
     return {
-      picker, tf, sltf, long, short, status, statusReason,
+      picker, tf, sltf, long, short, status, statusReason, themeBtn,
       loadError, chart, empty, card, sideChip, title, entry, times, rr, rrInput, rrLabel, reasons,
       sl, tp, slWhy, tpWhy, sizing, restore, del, settingsInputs, toast, tools,
     };
@@ -808,6 +819,39 @@ export class App {
     } catch {
       // 무시
     }
+  }
+
+  private loadTheme(): ThemeMode {
+    try {
+      const v = this.d.storage.getItem(THEME_KEY);
+      return isThemeMode(v) ? v : 'dark';
+    } catch {
+      return 'dark';
+    }
+  }
+
+  /** 테마 적용: CSS(data-theme), 차트 색(THEME), 브라우저 상단 바 색, 버튼 글자. persist면 저장 */
+  private setTheme(mode: ThemeMode, persist: boolean): void {
+    this.themeMode = mode;
+    setThemeMode(mode);
+    document.documentElement.dataset.theme = mode;
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', THEME.bg);
+    this.chart?.applyTheme();
+    const btn = this.el?.themeBtn;
+    if (btn) {
+      const next = mode === 'dark' ? '라이트' : '다크';
+      btn.replaceChildren(h('span', { class: 'icon', 'aria-hidden': 'true' }, mode === 'dark' ? '☀' : '☾'), h('span', { class: 'label' }, next));
+      btn.title = `${next} 모드로 바꾸기`;
+      btn.setAttribute('aria-label', `${next} 모드로 바꾸기`);
+    }
+    if (persist) {
+      try {
+        this.d.storage.setItem(THEME_KEY, mode);
+      } catch {
+        // 저장 못 해도 이번 화면에는 적용
+      }
+    }
+    if (this.el && this.chart) this.renderNow(true);
   }
 
   private loadDrawColor(): string | null {
@@ -1214,6 +1258,8 @@ export class App {
       getLastPrice: () => this.feed.lastPrice?.price ?? null,
       getCountdown: () => this.countdown,
       getHighlight: () => this.chart.getHighlight(),
+      getTheme: () => this.themeMode,
+      chartBackground: () => this.chart.backgroundColor(),
       legendBottom: () => this.chart.legendBottom(),
       getOverlayLabels: () => this.chart.getOverlayLabels(),
       isBoxSelected: () => this.chart.isBoxSelected(),

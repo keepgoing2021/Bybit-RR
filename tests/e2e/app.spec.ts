@@ -10,6 +10,8 @@ type Debug = {
   timeToX(ms: number): number | null;
   isBoxSelected(): boolean;
   wickColors(): { up: string; down: string };
+  getTheme(): 'dark' | 'light';
+  chartBackground(): string;
   getDrawings(): { drawings: { id: string; kind: string; points: { time: number; price: number }[]; color?: string }[]; selected: string | null; handles: Record<string, { x: number; y: number }[]> };
   getDrawState(): { tool: string | null; placed: number };
   drawLineWidth(): number;
@@ -68,6 +70,44 @@ async function validLong(page: Page): Promise<Scenario> {
   await expect.poll(() => rendered(page)).not.toBeNull();
   return (await scenario(page))!;
 }
+
+test('black dark theme by default; the theme button switches to light and back, and is remembered', async ({ page }) => {
+  await open(page, { tf: '15' });
+  const look = () =>
+    page.evaluate(() => ({
+      theme: window.__rrDebug.getTheme(),
+      attr: document.documentElement.dataset.theme,
+      body: getComputedStyle(document.body).backgroundColor,
+      chart: window.__rrDebug.chartBackground(),
+      wick: window.__rrDebug.wickColors().up,
+      rrHead: getComputedStyle(document.querySelector('.rr-edit .rr-head')!).color,
+    }));
+  await validLong(page);
+  expect(await look()).toEqual({ theme: 'dark', attr: 'dark', body: 'rgb(0, 0, 0)', chart: '#000000', wick: '#FFFFFF', rrHead: 'rgb(255, 255, 255)' });
+  const toggle = page.getByTestId('theme-toggle');
+  await expect(toggle).toContainText('라이트');
+
+  await toggle.click();
+  // 라이트: 흰 바탕, 꼬리·'1:'·평단 같은 흰 강조는 거의 검정으로
+  expect(await look()).toEqual({ theme: 'light', attr: 'light', body: 'rgb(255, 255, 255)', chart: '#FFFFFF', wick: '#14171C', rrHead: 'rgb(20, 23, 28)' });
+  await expect(toggle).toContainText('다크');
+  expect(await page.evaluate(() => localStorage.getItem('rrtool.v1.theme'))).toBe('light');
+
+  // 새로고침해도 라이트. 앱 코드보다 먼저(페이지 첫 스크립트) 적용돼 검정 화면이 번쩍이지 않는다:
+  // 앱 코드를 막고 열어도 라이트
+  await page.route('**/tests/harness/main.ts', (r) => r.abort());
+  await page.reload();
+  expect(await page.evaluate(() => document.documentElement.dataset.theme)).toBe('light');
+  await page.unroute('**/tests/harness/main.ts');
+  await page.reload();
+  await waitLive(page);
+  expect((await look()).chart).toBe('#FFFFFF');
+
+  await page.getByTestId('theme-toggle').click();
+  await page.reload();
+  await waitLive(page);
+  expect((await look()).body).toBe('rgb(0, 0, 0)');
+});
 
 test('entry stays fixed while price moves', async ({ page }) => {
   await open(page, { speed: 60, tf: '1' });

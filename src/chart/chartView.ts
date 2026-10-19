@@ -144,9 +144,9 @@ export class ChartView {
       downColor: THEME.loss,
       borderUpColor: THEME.profit,
       borderDownColor: THEME.loss,
-      // 꼬리는 흰색 (몸통 색과 구분해 고저가 눈에 띄게)
-      wickUpColor: '#FFFFFF',
-      wickDownColor: '#FFFFFF',
+      // 꼬리는 흰색 (몸통 색과 구분해 고저가 눈에 띄게). 라이트 테마에서는 거의 검정
+      wickUpColor: THEME.ink,
+      wickDownColor: THEME.ink,
     });
     // 작도는 손익비 박스 아래에 그린다 (먼저 붙인 것이 아래)
     this.drawPrim = new DrawingsPrimitive(
@@ -539,6 +539,35 @@ export class ChartView {
     this.drawPrim.set({ drawings: this.drawings, selectedId: this.selectedDrawing, hoverId: this.hoverDrawing, draft });
   }
 
+  /**
+   * 테마를 바꾼 뒤(setThemeMode) 부른다: 차트 바탕·글자·격자·축, 캔들, 가격선, 박스·작도를 새 색으로 다시 그린다.
+   * 박스·작도·카운트다운은 그릴 때 THEME를 읽으므로 다시 그리기만 하면 된다.
+   */
+  applyTheme(): void {
+    this.chart.applyOptions({
+      layout: { background: { type: ColorType.Solid, color: THEME.bg }, textColor: THEME.textMuted },
+      grid: { vertLines: { color: THEME.grid }, horzLines: { color: THEME.grid } },
+      rightPriceScale: { borderColor: THEME.line },
+      timeScale: { borderColor: THEME.line },
+    });
+    this.series.applyOptions({
+      upColor: THEME.profit,
+      downColor: THEME.loss,
+      borderUpColor: THEME.profit,
+      borderDownColor: THEME.loss,
+      wickUpColor: THEME.ink,
+      wickDownColor: THEME.ink,
+    });
+    this.rebuildOverlay();
+    this.renderDrawings();
+  }
+
+  /** 검증용: 차트 바탕색 */
+  backgroundColor(): string {
+    const bg = this.chart.options().layout.background;
+    return bg.type === ColorType.Solid ? bg.color : '';
+  }
+
   /** 검증용: 캔들 꼬리 색 */
   wickColors(): { up: string; down: string } {
     const o = this.series.options();
@@ -664,7 +693,7 @@ export class ChartView {
       entry: { price: o ? o.entry : null, color: THEME.entry, title: '엔트리' },
       sl: { price: o ? o.sl : null, color: THEME.loss, title: 'SL' },
       tp: { price: o ? o.tp : null, color: THEME.profit, title: 'TP' },
-      avg: { price: o?.avgLines.find((a) => a.final)?.price ?? null, color: '#FFFFFF', title: '예상 평단' },
+      avg: { price: o?.avgLines.find((a) => a.final)?.price ?? null, color: THEME.ink, title: '예상 평단' },
     };
     for (const key of ['entry', 'sl', 'tp', 'avg'] as const) {
       const { price, color, title } = want[key];
@@ -673,7 +702,7 @@ export class ChartView {
         if (line) this.series.removePriceLine(line);
         this.lines[key] = null;
       } else if (line) {
-        line.applyOptions({ price });
+        line.applyOptions({ price, color });
       } else {
         this.lines[key] = this.series.createPriceLine({
           price,

@@ -197,7 +197,7 @@ export class RRBoxPrimitive implements ISeriesPrimitive<Time> {
       for (const a of g.avgLines) {
         ctx.globalAlpha = (m.closed ? 0.55 : 1) * (a.final ? 1 : 0.75);
         ctx.setLineDash(a.final ? [6, 4] : [2, 3]);
-        hline(ctx, g.x1, g.x2, a.y, '#FFFFFF', a.final ? 1.5 : 1);
+        hline(ctx, g.x1, g.x2, a.y, THEME.ink, a.final ? 1.5 : 1);
         ctx.setLineDash([]);
         ctx.globalAlpha = m.closed ? 0.55 : 1;
         if (a.showLabel) {
@@ -222,12 +222,12 @@ export class RRBoxPrimitive implements ISeriesPrimitive<Time> {
         const ys = [g.yEntry, g.ySl, g.yTp].filter((v): v is number => v !== null);
         const top = Math.min(...ys);
         const bottom = Math.max(...ys);
-        ctx.strokeStyle = '#FFFFFF';
+        ctx.strokeStyle = THEME.ink;
         ctx.lineWidth = 1;
         ctx.setLineDash([4, 3]);
         ctx.strokeRect(Math.round(g.x1) - 3.5, Math.round(top) - 3.5, g.x2 - g.x1 + 7, bottom - top + 7);
         ctx.setLineDash([]);
-        chip(ctx, 'Delete 키로 지우기', (g.x1 + g.x2) / 2, bottom + 38, THEME.chipDark, '#FFFFFF', mediaSize.width, '#FFFFFF');
+        chip(ctx, 'Delete 키로 지우기', (g.x1 + g.x2) / 2, bottom + 38, THEME.chipDark, THEME.ink, mediaSize.width, THEME.ink);
       }
 
       const cx = (g.x1 + g.x2) / 2;
@@ -279,16 +279,16 @@ function avgChip(ctx: Ctx, text: string, right: number, y: number, final: boolea
   ctx.font = `${final ? 700 : 600} 11px ${THEME.font}`;
   const w = ctx.measureText(text).width + 12;
   const h = 16;
-  ctx.fillStyle = final ? '#FFFFFF' : THEME.chipDark;
+  ctx.fillStyle = final ? THEME.ink : THEME.chipDark;
   roundRect(ctx, right - w, y - h / 2, w, h, 4);
   ctx.fill();
   if (!final) {
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
+    ctx.strokeStyle = THEME.inkSoft;
     ctx.lineWidth = 1;
     roundRect(ctx, right - w + 0.5, y - h / 2 + 0.5, w - 1, h - 1, 4);
     ctx.stroke();
   }
-  ctx.fillStyle = final ? THEME.chipText : '#FFFFFF';
+  ctx.fillStyle = final ? THEME.chipText : THEME.ink;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
   ctx.fillText(text, right - w + 6, y + 0.5);
@@ -306,7 +306,7 @@ function rrChip(ctx: Ctx, label: string, right: number, y: number, hot: boolean)
   const w = wHead + wNum + wTail + 12;
   const h = 16;
   const left = right - w;
-  ctx.fillStyle = hot ? '#123A2C' : THEME.chipDark;
+  ctx.fillStyle = hot ? THEME.chipHot : THEME.chipDark;
   roundRect(ctx, left, y - h / 2, w, h, 4);
   ctx.fill();
   ctx.strokeStyle = THEME.profit;

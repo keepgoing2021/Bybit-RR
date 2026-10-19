@@ -91,6 +91,19 @@ test('phone: order settings fold into one summary line; tap to open, edits updat
   expect(toast.bottom).toBeLessThanOrEqual(barTop);
 });
 
+test('phone: theme switch is an icon button in the top bar and works by tap', async ({ page }) => {
+  await open(page);
+  const toggle = page.getByTestId('theme-toggle');
+  const r = await rect(page, 'theme-toggle');
+  expect(r.right).toBeLessThanOrEqual(390);
+  expect(r.width).toBeGreaterThanOrEqual(32);
+  await expect(toggle.locator('.label')).toBeHidden();
+  await toggle.tap();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  const barBg = await page.locator('.topbar > .sides').evaluate((el) => getComputedStyle(el).backgroundColor);
+  expect(barBg).toBe('rgba(255, 255, 255, 0.94)');
+});
+
 test('phone: the SL candle label sits below the (wrapped) legend; SL 기준 shows "차트와 같음"', async ({ page }) => {
   await open(page);
   await expect(page.getByTestId('sltf').locator('option:checked')).toHaveText('차트와 같음');
