@@ -1344,15 +1344,41 @@ test('stop-hunting zone: 2–10% beyond the SL wick, as wide as the RR box, with
     }, { x1: g.x2 + 6, x2: Math.min(paneW - 6, g.x2 + 26), y: yMid });
     expect(out).toBeLessThan(8);
   }
-  // SL을 구간 안(꼬리에서 5% 바깥)으로 옮기면 이름표가 경고로, 꼬리 1% 바깥이면 다시 보통
-  await setLevel(page, 'sl', (wick * (long ? 0.95 : 1.05)).toFixed(1));
+  // SL 여유를 5%(구간 안)로 하면 이름표가 경고로, 1%면 다시 보통. 자동 SL일 때 구간은 꼬리 기준이라 그대로
+  await page.getByTestId('sl-buffer').fill('5');
+  await page.getByTestId('sl-buffer').press('Enter');
   await expect.poll(async () => (await hunt()).slInside).toBe(true);
   expect((await hunt()).label).toBe('스탑헌팅존 · SL이 안에 있음');
-  await setLevel(page, 'sl', (wick * (long ? 0.99 : 1.01)).toFixed(1));
+  await page.getByTestId('sl-buffer').fill('1');
+  await page.getByTestId('sl-buffer').press('Enter');
   await expect.poll(async () => (await hunt()).slInside).toBe(false);
-  // 구간은 SL이 아니라 꼬리 기준이라 SL을 옮겨도 그대로
-  h = await hunt();
-  expect(Math.abs(h.yNear - (await yOf(near)))).toBeLessThan(1);
+  await expect.poll(async () => Math.abs((await hunt()).yNear - (await yOf(near)))).toBeLessThan(1);
+  // SL을 직접 옮기면 구간도 같은 비율로 따라간다: 옮긴 꼬리 = 옮긴 SL ÷ (1 ∓ 여유 1%)
+  const followed = async (sl: number) => {
+    const tip = long ? sl / 0.99 : sl / 1.01;
+    const g2 = await hunt();
+    return Math.max(Math.abs(g2.yNear - (await yOf(tip * (long ? 0.98 : 1.02)))), Math.abs(g2.yFar - (await yOf(tip * (long ? 0.9 : 1.1)))));
+  };
+  const autoSl = (await scenario(page))!.applied.sl!;
+  // 차트에서 SL 선을 끌면 (자동 SL 자리에서 25px)
+  const gd = (await rendered(page))!;
+  await page.mouse.move(r.left + (gd.x1 + gd.x2) / 2, r.top + gd.ySl!);
+  await page.mouse.down();
+  await page.mouse.move(r.left + (gd.x1 + gd.x2) / 2, r.top + gd.ySl! + (long ? 25 : -25), { steps: 5 });
+  await page.mouse.up();
+  await expect.poll(async () => (await scenario(page))!.source.sl).toBe('manual');
+  const dragged = (await scenario(page))!.applied.sl!;
+  expect(dragged).not.toBe(autoSl);
+  await expect.poll(() => followed(dragged)).toBeLessThan(1);
+  expect((await hunt()).slInside).toBe(false); // 같은 여유(1%)라 SL은 여전히 구간 밖
+  // 가격칸에 적어 옮겨도 같다
+  const moved = Number((autoSl * (long ? 0.97 : 1.03)).toFixed(1));
+  await setLevel(page, 'sl', moved.toFixed(1));
+  await expect.poll(async () => (await scenario(page))!.applied.sl).toBe(moved);
+  await expect.poll(() => followed(moved)).toBeLessThan(1);
+  // 자동값으로 되돌리면 다시 꼬리 기준
+  await page.getByTestId('btn-restore').click();
+  await expect.poll(async () => Math.abs((await hunt()).yNear - (await yOf(near)))).toBeLessThan(1);
 });
 
 test('RR and the profit roll in when they change, but not on every price tick or while dragging', async ({ page }) => {

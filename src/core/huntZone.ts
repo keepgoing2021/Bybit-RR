@@ -22,7 +22,27 @@ export function huntZone(side: Side, wick: number, entry: number, nearPct = HUNT
   return { near: wick * (1 + (dir * nearPct) / 100), far: wick * (1 + (dir * farPct) / 100) };
 }
 
-/** 가격이 구간 안(경계 포함)인지 */
+/** 가격이 구간 안(경계 포함, 실수 오차 허용)인지 */
 export function inHuntZone(z: HuntZone, price: number): boolean {
-  return price >= Math.min(z.near, z.far) && price <= Math.max(z.near, z.far);
+  const eps = Math.abs(price) * 1e-9;
+  return price >= Math.min(z.near, z.far) - eps && price <= Math.max(z.near, z.far) + eps;
+}
+
+/**
+ * 구간의 기준(꼬리 끝). 자동 SL이면 그 캔들의 꼬리 끝 그대로.
+ * SL을 직접 옮겼으면 그 SL을 같은 여유(%)로 되짚은 자리 → SL을 끌면 구간도 같은 비율로 따라 움직인다
+ * (자동 SL = 꼬리 × (1 − 여유)였으니, 옮긴 SL ÷ (1 − 여유)가 '옮긴 꼬리'). 자동 꼬리가 없어도 옮긴 SL이 있으면 그것으로
+ */
+export function huntTip(
+  side: Side,
+  slSource: 'auto' | 'manual',
+  appliedSl: number | null,
+  autoWick: number | null,
+  bufferPct: number,
+): number | null {
+  if (slSource === 'manual' && appliedSl !== null && appliedSl > 0) {
+    const b = Math.max(0, bufferPct) / 100;
+    return side === 'LONG' ? appliedSl / (1 - b) : appliedSl / (1 + b);
+  }
+  return autoWick;
 }

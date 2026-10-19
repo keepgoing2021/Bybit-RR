@@ -42,7 +42,7 @@ import { CandleStore } from '../data/candleStore';
 import type { FeedListener, MarketDataProvider } from '../data/provider';
 import { h, setText, show } from './dom';
 import { formatClock, formatPct, formatTime, settingsSummary, SL_MODE_HELP, SL_MODE_NAMES, slRationale, tfName, tpRationale } from './format';
-import { HUNT_FAR_PCT, HUNT_NEAR_PCT, huntZone, inHuntZone } from '../core/huntZone';
+import { HUNT_FAR_PCT, HUNT_NEAR_PCT, huntTip, huntZone, inHuntZone } from '../core/huntZone';
 import { SymbolPicker } from './symbolPicker';
 import { Tour, type TourStep } from './tour';
 
@@ -1676,8 +1676,11 @@ export class App {
   /** SL 기준 꼬리 끝(자동 SL을 고른 캔들의 저가·고가)에서 2~10% 바깥. 지금 SL이 그 안이면 이름표가 경고로 */
   private huntZoneFor(s: Scenario): OverlayInput['huntZone'] {
     const c = s.auto.sl.candle;
-    if (!c) return null;
-    const z = huntZone(s.side, s.side === 'LONG' ? c.low : c.high, s.entry);
+    const wick = c ? (s.side === 'LONG' ? c.low : c.high) : null;
+    // SL을 직접 옮기면 구간도 같은 비율로 따라간다 (자동 SL일 때는 꼬리 끝 기준 그대로)
+    const tip = huntTip(s.side, s.source.sl, s.applied.sl, wick, s.auto.sl.bufferPct ?? 0);
+    if (tip === null) return null;
+    const z = huntZone(s.side, tip, s.entry);
     if (!z) return null;
     const slInside = s.applied.sl !== null && inHuntZone(z, s.applied.sl);
     const label = slInside ? '스탑헌팅존 · SL이 안에 있음' : `스탑헌팅존 ${HUNT_NEAR_PCT}~${HUNT_FAR_PCT}%`;
