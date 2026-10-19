@@ -1,0 +1,14 @@
+// Cloudflare Workers 배포 설정 — 2026-10-19 Vercel에서 이사.
+// 빌드: `SITE_URL=https://<배포 주소> npm run build` → dist/ 를 그대로 내보낸다(공유 미리보기 절대 주소, vite.config.ts)
+{
+  "name": "bybit-rr",
+  "compatibility_date": "2026-10-01",
+  "main": "worker/index.js",
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "run_worker_first": ["/bybit-api/*"]
+  },
+  "workers_dev": true,
+  "preview_urls": false
+}

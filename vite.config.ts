@@ -12,11 +12,10 @@ const bybitProxy = {
 };
 
 // 공유 미리보기(og:image 등)는 절대 주소가 필요하다. index.html의 %SITE_URL%을 빌드 때 바꾼다:
-// SITE_URL(직접 지정) → Vercel의 운영 도메인(VERCEL_PROJECT_PRODUCTION_URL, 사용자 도메인을 붙이면 그 주소) → 기본 주소
-export const DEFAULT_SITE_URL = 'https://bybit-rr.vercel.app';
+// SITE_URL(직접 지정) → 기본 주소(Cloudflare Workers, 2026-10-19 Vercel에서 이사)
+export const DEFAULT_SITE_URL = 'https://bybit-rr.moaseoul.workers.dev';
 export function siteUrl(env: Record<string, string | undefined> = process.env): string {
   if (env.SITE_URL) return env.SITE_URL.replace(/\/+$/, '');
-  if (env.VERCEL_PROJECT_PRODUCTION_URL) return `https://${env.VERCEL_PROJECT_PRODUCTION_URL.replace(/^https?:\/\//, '').replace(/\/+$/, '')}`;
   return DEFAULT_SITE_URL;
 }
 

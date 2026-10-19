@@ -3,7 +3,7 @@
 Bybit 선물 손익비·분할 주문 계산기. 이름은 **1R calc**(거래 한 번의 손실 단위 1R)이자 **1-click risk calc**(LONG/SHORT 한 번에 SL·TP·사이즈). 태그라인 `risk 1. repeat.`
 
 - 아이콘: 손익비 박스(초록 목표 · 노란 진입선 · 빨간 손절) 위의 '1'. 탭 아이콘(`public/favicon.svg`, 32px PNG), 홈 화면 아이콘(`apple-touch-icon.png` 180px, `manifest.webmanifest`의 192·512px)은 모두 같은 그림입니다.
-- 링크 미리보기: X·텔레그램 등에 주소를 붙이면 큰 이미지 카드(`public/og.png`, 1200×630)가 뜹니다. 원본은 `scripts/og/og.html`, 다시 만들 때는 `node scripts/og/render.mjs`. 미리보기 태그의 절대 주소는 빌드 때 정해집니다: `SITE_URL` 환경 변수 → Vercel 운영 도메인(사용자 도메인을 붙이면 그 주소) → `https://bybit-rr.vercel.app`.
+- 링크 미리보기: X·텔레그램 등에 주소를 붙이면 큰 이미지 카드(`public/og.png`, 1200×630)가 뜹니다. 원본은 `scripts/og/og.html`, 다시 만들 때는 `node scripts/og/render.mjs`. 미리보기 태그의 절대 주소는 빌드 때 정해집니다: `SITE_URL` 환경 변수 → `https://bybit-rr.moaseoul.workers.dev`.
 - 브라우저 저장 키는 이전 이름 그대로(`rrtool.v1.*`)라 이름을 바꿔도 저장된 계산·설정이 그대로 남습니다.
 
 LONG 또는 SHORT를 누르면 그 순간 체결가를 진입가로 잡고, 가격 구조로 SL·TP를 제안해 손익비와 분할 주문표(가격·금액·수량)를 바로 계산하는 개인용 웹 차트입니다. 진입·SL·TP는 차트에서 끌거나 직접 입력해 고칠 수 있고 모든 값은 즉시 다시 계산됩니다. 주문은 넣지 않습니다. 주문표 숫자를 복사해 Bybit에 직접 넣는 용도입니다.
@@ -31,14 +31,16 @@ npm run check:bybit -- ETHUSDT # 다른 종목
 
 종목 정보, 15분봉 200개, 웹소켓 구독·퐁·체결·캔들·티커 수신을 항목별 PASS/FAIL로 보여줍니다. 하나라도 실패하면 종료 코드 1입니다.
 
-## Vercel에 배포하기 (npm run dev 없이 쓰기)
+## Cloudflare에 배포하기 (npm run dev 없이 쓰기)
 
-1. https://vercel.com 에 GitHub 계정으로 로그인합니다.
-2. Add New → Project → 이 저장소를 Import합니다 (처음이면 GitHub 접근 허락).
-3. 설정은 그대로 둡니다. Framework Preset은 Vite, Build Command는 `npm run build`, Output은 `dist`로 자동 인식됩니다.
-4. Deploy가 끝나면 나오는 `….vercel.app` 주소를 엽니다.
+주소: https://bybit-rr.moaseoul.workers.dev (2026-10-19 Vercel에서 이사)
 
-배포 버전은 브라우저가 Bybit REST를 직접 부르고(사용자 IP), 막히면 `vercel.json`의 `/bybit-api` 중계로 자동 재시도합니다. 실시간 시세(웹소켓)는 항상 브라우저가 직접 연결합니다. 시나리오는 기기·브라우저마다 따로 저장됩니다.
+1. `npx wrangler login` (처음 한 번 — Cloudflare 계정으로 로그인)
+2. `npm run deploy` — 빌드(`SITE_URL`을 위 주소로) 후 `wrangler deploy`
+
+설정은 `wrangler.jsonc`, 중계 코드는 `worker/index.js`입니다. 화면(`dist/`)은 그대로 내보내고 `/bybit-api/*`만 Worker가 Bybit로 넘깁니다 — 열린 중계가 되지 않게 **공개 시세 조회(`GET /v5/market/*`)만** 통과합니다.
+
+배포 버전은 브라우저가 Bybit REST를 직접 부르고(사용자 IP), 막히면 `/bybit-api` 중계(`worker/index.js`)로 자동 재시도합니다. 실시간 시세(웹소켓)는 항상 브라우저가 직접 연결합니다. 시나리오는 기기·브라우저마다 따로 저장됩니다.
 
 ## 사용 흐름
 
@@ -90,7 +92,7 @@ npm run check:bybit -- ETHUSDT # 다른 종목
 - 엔트리는 캔들 종가가 아니라 체결 스트림의 최신 가격을 씁니다. 캔들 푸시는 최대 수십 초 간격이라 엔트리가 늦어질 수 있기 때문입니다.
 - 같은 이유로 차트의 마지막 캔들도 체결이 들어올 때마다 갱신합니다. 캔들 푸시가 오면 Bybit 값으로 다시 맞춥니다. 체결로만 만든 임시 캔들은 '미확정'이라 자동 SL·TP 선정에는 쓰지 않습니다.
 - 제약: 웹소켓 연결은 도메인당 5분에 500회 이하.
-- REST 경로: `npm run dev`에서는 개발 서버가 `/bybit-api`로 중계합니다(`vite.config.ts`). 배포 빌드는 Bybit를 직접 부르고, 실패하면 `/bybit-api` 중계(`vercel.json`)로 넘어갑니다. 사용자 PC에서 Bybit가 CORS 헤더에 요청 출처를 돌려주는 것을 확인했습니다.
+- REST 경로: `npm run dev`에서는 개발 서버가 `/bybit-api`로 중계합니다(`vite.config.ts`). 배포 빌드는 Bybit를 직접 부르고, 실패하면 `/bybit-api` 중계(`worker/index.js`)로 넘어갑니다. 사용자 PC에서 Bybit가 CORS 헤더에 요청 출처를 돌려주는 것을 확인했습니다.
 - 공급원은 `src/data/provider.ts` 인터페이스 뒤에 있어 다른 거래소로 바꿀 수 있습니다.
 
 ## 초기 가정 (확정 전략 아님, 화면의 "자동 제안 설정"에서 변경)

@@ -4,7 +4,7 @@ export const CONFIG = {
     /**
      * REST 주소 후보 (앞에서부터 시도).
      * - npm run dev: 개발 서버 중계(/bybit-api, vite.config.ts)
-     * - 배포 빌드: 브라우저가 Bybit를 직접 호출하고, 막히면 /bybit-api 중계(vercel.json)로 재시도
+     * - 배포 빌드: 브라우저가 Bybit를 직접 호출하고, 막히면 /bybit-api 중계(Cloudflare Worker, worker/index.js)로 재시도
      * - VITE_BYBIT_REST를 지정하면 그 주소만 쓴다
      */
     restBases: import.meta.env.VITE_BYBIT_REST
