@@ -1,4 +1,5 @@
 import type { AutoSL, AutoTP } from '../core/analysis';
+import type { AnalysisSettings, SlMode } from '../core/settings';
 import { tfLabel } from '../core/timeframe';
 import type { Side, Timeframe } from '../core/types';
 
@@ -68,4 +69,33 @@ export function slRationale(a: AutoSL, side: Side, timeZone?: string): string {
 export function tpRationale(a: AutoTP, _side: Side, _timeZone?: string): string {
   if (a.status !== 'ok' || !a.rr) return a.reason ?? '유효한 자동 TP 없음';
   return `TP: 기본 손익비 1:${a.rr} (손익비 점선이나 입력으로 바꿀 수 있음)`;
+}
+
+/** 자동 제안 설정의 SL 방식 이름 (짧게) */
+export const SL_MODE_NAMES: Record<SlMode, string> = {
+  swing: '스윙 저점·고점',
+  lowestN: '최근 N봉 최저·최고',
+  prevCandle: '직전 마감 봉',
+  spike: '가장 큰 캔들',
+};
+
+/** SL 방식 한 줄 설명 (LONG 기준, SHORT는 반대). 시간봉은 상단 'SL 기준' */
+export const SL_MODE_HELP: Record<SlMode, string> = {
+  swing: '최근에 꺾였던 자리. 좌우 N봉보다 낮은 꼬리(SHORT는 높은 꼬리) 중 엔트리 너머 가장 최근 것',
+  lowestN: '최근 N봉(진행 중인 봉 포함) 중 가장 낮은 값(SHORT는 가장 높은 값)',
+  prevCandle: '방금 마감된 봉 하나의 저가(SHORT는 고가)',
+  spike: '최근 범위에서 평소(ATR)보다 가장 크게 움직인 캔들의 꼬리 끝',
+};
+
+/** 자동 제안 설정 접힌 상태에서도 보이는 한 줄 요약. 예: '스윙 저점·고점 (좌우 2봉) · 여유 0틱 · 손익비 1:1.5' */
+export function settingsSummary(s: AnalysisSettings): string {
+  const how =
+    s.slMode === 'swing'
+      ? `스윙 저점·고점 (좌우 ${s.swingBars}봉)`
+      : s.slMode === 'lowestN'
+        ? `최근 ${s.slLowestBars}봉 최저·최고`
+        : s.slMode === 'spike'
+          ? `가장 큰 캔들 (최근 ${s.lookback}봉)`
+          : '직전 마감 봉';
+  return `${how} · 여유 ${s.slBufferTicks}틱 · 손익비 1:${s.defaultRR}`;
 }

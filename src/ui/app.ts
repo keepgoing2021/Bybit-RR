@@ -14,7 +14,7 @@ import {
 import { DRAW_PALETTE, DRAWING_KINDS, DRAWING_NAMES, isColor, placingHint, type Drawing, type DrawingKind } from '../core/drawings';
 import { decimalsOf, formatPrice, snapToTick } from '../core/price';
 import { boxShiftOf, createScenario, replaceAuto, restoreAuto, setBoxShift, setEntry, setLevel, type Scenario } from '../core/scenario';
-import { DEFAULT_SETTINGS, sanitizeSettings, type AnalysisSettings } from '../core/settings';
+import { DEFAULT_SETTINGS, SL_MODES, sanitizeSettings, type AnalysisSettings, type SlMode } from '../core/settings';
 import {
   DEFAULT_SIZING,
   MAX_SPLITS,
@@ -34,7 +34,7 @@ import type { SocketState } from '../data/bybit/socket';
 import { CandleStore } from '../data/candleStore';
 import type { FeedListener, MarketDataProvider } from '../data/provider';
 import { h, setText, show } from './dom';
-import { formatClock, formatPct, formatTime, slRationale, tfName, tpRationale } from './format';
+import { formatClock, formatPct, formatTime, settingsSummary, SL_MODE_HELP, SL_MODE_NAMES, slRationale, tfName, tpRationale } from './format';
 import { SymbolPicker } from './symbolPicker';
 
 export interface AppDeps {
@@ -49,29 +49,29 @@ export interface AppDeps {
 /** 처음 열 때 종목 (목록에 없으면 목록의 첫 종목) */
 const DEFAULT_UI: UiSelection = { provider: 'bybit', symbol: 'BTCUSDT', timeframe: '15' };
 
-const SETTING_FIELDS: { key: keyof AnalysisSettings; label: string; options?: [string, string][]; step?: string }[] = [
-  {
-    key: 'slMode',
-    label: 'SL 방식',
-    options: [
-      ['swing', 'SL 기준 시간봉의 최근 확정 스윙 저점·고점'],
-      ['lowestN', 'SL 기준 시간봉 최근 N봉의 최저·최고가'],
-      ['prevCandle', 'SL 기준 시간봉의 직전 마감 봉'],
-      ['spike', 'SL 기준 시간봉의 가장 급격한 캔들'],
-    ],
-  },
-  { key: 'slLowestBars', label: '최저·최고 탐색 범위 (마감 봉 수, 최근 N봉 방식. 진행 중인 봉도 포함)' },
-  { key: 'lookback', label: '급격한 캔들 탐색 범위 (봉, 급격한 캔들 방식)' },
-  { key: 'atrPeriod', label: 'ATR 기간' },
-  { key: 'atrMethod', label: 'ATR 계산 방식', options: [['wilder', 'Wilder (TradingView 기본)'], ['sma', '단순 평균']] },
-  { key: 'slBufferTicks', label: 'SL 버퍼 (틱)' },
-  { key: 'swingBars', label: '스윙 판별 봉 수 (좌우 각각)' },
-  { key: 'defaultRR', label: '새 계산의 TP 손익비 (1:X의 X)', step: '0.1' },
+/**
+ * 자동 제안 설정 칸. core = 늘 보이는 핵심 4개 (SL 방식 + 그 방식의 숫자 1개 + SL 여유 + 손익비),
+ * advanced = '고급'에 접어 두는 것. modes가 있으면 그 SL 방식일 때만 보인다.
+ */
+type SettingField = { key: keyof AnalysisSettings; label: string; hint?: string; options?: [string, string][]; step?: string; modes?: SlMode[] };
+const CORE_SETTINGS: SettingField[] = [
+  { key: 'slMode', label: 'SL 잡는 법', options: SL_MODES.map((m) => [m, SL_MODE_NAMES[m]]) },
+  { key: 'swingBars', label: '스윙 판별 (좌우 봉 수)', hint: '좌우 이만큼의 봉보다 낮아야(높아야) 스윙', modes: ['swing'] },
+  { key: 'slLowestBars', label: '최근 몇 봉', hint: '마감 봉 수 (진행 중인 봉도 포함)', modes: ['lowestN'] },
+  { key: 'lookback', label: '찾을 범위 (봉)', modes: ['spike'] },
+  { key: 'slBufferTicks', label: 'SL 여유 (틱)', hint: '꼬리 끝보다 몇 틱 더 바깥에 둘지' },
+  { key: 'defaultRR', label: '기본 손익비 1:', hint: '새 계산의 TP 자리', step: '0.1' },
+];
+const ADVANCED_SETTINGS: SettingField[] = [
+  { key: 'atrPeriod', label: 'ATR 기간 (가장 큰 캔들 방식)' },
+  { key: 'atrMethod', label: 'ATR 계산 (가장 큰 캔들 방식)', options: [['wilder', 'Wilder (TradingView 기본)'], ['sma', '단순 평균']] },
+  { key: 'boxOffsetBars', label: '박스 시작 (진입 봉에서 오른쪽 봉 수)' },
   { key: 'boxExtendBars', label: '박스 오른쪽 연장 (봉)' },
-  { key: 'boxOffsetBars', label: '박스 시작 위치 (진입 봉에서 오른쪽으로 봉 수)' },
-  { key: 'staleAfterSec', label: '연결 지연 판정 (초)' },
+  { key: 'staleAfterSec', label: '연결 지연으로 볼 시간 (초)' },
   { key: 'maxPriceAgeSec', label: '가격 유효 시간 (초)' },
 ];
+/** 바꾸면 지금 계산의 자동 SL·TP를 다시 계산하는 설정 */
+const ANALYSIS_KEYS: (keyof AnalysisSettings)[] = ['slMode', 'swingBars', 'slLowestBars', 'lookback', 'atrPeriod', 'atrMethod', 'slBufferTicks', 'defaultRR'];
 
 /** 차트의 노란 띠(SL을 정한 캔들) 이름표 */
 /** 차트의 SL 캔들 띠 이름. SL 기준 시간봉이 차트와 다르면 시간봉도 붙인다 (예: 'SL 기준 1시간봉 스윙 저점') */
@@ -432,6 +432,14 @@ export class App {
     this.ui.slBasis = tf === this.defaultSlBasis() ? undefined : tf;
     this.persist();
     this.renderTopbar();
+    await this.recalcAuto();
+  }
+
+  /**
+   * 지금 계산의 자동 SL·TP를 같은 엔트리·같은 시각 기준으로 다시 계산 (SL 기준·자동 제안 설정을 바꿨을 때).
+   * 직접 고친 SL·TP는 그대로 두고 알린다.
+   */
+  private async recalcAuto(): Promise<void> {
     const s = this.scenario;
     if (!s || s.status !== 'active' || s.symbol !== this.ui.symbol) return;
     const settings = this.settings;
@@ -637,26 +645,41 @@ export class App {
     );
 
     const settingsInputs = new Map<keyof AnalysisSettings, HTMLInputElement | HTMLSelectElement>();
-    const settingsBody = h('div', { class: 'settings-grid' });
-    for (const f of SETTING_FIELDS) {
-      const control = f.options
-        ? (() => {
-            const s = h('select', { 'data-testid': `setting-${f.key}` });
-            s.append(...f.options.map(([v, label]) => h('option', { value: v }, label)));
-            return s;
-          })()
-        : h('input', { type: 'number', step: f.step ?? '1', 'data-testid': `setting-${f.key}` });
-      control.addEventListener('change', () => this.applySettings());
-      settingsInputs.set(f.key, control);
-      settingsBody.append(h('label', { class: 'setting' }, h('span', {}, f.label), control));
-    }
+    const settingRows = new Map<keyof AnalysisSettings, { row: HTMLElement; modes?: SlMode[] }>();
+    const buildRows = (fields: SettingField[]) =>
+      fields.map((f) => {
+        const control = f.options
+          ? (() => {
+              const sel = h('select', { 'data-testid': `setting-${f.key}` });
+              sel.append(...f.options.map(([v, label]) => h('option', { value: v }, label)));
+              return sel;
+            })()
+          : h('input', { type: 'number', step: f.step ?? '1', inputmode: 'decimal', 'data-testid': `setting-${f.key}` });
+        control.addEventListener('change', () => void this.applySettings(f.key));
+        settingsInputs.set(f.key, control);
+        const name = h('span', { class: 'setting-name' }, f.label);
+        const row = h('label', { class: 'setting', 'data-key': f.key }, h('span', {}, name, f.hint ? h('small', {}, f.hint) : ''), control);
+        settingRows.set(f.key, { row, modes: f.modes });
+        return row;
+      });
+    const modeHelp = h('p', { class: 'setting-help', 'data-testid': 'setting-mode-help' });
+    const coreRows = buildRows(CORE_SETTINGS);
+    const settingsBody = h('div', { class: 'settings-grid' }, coreRows[0], modeHelp, ...coreRows.slice(1));
+    const advanced = h(
+      'details',
+      { class: 'settings-advanced', 'data-testid': 'settings-advanced' },
+      h('summary', {}, '고급 (ATR · 박스 · 연결)'),
+      h('div', { class: 'settings-grid' }, ...buildRows(ADVANCED_SETTINGS)),
+    );
     const resetSettings = h('button', { type: 'button', class: 'link' }, '기본값으로 되돌리기');
+    const settingsSummaryEl = h('span', { class: 'settings-summary', 'data-testid': 'settings-summary' });
     const settings = h(
       'details',
       { class: 'settings' },
-      h('summary', {}, '자동 제안 설정'),
-      h('p', { class: 'muted small' }, '확정된 전략이 아닌 초기 가정값입니다. 바꾼 값은 다음에 LONG/SHORT를 누를 때부터 적용됩니다.'),
+      h('summary', {}, h('span', {}, '자동 제안 설정'), settingsSummaryEl),
       settingsBody,
+      advanced,
+      h('p', { class: 'muted small' }, '바꾸면 지금 계산의 자동 SL·TP도 바로 다시 계산합니다 (직접 고친 값은 그대로). 시간봉은 상단 "SL 기준".'),
       resetSettings,
     );
 
@@ -703,7 +726,9 @@ export class App {
       this.settings = { ...DEFAULT_SETTINGS };
       saveSettings(this.d.storage, this.settings);
       this.renderSettings();
+      this.renderTopbar();
       this.renderNow();
+      void this.recalcAuto();
     });
     // 선택한 작도나 박스는 Delete(또는 Backspace)로 지우기. 입력칸에서 글자를 지울 때는 무시. Esc는 도구·선택 취소
     document.addEventListener('keydown', (e) => {
@@ -734,7 +759,7 @@ export class App {
     return {
       picker, tf, sltf, long, short, status, statusReason, themeBtn,
       loadError, chart, empty, card, sideChip, title, entry, times, rr, rrInput, rrLabel, reasons,
-      sl, tp, slWhy, tpWhy, sizing, restore, del, settingsInputs, toast, tools,
+      sl, tp, slWhy, tpWhy, sizing, restore, del, settingsInputs, settingRows, modeHelp, settingsSummaryEl, toast, tools,
     };
   }
 
@@ -1075,7 +1100,7 @@ export class App {
     return plan;
   }
 
-  private applySettings(): void {
+  private async applySettings(changed: keyof AnalysisSettings): Promise<void> {
     const raw: Record<string, unknown> = {};
     for (const [key, control] of this.el.settingsInputs) {
       raw[key] = control instanceof HTMLSelectElement ? control.value : Number(control.value);
@@ -1085,6 +1110,7 @@ export class App {
     this.renderSettings();
     this.renderTopbar();
     this.renderNow();
+    if (ANALYSIS_KEYS.includes(changed)) await this.recalcAuto();
   }
 
   private toast(msg: string): void {
@@ -1128,7 +1154,12 @@ export class App {
   }
 
   private renderSettings(): void {
-    for (const [key, control] of this.el.settingsInputs) control.value = String(this.settings[key]);
+    const e = this.el;
+    for (const [key, control] of e.settingsInputs) control.value = String(this.settings[key]);
+    // 고른 SL 방식에 해당하는 숫자 칸만 보이기
+    for (const { row, modes } of e.settingRows.values()) show(row, !modes || modes.includes(this.settings.slMode));
+    setText(e.modeHelp, SL_MODE_HELP[this.settings.slMode]);
+    setText(e.settingsSummaryEl, settingsSummary(this.settings));
   }
 
   private renderStatus(): void {

@@ -314,7 +314,7 @@ test('switching symbol clears the calculation', async ({ page }) => {
 
 async function setSetting(page: Page, key: string, value: string) {
   const details = page.locator('details.settings');
-  if (!(await details.evaluate((d) => (d as HTMLDetailsElement).open))) await details.locator('summary').click();
+  if (!(await details.evaluate((d) => (d as HTMLDetailsElement).open))) await details.locator(':scope > summary').click();
   const control = page.getByTestId(`setting-${key}`);
   await control.fill(value);
   await control.press('Enter');
@@ -323,9 +323,50 @@ async function setSetting(page: Page, key: string, value: string) {
 
 async function setSlMode(page: Page, mode: string) {
   const details = page.locator('details.settings');
-  if (!(await details.evaluate((d) => (d as HTMLDetailsElement).open))) await details.locator('summary').click();
+  if (!(await details.evaluate((d) => (d as HTMLDetailsElement).open))) await details.locator(':scope > summary').click();
   await page.getByTestId('setting-slMode').selectOption(mode);
 }
+
+test('auto-suggestion settings: one-line summary, only the core items, the chosen method\'s number only, the rest under 고급; changes recalc the open SL', async ({ page }) => {
+  await open(page, { tf: '15' });
+  const details = page.locator('details.settings');
+  const summary = page.getByTestId('settings-summary');
+  // 접혀 있어도 지금 적용 중인 값이 보인다
+  await expect(summary).toBeVisible();
+  await expect(summary).toHaveText('스윙 저점·고점 (좌우 2봉) · 여유 0틱 · 손익비 1:1.5');
+  await details.locator(':scope > summary').click();
+  const visible = async () =>
+    page.locator('details.settings .setting').evaluateAll((rows) =>
+      rows.filter((r) => (r as HTMLElement).checkVisibility()).map((r) => (r as HTMLElement).dataset.key),
+    );
+  expect(await visible()).toEqual(['slMode', 'swingBars', 'slBufferTicks', 'defaultRR']);
+  await expect(page.getByTestId('setting-mode-help')).toContainText('최근에 꺾였던 자리');
+  await page.getByTestId('setting-slMode').selectOption('lowestN');
+  expect(await visible()).toEqual(['slMode', 'slLowestBars', 'slBufferTicks', 'defaultRR']);
+  await expect(summary).toHaveText('최근 20봉 최저·최고 · 여유 0틱 · 손익비 1:1.5');
+  await page.getByTestId('setting-slMode').selectOption('prevCandle');
+  expect(await visible()).toEqual(['slMode', 'slBufferTicks', 'defaultRR']);
+  await page.getByTestId('setting-slMode').selectOption('swing');
+  // 고급은 접혀 있다가 펼치면 보인다
+  await expect(page.getByTestId('setting-staleAfterSec')).toBeHidden();
+  await page.getByTestId('settings-advanced').locator('summary').click();
+  await expect(page.getByTestId('setting-staleAfterSec')).toBeVisible();
+  await expect(page.getByTestId('setting-atrPeriod')).toBeVisible();
+
+  // 계산 중에 바꾸면 그 자리에서 자동 SL이 다시 계산된다 (엔트리·시각 그대로)
+  await page.getByTestId('btn-long').click();
+  await expect.poll(() => scenario(page)).not.toBeNull();
+  const s0 = (await scenario(page))!;
+  expect(s0.auto.sl.status).toBe('ok');
+  await setSetting(page, 'slBufferTicks', '5');
+  await expect.poll(async () => (await scenario(page))!.applied.sl).toBe(Number((s0.applied.sl! - 0.5).toFixed(1)));
+  const s1 = (await scenario(page))!;
+  expect([s1.id, s1.entry, s1.priceTime]).toEqual([s0.id, s0.entry, s0.priceTime]);
+  await expect(summary).toHaveText('스윙 저점·고점 (좌우 2봉) · 여유 5틱 · 손익비 1:1.5');
+  // 기본값으로 되돌리면 다시 원래 SL
+  await page.locator('details.settings button.link').click();
+  await expect.poll(async () => (await scenario(page))!.applied.sl).toBe(s0.applied.sl);
+});
 
 test('SL timeframe can be picked in every SL mode: default = chart, picking another recalculates the open SL', async ({ page }) => {
   await open(page, { tf: '15' });
