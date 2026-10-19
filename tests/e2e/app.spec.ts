@@ -333,19 +333,19 @@ test('auto-suggestion settings: one-line summary, only the core items, the chose
   const summary = page.getByTestId('settings-summary');
   // 접혀 있어도 지금 적용 중인 값이 보인다
   await expect(summary).toBeVisible();
-  await expect(summary).toHaveText('스윙 2봉 · 여유 0틱 · 1:1.5');
+  await expect(summary).toHaveText('스윙 2봉 · 여유 0% · 1:1.5');
   await details.locator(':scope > summary').click();
   const visible = async () =>
     page.locator('details.settings .setting').evaluateAll((rows) =>
       rows.filter((r) => (r as HTMLElement).checkVisibility()).map((r) => (r as HTMLElement).dataset.key),
     );
-  expect(await visible()).toEqual(['slMode', 'swingBars', 'slBufferTicks', 'defaultRR']);
+  expect(await visible()).toEqual(['slMode', 'swingBars', 'slBufferPct', 'defaultRR']);
   await expect(page.getByTestId('setting-mode-help')).toHaveText('최근 꺾인 저점 (숏은 고점)');
   await page.getByTestId('setting-slMode').selectOption('lowestN');
-  expect(await visible()).toEqual(['slMode', 'slLowestBars', 'slBufferTicks', 'defaultRR']);
-  await expect(summary).toHaveText('최근 20봉 최저 · 여유 0틱 · 1:1.5');
+  expect(await visible()).toEqual(['slMode', 'slLowestBars', 'slBufferPct', 'defaultRR']);
+  await expect(summary).toHaveText('최근 20봉 최저 · 여유 0% · 1:1.5');
   await page.getByTestId('setting-slMode').selectOption('prevCandle');
-  expect(await visible()).toEqual(['slMode', 'slBufferTicks', 'defaultRR']);
+  expect(await visible()).toEqual(['slMode', 'slBufferPct', 'defaultRR']);
   await page.getByTestId('setting-slMode').selectOption('swing');
   // 고급은 접혀 있다가 펼치면 보인다
   await expect(page.getByTestId('setting-staleAfterSec')).toBeHidden();
@@ -358,11 +358,15 @@ test('auto-suggestion settings: one-line summary, only the core items, the chose
   await expect.poll(() => scenario(page)).not.toBeNull();
   const s0 = (await scenario(page))!;
   expect(s0.auto.sl.status).toBe('ok');
-  await setSetting(page, 'slBufferTicks', '5');
-  await expect.poll(async () => (await scenario(page))!.applied.sl).toBe(Number((s0.applied.sl! - 0.5).toFixed(1)));
+  // 여유 0.1%: 꼬리 끝(현재 SL)의 0.1% 아래, 틱(0.1)은 아래쪽으로
+  await setSetting(page, 'slBufferPct', '0.1');
+  const expectSl = Math.floor(Math.round(s0.applied.sl! * 10) * 0.999 + 1e-6) / 10;
+  await expect.poll(async () => (await scenario(page))!.applied.sl).toBe(expectSl);
+  expect(s0.applied.sl! - expectSl).toBeGreaterThan(s0.applied.sl! * 0.001 - 0.0001); // 0.1% 이상 넓게
+  await expect(page.getByTestId('sl-rationale')).toContainText('− 여유 0.1%');
   const s1 = (await scenario(page))!;
   expect([s1.id, s1.entry, s1.priceTime]).toEqual([s0.id, s0.entry, s0.priceTime]);
-  await expect(summary).toHaveText('스윙 2봉 · 여유 5틱 · 1:1.5');
+  await expect(summary).toHaveText('스윙 2봉 · 여유 0.1% · 1:1.5');
   // 기본값으로 되돌리면 다시 원래 SL
   await page.locator('details.settings button.link').click();
   await expect.poll(async () => (await scenario(page))!.applied.sl).toBe(s0.applied.sl);

@@ -6,7 +6,7 @@ export function autoLevels(sl: number | null, tp: number | null): AutoLevels {
   return {
     sl: {
       price: sl, candidatePrice: sl, status: sl === null ? 'invalid' : 'ok', reason: sl === null ? '유효한 자동 SL 없음' : null,
-      candle: null, score: null, atr: null, timeframe: '15', bufferTicks: 0, method: 'prevCandle',
+      candle: null, score: null, atr: null, timeframe: '15', bufferPct: 0, method: 'prevCandle',
     },
     tp: {
       price: tp, candidatePrice: tp, status: tp === null ? 'unavailable' : 'ok', reason: null, rr: null,

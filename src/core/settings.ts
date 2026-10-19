@@ -19,8 +19,8 @@ export interface AnalysisSettings {
   lookback: number;
   atrPeriod: number;
   atrMethod: AtrMethod;
-  /** SL 버퍼 (틱). LONG은 아래로, SHORT는 위로 더한다. */
-  slBufferTicks: number;
+  /** SL 여유 (%): 꼬리 끝 가격의 이만큼 바깥에 SL (LONG은 아래, SHORT는 위). 이전 버전의 틱 단위 값(slBufferTicks)은 쓰지 않는다 */
+  slBufferPct: number;
   /** 스윙 판별 봉 수 (좌우 각각) */
   swingBars: number;
   /** 새 계산의 TP = 진입 ± 이 손익비 × 손절폭 (손익비 점선·입력으로 바로 바꿀 수 있음) */
@@ -41,7 +41,7 @@ export const DEFAULT_SETTINGS: AnalysisSettings = {
   lookback: 50,
   atrPeriod: 14,
   atrMethod: 'wilder',
-  slBufferTicks: 0,
+  slBufferPct: 0,
   swingBars: 2,
   defaultRR: 1.5,
   boxExtendBars: 10,
@@ -50,19 +50,21 @@ export const DEFAULT_SETTINGS: AnalysisSettings = {
   maxPriceAgeSec: 60,
 };
 
-type NumericKey = Exclude<keyof AnalysisSettings, 'atrMethod' | 'slMode' | 'defaultRR'>;
+type NumericKey = Exclude<keyof AnalysisSettings, 'atrMethod' | 'slMode' | 'defaultRR' | 'slBufferPct'>;
 
 export const SETTING_RANGES: Record<NumericKey, [number, number]> = {
   slLowestBars: [1, 500],
   lookback: [5, 500],
   atrPeriod: [2, 200],
-  slBufferTicks: [0, 10000],
   swingBars: [1, 20],
   boxExtendBars: [0, 200],
   boxOffsetBars: [0, 50],
   staleAfterSec: [3, 300],
   maxPriceAgeSec: [5, 3600],
 };
+
+/** SL 여유 허용 범위 (%, 소수 셋째 자리까지) */
+export const SL_BUFFER_PCT_RANGE: [number, number] = [0, 10];
 
 /** 기본 손익비 허용 범위 (소수 둘째 자리까지) */
 export const DEFAULT_RR_RANGE: [number, number] = [0.1, 20];
@@ -81,6 +83,9 @@ export function sanitizeSettings(raw: unknown): AnalysisSettings {
   if (src.atrMethod === 'wilder' || src.atrMethod === 'sma') out.atrMethod = src.atrMethod;
   if (typeof src.defaultRR === 'number' && Number.isFinite(src.defaultRR)) {
     out.defaultRR = Math.round(Math.min(DEFAULT_RR_RANGE[1], Math.max(DEFAULT_RR_RANGE[0], src.defaultRR)) * 100) / 100;
+  }
+  if (typeof src.slBufferPct === 'number' && Number.isFinite(src.slBufferPct)) {
+    out.slBufferPct = Math.round(Math.min(SL_BUFFER_PCT_RANGE[1], Math.max(SL_BUFFER_PCT_RANGE[0], src.slBufferPct)) * 1000) / 1000;
   }
   if ((SL_MODES as unknown[]).includes(src.slMode)) out.slMode = src.slMode as SlMode;
   return out;

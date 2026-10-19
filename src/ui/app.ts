@@ -59,7 +59,7 @@ const CORE_SETTINGS: SettingField[] = [
   { key: 'swingBars', label: '좌우 봉 수', modes: ['swing'] },
   { key: 'slLowestBars', label: '봉 수', modes: ['lowestN'] },
   { key: 'lookback', label: '찾을 봉 수', modes: ['spike'] },
-  { key: 'slBufferTicks', label: 'SL 여유 (틱)', hint: '꼬리 끝 바깥으로' },
+  { key: 'slBufferPct', label: 'SL 여유 (%)', hint: '꼬리 끝 바깥으로', step: '0.01' },
   { key: 'defaultRR', label: '기본 손익비 1:', step: '0.1' },
 ];
 const ADVANCED_SETTINGS: SettingField[] = [
@@ -72,7 +72,7 @@ const ADVANCED_SETTINGS: SettingField[] = [
   { key: 'maxPriceAgeSec', label: '가격 유효 (초)' },
 ];
 /** 바꾸면 지금 계산의 자동 SL·TP를 다시 계산하는 설정 */
-const ANALYSIS_KEYS: (keyof AnalysisSettings)[] = ['slMode', 'swingBars', 'slLowestBars', 'lookback', 'atrPeriod', 'atrMethod', 'slBufferTicks', 'defaultRR'];
+const ANALYSIS_KEYS: (keyof AnalysisSettings)[] = ['slMode', 'swingBars', 'slLowestBars', 'lookback', 'atrPeriod', 'atrMethod', 'slBufferPct', 'defaultRR'];
 
 /** 차트의 노란 띠(SL을 정한 캔들) 이름표 */
 /** 차트의 SL 캔들 띠 이름. SL 기준 시간봉이 차트와 다르면 시간봉도 붙인다 (예: 'SL 기준 1시간봉 스윙 저점') */

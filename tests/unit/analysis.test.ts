@@ -42,15 +42,27 @@ describe('analyzeAutoLevels — SL', () => {
     expect(r.sl.method).toBe('spike');
   });
 
-  it('buffer 3 ticks lowers LONG SL by 3 ticks', () => {
-    const r = analyzeAutoLevels(input({ settings: { ...SPIKE, slBufferTicks: 3 } }));
+  it('a 0.3% margin puts the LONG SL 0.3% below the wick, rounded outward to the tick', () => {
+    // 98.5 × (1 − 0.003) = 98.2045 → 바깥(아래)으로 98.2
+    const r = analyzeAutoLevels(input({ settings: { ...SPIKE, slBufferPct: 0.3 } }));
     expect(r.sl.price).toBe(98.2);
-    expect(r.sl.bufferTicks).toBe(3);
+    expect(r.sl.bufferPct).toBe(0.3);
   });
 
-  it('SHORT SL is the spike high plus buffer', () => {
-    const r = analyzeAutoLevels(input({ side: 'SHORT', settings: { ...SPIKE, slBufferTicks: 2 } }));
+  it('SHORT SL is the spike high plus the % margin (rounded up, never a narrower margin)', () => {
+    // 101.5 × 1.0015 = 101.65225 → 위로 101.7
+    const r = analyzeAutoLevels(input({ side: 'SHORT', settings: { ...SPIKE, slBufferPct: 0.15 } }));
     expect(r.sl.price).toBe(101.7);
+  });
+
+  it('0% keeps the exact wick even when the price is not exact in floating point', () => {
+    const c = ranged([...ones(20), 3, ...ones(9)], 64144.2); // 저가 64142.7 (0.1 단위 실수 오차 있음)
+    const r = analyzeAutoLevels(input({ entry: 64150, ltf: { timeframe: '1', candles: c } }));
+    expect(r.sl.price).toBe(64142.7);
+    // 반 틱처럼 떨어지는 값도 바깥으로: 100 × (1 − 0.0015) = 99.85 → 99.8
+    const r2 = analyzeAutoLevels(input({ entry: 101, ltf: { timeframe: '1', candles: ranged([...ones(20), 1.5, ...ones(9)], 100.75) }, settings: { ...SPIKE, slBufferPct: 0.15 } }));
+    expect(r2.sl.candle!.low).toBe(100);
+    expect(r2.sl.price).toBe(99.8);
   });
 
   it('bigger spike after cutoff is ignored', () => {
@@ -130,7 +142,8 @@ describe('analyzeAutoLevels — SL from the previous higher-timeframe candle', (
   });
 
   it('SHORT SL is that candle high plus buffer', () => {
-    const r = analyzeAutoLevels(prevInput({ side: 'SHORT', settings: { ...PREV, slBufferTicks: 2 } }));
+    // 103 × 1.001 = 103.103 → 위로 103.2
+    const r = analyzeAutoLevels(prevInput({ side: 'SHORT', settings: { ...PREV, slBufferPct: 0.1 } }));
     expect(r.sl.price).toBe(103.2);
   });
 
@@ -215,9 +228,9 @@ describe('analyzeAutoLevels — SL from the lowest low / highest high of the las
   });
 
   it('SHORT SL is the highest high plus buffer', () => {
-    const r = analyzeAutoLevels(lowInput({ side: 'SHORT', settings: { ...LOWEST, slLowestBars: 7, slBufferTicks: 2 } }));
+    const r = analyzeAutoLevels(lowInput({ side: 'SHORT', settings: { ...LOWEST, slLowestBars: 7, slBufferPct: 0.002 } }));
     expect(r.sl.candle?.time).toBe(H4); // 고가 82
-    expect(r.sl.price).toBe(82.002);
+    expect(r.sl.price).toBe(82.002); // 82 × 1.00002 = 82.00164 → 위로 82.002
   });
 
   it('ties pick the most recent bar', () => {
@@ -317,7 +330,7 @@ describe('analyzeAutoLevels — SL from the latest confirmed swing on the chart 
       time: i * H4, open: high - 1, high, low: high - 1.5, close: high - 0.8, volume: 1, confirmed: true,
     }));
     const r = analyzeAutoLevels(
-      swingInput({ side: 'SHORT', cutoff: highs.length * H4, settings: { ...DEFAULT_SETTINGS, slBufferTicks: 2 } }, candles),
+      swingInput({ side: 'SHORT', cutoff: highs.length * H4, settings: { ...DEFAULT_SETTINGS, slBufferPct: 0.002 } }, candles),
     );
     expect(r.sl.candle?.time).toBe(2 * H4);
     expect(r.sl.price).toBe(81.002);

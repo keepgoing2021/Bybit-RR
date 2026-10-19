@@ -19,7 +19,10 @@ export interface AutoSL {
   score: number | null;
   atr: number | null;
   timeframe: Timeframe;
-  bufferTicks: number;
+  /** SL 여유 (%) */
+  bufferPct: number;
+  /** 이전 버전에 저장된 계산의 틱 단위 여유 (읽기만) */
+  bufferTicks?: number;
   /** settings.slMode와 같은 의미. 선정 규칙을 기록한다 */
   method: SlMode;
   /** lowestN: 실제로 탐색한 마감 봉 수 (데이터가 N개보다 적으면 그 수) */
@@ -138,8 +141,11 @@ function analyzeLowestSL(i: AnalyzeInput): AutoSL {
 /** 선정 캔들의 꼬리 끝(+버퍼)을 SL 후보로 만들고, 엔트리 반대편이 아니면 무효 처리 */
 function finishSL(i: AnalyzeInput, base: AutoSL, candle: Candle, extra: Partial<AutoSL>): AutoSL {
   const { side, entry, tickSize, settings } = i;
-  const buffer = settings.slBufferTicks * tickSize;
-  const candidate = snapToTick(side === 'LONG' ? candle.low - buffer : candle.high + buffer, tickSize);
+  // 꼬리 끝에서 여유 %만큼 바깥, 틱은 바깥쪽으로 맞춘다 (요청한 여유보다 좁아지지 않게). 0%면 꼬리 끝 그대로
+  const pct = settings.slBufferPct / 100;
+  const raw = (side === 'LONG' ? candle.low * (1 - pct) : candle.high * (1 + pct)) / tickSize;
+  const ticks = side === 'LONG' ? Math.floor(raw + 1e-6) : Math.ceil(raw - 1e-6);
+  const candidate = snapToTick(ticks * tickSize, tickSize);
   const withCandle = { ...base, ...extra, candle, candidatePrice: candidate };
   const valid = side === 'LONG' ? candidate < entry : candidate > entry;
   if (!valid) {
@@ -164,7 +170,7 @@ function emptySL(i: AnalyzeInput, timeframe: Timeframe, method: AutoSL['method']
     score: null,
     atr: null,
     timeframe,
-    bufferTicks: i.settings.slBufferTicks,
+    bufferPct: i.settings.slBufferPct,
     method,
   };
 }

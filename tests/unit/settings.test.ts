@@ -9,7 +9,7 @@ describe('DEFAULT_SETTINGS', () => {
       lookback: 50,
       atrPeriod: 14,
       atrMethod: 'wilder',
-      slBufferTicks: 0,
+      slBufferPct: 0,
       swingBars: 2,
       defaultRR: 1.5,
       boxExtendBars: 10,
@@ -22,11 +22,15 @@ describe('DEFAULT_SETTINGS', () => {
 
 describe('sanitizeSettings', () => {
   it('clamps numbers into their allowed ranges and rounds to integers', () => {
-    const s = sanitizeSettings({ lookback: 1, atrPeriod: 999, swingBars: 2.6, slBufferTicks: -3, boxExtendBars: 500 });
+    const s = sanitizeSettings({ lookback: 1, atrPeriod: 999, swingBars: 2.6, slBufferPct: -3, boxExtendBars: 500 });
     expect(s.lookback).toBe(5);
     expect(s.atrPeriod).toBe(200);
     expect(s.swingBars).toBe(3);
-    expect(s.slBufferTicks).toBe(0);
+    expect(s.slBufferPct).toBe(0);
+    // SL 여유는 % (소수 셋째 자리, 0~10). 이전 버전의 틱 단위 값은 버린다
+    expect(sanitizeSettings({ slBufferPct: 0.12345 }).slBufferPct).toBe(0.123);
+    expect(sanitizeSettings({ slBufferPct: 50 }).slBufferPct).toBe(10);
+    expect(sanitizeSettings({ slBufferTicks: 5 }).slBufferPct).toBe(0);
     expect(s.boxExtendBars).toBe(200);
     expect(sanitizeSettings({ slLowestBars: 0 }).slLowestBars).toBe(1);
     expect(sanitizeSettings({ slLowestBars: 9999 }).slLowestBars).toBe(500);

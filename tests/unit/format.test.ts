@@ -9,7 +9,7 @@ const at = Date.UTC(2026, 9, 18, 5, 15, 7); // KST 10월 18일 14:15:07
 const sl = (over: Partial<AutoSL> = {}): AutoSL => ({
   price: 98.5, candidatePrice: 98.5, status: 'ok', reason: null,
   candle: { time: Date.UTC(2026, 9, 18, 5, 15), open: 1, high: 2, low: 0.5, close: 1, volume: 1, confirmed: true },
-  score: 3.214, atr: 1, timeframe: '15', bufferTicks: 0, method: 'spike', ...over,
+  score: 3.214, atr: 1, timeframe: '15', bufferPct: 0, method: 'spike', ...over,
 });
 
 const tp = (over: Partial<AutoTP> = {}): AutoTP => ({
@@ -41,8 +41,8 @@ describe('slRationale', () => {
   });
 
   it('mentions the buffer and uses the high for SHORT', () => {
-    expect(slRationale(sl({ bufferTicks: 3 }), 'SHORT', TZ)).toBe(
-      'SL: 15분봉 10월 18일 14:15 캔들 고가 + 버퍼 3틱 (평소 캔들보다 3.21배 길게 움직임)',
+    expect(slRationale(sl({ bufferPct: 0.1 }), 'SHORT', TZ)).toBe(
+      'SL: 15분봉 10월 18일 14:15 캔들 고가 + 여유 0.1% (평소 캔들보다 3.21배 길게 움직임)',
     );
   });
 
@@ -58,7 +58,9 @@ describe('slRationale — previous higher-timeframe candle', () => {
   it('names the timeframe, the candle and the edge', () => {
     const a = sl({ method: 'prevCandle', timeframe: '720', score: null, atr: null });
     expect(slRationale(a, 'LONG', TZ)).toBe('SL: 12시간봉 직전 마감 봉 저가 (10월 18일 14:15 캔들)');
-    expect(slRationale({ ...a, bufferTicks: 2 }, 'SHORT', TZ)).toBe('SL: 12시간봉 직전 마감 봉 고가 + 버퍼 2틱 (10월 18일 14:15 캔들)');
+    expect(slRationale({ ...a, bufferPct: 0.2 }, 'SHORT', TZ)).toBe('SL: 12시간봉 직전 마감 봉 고가 + 여유 0.2% (10월 18일 14:15 캔들)');
+    // 이전 버전에 저장된 계산(틱 단위 여유)도 그대로 읽힌다
+    expect(slRationale({ ...a, bufferPct: undefined as unknown as number, bufferTicks: 2 }, 'SHORT', TZ)).toBe('SL: 12시간봉 직전 마감 봉 고가 + 버퍼 2틱 (10월 18일 14:15 캔들)');
   });
 });
 
@@ -67,7 +69,7 @@ describe('slRationale — last N bars', () => {
 
   it('names the timeframe, the bar count, the edge and the candle', () => {
     expect(slRationale(a, 'LONG', TZ)).toBe('SL: 4시간봉 최근 20봉 최저가 (10월 18일 14:15 캔들)');
-    expect(slRationale({ ...a, bufferTicks: 2 }, 'SHORT', TZ)).toBe('SL: 4시간봉 최근 20봉 최고가 + 버퍼 2틱 (10월 18일 14:15 캔들)');
+    expect(slRationale({ ...a, bufferPct: 0.05 }, 'SHORT', TZ)).toBe('SL: 4시간봉 최근 20봉 최고가 + 여유 0.05% (10월 18일 14:15 캔들)');
   });
 
   it('says when the extreme is in the bar still in progress', () => {
@@ -81,7 +83,7 @@ describe('slRationale — swing', () => {
   it('names the timeframe, the swing kind and the candle', () => {
     const a = sl({ method: 'swing', timeframe: '240', score: null, atr: null });
     expect(slRationale(a, 'LONG', TZ)).toBe('SL: 4시간봉 최근 확정 스윙 저점 (10월 18일 14:15 캔들)');
-    expect(slRationale({ ...a, bufferTicks: 2 }, 'SHORT', TZ)).toBe('SL: 4시간봉 최근 확정 스윙 고점 + 버퍼 2틱 (10월 18일 14:15 캔들)');
+    expect(slRationale({ ...a, bufferPct: 0.05 }, 'SHORT', TZ)).toBe('SL: 4시간봉 최근 확정 스윙 고점 + 여유 0.05% (10월 18일 14:15 캔들)');
   });
 });
 
@@ -106,9 +108,9 @@ describe('formatPct', () => {
 
 describe('settingsSummary (one line shown even when the settings box is closed)', () => {
   it('names the SL method with its one number, the margin and the RR', () => {
-    expect(settingsSummary(DEFAULT_SETTINGS)).toBe('스윙 2봉 · 여유 0틱 · 1:1.5');
-    expect(settingsSummary({ ...DEFAULT_SETTINGS, slMode: 'lowestN', slLowestBars: 30, slBufferTicks: 3, defaultRR: 2 })).toBe('최근 30봉 최저 · 여유 3틱 · 1:2');
-    expect(settingsSummary({ ...DEFAULT_SETTINGS, slMode: 'spike' })).toBe('큰 캔들 50봉 · 여유 0틱 · 1:1.5');
-    expect(settingsSummary({ ...DEFAULT_SETTINGS, slMode: 'prevCandle' })).toBe('직전 봉 · 여유 0틱 · 1:1.5');
+    expect(settingsSummary(DEFAULT_SETTINGS)).toBe('스윙 2봉 · 여유 0% · 1:1.5');
+    expect(settingsSummary({ ...DEFAULT_SETTINGS, slMode: 'lowestN', slLowestBars: 30, slBufferPct: 0.1, defaultRR: 2 })).toBe('최근 30봉 최저 · 여유 0.1% · 1:2');
+    expect(settingsSummary({ ...DEFAULT_SETTINGS, slMode: 'spike' })).toBe('큰 캔들 50봉 · 여유 0% · 1:1.5');
+    expect(settingsSummary({ ...DEFAULT_SETTINGS, slMode: 'prevCandle' })).toBe('직전 봉 · 여유 0% · 1:1.5');
   });
 });

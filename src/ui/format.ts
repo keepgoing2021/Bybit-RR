@@ -48,7 +48,9 @@ export function slRationale(a: AutoSL, side: Side, timeZone?: string): string {
     return a.candle ? `${reason} (선정 캔들 ${tfName(a.timeframe)} ${formatTime(a.candle.time, timeZone)})` : reason;
   }
   const edge = side === 'LONG' ? '저가' : '고가';
-  const buffer = a.bufferTicks > 0 ? ` ${side === 'LONG' ? '−' : '+'} 버퍼 ${a.bufferTicks}틱` : '';
+  const sign = side === 'LONG' ? '−' : '+';
+  const buffer =
+    (a.bufferPct ?? 0) > 0 ? ` ${sign} 여유 ${a.bufferPct}%` : (a.bufferTicks ?? 0) > 0 ? ` ${sign} 버퍼 ${a.bufferTicks}틱` : '';
   if (a.method === 'swing') {
     const kind = side === 'LONG' ? '저점' : '고점';
     return `SL: ${tfName(a.timeframe)} 최근 확정 스윙 ${kind}${buffer} (${formatTime(a.candle.time, timeZone)} 캔들)`;
@@ -88,7 +90,7 @@ export const SL_MODE_HELP: Record<SlMode, string> = {
   spike: '평소보다 크게 움직인 캔들의 꼬리',
 };
 
-/** 자동 제안 설정 접힌 상태에서도 보이는 한 줄 요약. 예: '스윙 2봉 · 여유 0틱 · 1:1.5' */
+/** 자동 제안 설정 접힌 상태에서도 보이는 한 줄 요약. 예: '스윙 2봉 · 여유 0% · 1:1.5' */
 export function settingsSummary(s: AnalysisSettings): string {
   const how =
     s.slMode === 'swing'
@@ -98,5 +100,5 @@ export function settingsSummary(s: AnalysisSettings): string {
         : s.slMode === 'spike'
           ? `큰 캔들 ${s.lookback}봉`
           : '직전 봉';
-  return `${how} · 여유 ${s.slBufferTicks}틱 · 1:${s.defaultRR}`;
+  return `${how} · 여유 ${s.slBufferPct}% · 1:${s.defaultRR}`;
 }
