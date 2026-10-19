@@ -7,7 +7,10 @@ const MOCK = 'http://localhost:5299';
 
 async function openBybit(page: Page) {
   await page.goto('/');
-  await page.evaluate(() => localStorage.clear());
+  await page.evaluate(() => {
+    localStorage.clear();
+    localStorage.setItem('rrtool.v1.tourDone', '1'); // 첫 사용 안내는 따로 시험
+  });
   await page.reload();
   await expect(page.getByTestId('feed-status')).toHaveAttribute('data-state', 'live', { timeout: 20_000 });
   await expect(page.getByTestId('btn-long')).toBeEnabled();
@@ -70,7 +73,10 @@ test.describe('failure handling', () => {
   test('shows why Bybit REST failed; a reload recovers once Bybit answers again', async ({ page, request }) => {
     await request.post(`${MOCK}/mock/fail?route=instruments`);
     await page.goto('/');
-    await page.evaluate(() => localStorage.clear());
+    await page.evaluate(() => {
+      localStorage.clear();
+      localStorage.setItem('rrtool.v1.tourDone', '1'); // 첫 사용 안내는 따로 시험
+    });
     await page.reload();
     await expect(page.getByTestId('load-error')).toBeVisible();
     await expect(page.getByTestId('load-error')).toContainText('종목 목록을 불러오지 못했습니다');
@@ -82,6 +88,21 @@ test.describe('failure handling', () => {
     await expect(page.getByTestId('feed-status')).toHaveAttribute('data-state', 'live', { timeout: 20_000 });
     await expect(page.getByTestId('load-error')).toBeHidden();
   });
+});
+
+test('the real app shows the first-use tour on a first visit only', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await expect(page.getByTestId('tour')).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByTestId('tour-count')).toHaveText('1 / 5');
+  await page.getByTestId('tour-skip').click();
+  await expect(page.getByTestId('tour')).toBeHidden();
+  expect(await page.evaluate(() => localStorage.getItem('rrtool.v1.tourDone'))).toBe('1');
+  await page.reload();
+  await expect(page.getByTestId('feed-status')).toHaveAttribute('data-state', 'live', { timeout: 20_000 });
+  await page.waitForTimeout(500);
+  await expect(page.getByTestId('tour')).toBeHidden();
 });
 
 test('a save made on the removed demo data opens fresh on Bybit', async ({ page }) => {
@@ -150,7 +171,18 @@ test.describe('symbol search', () => {
     await expect(page.getByTestId('symbol-option').first().locator('.px')).toHaveText(/^\d{2},\d{3}\.\d$/); // 65,xxx.x (호가 단위 0.1)
     await expect(page.getByTestId('symbol-panel')).not.toContainText('더 입력');
 
+    // 고른 탭 뒤의 알약: 열 때는 제자리, 탭을 바꾸면 미끄러져 옮겨 간다
+    const pillOn = (s: string) => page.evaluate((id) => {
+      const p = document.querySelector('[data-testid=symbol-pill]')!.getBoundingClientRect();
+      const t = document.querySelector(`[data-testid=symbol-sort-${id}]`)!.getBoundingClientRect();
+      return Math.abs(p.left - t.left) < 1 && Math.abs(p.width - t.width) < 1 && Math.abs(p.top - t.top) < 1;
+    }, s);
+    const sliding = () => page.getByTestId('symbol-pill').evaluate((el) => el.getAnimations().length > 0);
+    expect(await pillOn('volume')).toBe(true);
+    expect(await sliding()).toBe(false);
     await tab('gainers').click();
+    expect(await sliding()).toBe(true);
+    await expect.poll(() => pillOn('gainers')).toBe(true);
     await expect(names).toHaveText(['SOLUSDT', 'ETHUSDT', 'BTCUSDT']);
     await expect(page.getByTestId('symbol')).toBeFocused(); // 탭을 눌러도 목록이 닫히지 않는다
     await tab('losers').click();
@@ -161,6 +193,8 @@ test.describe('symbol search', () => {
     await expect(page.getByTestId('feed-status')).toHaveAttribute('data-state', 'live', { timeout: 20_000 });
     await page.getByTestId('symbol').click();
     await expect(tab('losers')).toHaveClass(/active/);
+    expect(await pillOn('losers')).toBe(true); // 다시 열어도 고른 탭 자리에서 시작
+    expect(await sliding()).toBe(false);
     await expect(names).toHaveText(['BTCUSDT', 'ETHUSDT', 'SOLUSDT']);
     // 'usdt'는 셋 다 맞음 → 검색 중에도 탭을 바꾸면 그 순서로
     await page.getByTestId('symbol').pressSequentially('usdt');

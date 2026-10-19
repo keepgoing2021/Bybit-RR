@@ -17,6 +17,7 @@ import { boxShiftOf, createScenario, replaceAuto, restoreAuto, setBoxShift, setE
 import { DEFAULT_SETTINGS, SL_MODES, sanitizeSettings, type AnalysisSettings, type SlMode } from '../core/settings';
 import {
   DEFAULT_SIZING,
+  feeAtStop,
   MAX_SPLITS,
   parseSplitCount,
   planSizing,
@@ -36,6 +37,7 @@ import type { FeedListener, MarketDataProvider } from '../data/provider';
 import { h, setText, show } from './dom';
 import { formatClock, formatPct, formatTime, settingsSummary, SL_MODE_HELP, SL_MODE_NAMES, slRationale, tfName, tpRationale } from './format';
 import { SymbolPicker } from './symbolPicker';
+import { Tour, type TourStep } from './tour';
 
 export interface AppDeps {
   root: HTMLElement;
@@ -97,6 +99,9 @@ const PHONE = typeof window !== 'undefined' && window.matchMedia ? window.matchM
 /** 화면 테마 (다크 = 기본, 검정 바탕). index.html의 첫 스크립트도 같은 키를 읽어 깜빡임 없이 연다 */
 export const THEME_KEY = 'rrtool.v1.theme';
 
+/** 첫 사용 안내를 봤는지 (끝까지 보거나 건너뛰면 '1'. 그 뒤로는 '?' 버튼으로만 다시 연다) */
+export const TOUR_KEY = 'rrtool.v1.tourDone';
+
 const DRAW_TOOLS_KEY = 'rrtool.v1.drawtools';
 const DRAW_COLOR_KEY = 'rrtool.v1.drawcolor';
 
@@ -137,6 +142,14 @@ export class App {
   private toastTimer: number | null = null;
   private countdown: { text: string; remainingMs: number } | null = null;
   private lastCopied: string | null = null;
+  /** 방금 복사한 주문표 칸 (표는 매번 새로 그려지므로 앱이 기억). 1.2초 동안 초록 체크 */
+  private copied: { key: string; until: number } | null = null;
+  /** 되돌리기 알림 (마지막 지우기 하나만) */
+  private undoAction: { run: () => void; timer: number } | null = null;
+  /** SL·TP 선을 끄는 중이면 숫자 굴림 효과를 끈다 */
+  private dragging = false;
+  private undoFlip = false;
+  private lastRolled: { id: string; rr: string; sumRr: string; profit: string } | null = null;
   private chart!: ChartView;
   private themeMode: ThemeMode = 'dark';
   private el!: ReturnType<App['buildDom']>;
@@ -174,11 +187,16 @@ export class App {
       onDrawState: (st) => this.renderDrawTools(st),
       onDrawingSelect: (d) => this.renderDrawEdit(d),
       onDrag: (which, price) => {
+        this.dragging = true;
         if (!this.scenario) return;
         this.scenario = setLevel(this.scenario, which, price);
         this.renderNow();
       },
-      onDragEnd: () => this.persist(),
+      onDragEnd: () => {
+        this.dragging = false;
+        this.persist();
+        this.renderNow(); // 끄는 동안 멈춰 둔 숫자 굴림을 손을 뗀 자리에서 한 번
+      },
       onBoxMove: (bars, done) => {
         if (!this.scenario) return;
         this.scenario = setBoxShift(this.scenario, bars);
@@ -201,6 +219,50 @@ export class App {
       this.renderCountdown();
     }, 500);
     await this.connect();
+    // 처음 들어온 사람에게만 한 번 (차트가 그려진 뒤)
+    if (!this.tourDone()) this.openTour();
+  }
+
+  private tourDone(): boolean {
+    try {
+      return this.d.storage.getItem(TOUR_KEY) === '1';
+    } catch {
+      return false;
+    }
+  }
+
+  private openTour(): void {
+    const e = this.el;
+    const steps: TourStep[] = [
+      {
+        target: () => e.picker.root.closest('.field'),
+        title: '종목 고르기',
+        body: '누르면 전 종목이 거래대금 순으로 뜹니다. 위 탭으로 상승률·하락률 순으로 바꿀 수 있어요.',
+      },
+      {
+        target: () => e.long.parentElement,
+        title: 'LONG 또는 SHORT',
+        body: '누르는 순간의 체결가가 진입가가 되고, 손절(SL)·목표(TP)를 자동으로 제안합니다.',
+      },
+      {
+        // 폰에서는 주문 설정이 접혀 있어 그 버튼을 비춘다
+        target: () => (e.sizing.bar.getClientRects().length ? e.sizing.bar : e.sizing.fold),
+        title: '운영자산과 손실 한도',
+        body: '운영자산과 손절 시 잃어도 되는 %를 적으면 분할 주문표가 계산됩니다. 분할 수·비중도 여기서 정합니다.',
+      },
+      {
+        target: () => e.chart.closest('.chart-wrap'),
+        title: '차트에서 고치기',
+        body: '빨간 SL 선·초록 TP 선을 위아래로 끌어 옮깁니다. 박스 안의 1:x 칩을 누르면 그 손익비로 TP가 갑니다.',
+      },
+      {
+        target: () => e.card.closest('.scenario'),
+        title: '주문표 복사',
+        body: '계산 결과와 분할 주문표가 여기에 나옵니다. 숫자를 누르면 복사되니 Bybit 주문창에 붙여 넣으세요.',
+      },
+    ];
+    this.chart.clearSelection();
+    e.tour.open(steps);
   }
 
   // ───────────── 데이터 ─────────────
@@ -453,9 +515,84 @@ export class App {
   }
 
   private clearCalc(): void {
+    const prev = this.scenario;
     this.scenario = null;
     this.persist();
     this.renderAll();
+    if (prev) {
+      this.offerUndo('계산을 지웠습니다', () => {
+        if (prev.symbol !== this.ui.symbol) return this.toast('종목이 바뀌어 되돌릴 수 없습니다.');
+        this.scenario = prev;
+        this.persist();
+        this.renderAll();
+      });
+    }
+  }
+
+  /**
+   * 손익비·주문표 손익비·목표 시 수익이 바뀌면 숫자가 아래에서 굴러 올라온다.
+   * SL·TP 선을 끄는 중(계속 바뀜)이나 손익비를 직접 치는 중에는 하지 않는다. 시세가 움직여도 이 값들은 안 바뀐다
+   */
+  private rollChanged(id: string, rr: string): void {
+    const z = this.el.sizing.sum;
+    const now = { id, rr, sumRr: z.rr.textContent ?? '', profit: z.profit.textContent ?? '' };
+    // 끄는 동안에는 기준값을 그대로 두어, 손을 떼면 끌기 전과 비교해 한 번만 굴린다
+    if (this.dragging) return;
+    const prev = this.lastRolled;
+    this.lastRolled = now;
+    if (!prev) return;
+    // 같은 이름의 애니메이션은 다시 돌지 않으므로, 칸마다 지금과 다른 이름으로 바꿔 단다
+    const roll = (el: HTMLElement, changed: boolean) => {
+      if (!changed) return;
+      const next = el.classList.contains('roll-a') ? 'roll-b' : 'roll-a';
+      el.classList.remove('roll-a', 'roll-b');
+      el.classList.add(next);
+    };
+    const fresh = prev.id !== id;
+    roll(this.el.rr, (fresh || prev.rr !== rr) && document.activeElement !== this.el.rrInput);
+    roll(z.rr, fresh || prev.sumRr !== now.sumRr);
+    roll(z.profit, fresh || prev.profit !== now.profit);
+  }
+
+  /** 작도 지우기(하나·전부)를 되돌릴 수 있게: 지우기 전 목록을 기억 */
+  private deleteDrawingWithUndo(): boolean {
+    const sym = this.ui.symbol;
+    const prev = [...(this.drawingsBySymbol[sym] ?? [])];
+    if (!this.chart.deleteSelectedDrawing()) return false;
+    this.offerUndo('작도를 지웠습니다', () => this.restoreDrawings(sym, prev));
+    return true;
+  }
+
+  private restoreDrawings(sym: string, list: Drawing[]): void {
+    this.drawingsBySymbol[sym] = list;
+    saveDrawings(this.d.storage, this.drawingsBySymbol);
+    if (sym === this.ui.symbol) this.chart.setDrawings(list);
+  }
+
+  /** 지운 직후 5초 동안 '되돌리기' (Ctrl+Z도). 새로 지우면 앞의 것은 되돌릴 수 없다 */
+  private offerUndo(message: string, run: () => void): void {
+    const u = this.el.undo;
+    if (this.undoAction) window.clearTimeout(this.undoAction.timer);
+    show(this.el.toast, false);
+    setText(u.text, message);
+    // 줄어드는 막대 애니메이션을 처음부터 (두 이름을 번갈아 써서 다시 시작)
+    this.undoFlip = !this.undoFlip;
+    u.bar.className = `undo-progress ${this.undoFlip ? 'run-a' : 'run-b'}`;
+    show(u.root, true);
+    const timer = window.setTimeout(() => this.closeUndo(), 5_000);
+    this.undoAction = { run, timer };
+  }
+
+  private closeUndo(): void {
+    if (this.undoAction) window.clearTimeout(this.undoAction.timer);
+    this.undoAction = null;
+    show(this.el.undo.root, false);
+  }
+
+  private runUndo(): void {
+    const a = this.undoAction;
+    this.closeUndo();
+    a?.run();
   }
 
   private applyInput(which: 'entry' | 'sl' | 'tp', raw: string): void {
@@ -510,9 +647,15 @@ export class App {
   }
 
   /** 주문표 숫자 복사 (Bybit 주문창에 붙여 넣기) */
-  private copy(value: string): void {
+  private copy(value: string, key?: string): void {
     this.lastCopied = value;
-    const done = () => this.toast(`복사했습니다: ${value}`);
+    // 성공은 누른 칸에 초록 체크로 (아래 알림 없음)
+    const done = () => {
+      if (!key) return this.toast(`복사했습니다: ${value}`);
+      this.copied = { key, until: Date.now() + 1200 };
+      this.renderNow();
+      window.setTimeout(() => this.renderNow(), 1250);
+    };
     const fallback = () => {
       const ta = h('textarea', {}) as HTMLTextAreaElement;
       ta.value = value;
@@ -554,7 +697,22 @@ export class App {
     const statusReason = h('span', { class: 'status-reason' });
     // 다크/라이트 전환 (누르면 반대 테마로). 폰에서는 아이콘만
     const themeBtn = h('button', { type: 'button', class: 'theme-toggle', 'data-testid': 'theme-toggle' });
-    themeBtn.addEventListener('click', () => this.setTheme(this.themeMode === 'dark' ? 'light' : 'dark', true));
+    themeBtn.addEventListener('click', () => this.switchTheme(themeBtn));
+    // 사용 안내 다시 보기 (처음 한 번은 저절로 뜬다)
+    const tourBtn = h(
+      'button',
+      { type: 'button', class: 'tour-open', 'data-testid': 'tour-open', title: '사용 안내 다시 보기', 'aria-label': '사용 안내 다시 보기' },
+      h('span', { class: 'icon', 'aria-hidden': 'true' }, '?'),
+      h('span', { class: 'label' }, '안내'),
+    );
+    tourBtn.addEventListener('click', () => this.openTour());
+    const tour = new Tour(() => {
+      try {
+        this.d.storage.setItem(TOUR_KEY, '1');
+      } catch {
+        // 저장 못 하면 다음에 또 뜬다
+      }
+    });
 
     const field = (label: string, control: HTMLElement) => h('label', { class: 'field' }, h('span', {}, label), control);
     const sizing = this.buildSizing(field);
@@ -566,7 +724,7 @@ export class App {
       field('차트', tf),
       field('SL 기준', sltf),
       h('div', { class: 'sides' }, long, short),
-      h('div', { class: 'status' }, status, statusReason, themeBtn),
+      h('div', { class: 'status' }, status, statusReason, tourBtn, themeBtn),
       sizing.fold,
       sizing.bar,
     );
@@ -703,8 +861,16 @@ export class App {
     const layout = h('main', { class: 'layout' }, chartWrap, panel);
 
     const toast = h('div', { class: 'toast', 'data-testid': 'toast', role: 'status', hidden: true });
+    // 되돌리기 알림: 문구 + 되돌리기 버튼 + 5초 줄어드는 막대
+    const undoText = h('span', { class: 'undo-text', 'data-testid': 'undo-text' });
+    const undoBtn = h('button', { type: 'button', class: 'undo-btn', 'data-testid': 'undo-btn', title: '되돌리기 (Ctrl+Z)' }, '되돌리기');
+    const undoBar = h('span', { class: 'undo-progress' });
+    const undoRoot = h('div', { class: 'undo-bar', 'data-testid': 'undo-bar', role: 'status', hidden: true },
+      h('div', { class: 'undo-row' }, undoText, undoBtn), h('div', { class: 'undo-track' }, undoBar));
+    undoBtn.addEventListener('click', () => this.runUndo());
+    const undo = { root: undoRoot, text: undoText, bar: undoBar };
 
-    root.replaceChildren(topbar, loadError, layout, toast);
+    root.replaceChildren(topbar, loadError, layout, toast, undoRoot, tour.root);
 
     // 이벤트
     tf.addEventListener('change', () => {
@@ -743,13 +909,21 @@ export class App {
       if (e.key !== 'Delete' && e.key !== 'Backspace') return;
       const t = e.target as HTMLElement | null;
       if (t && (t.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName))) return;
-      if (this.chart.deleteSelectedDrawing()) {
+      if (this.deleteDrawingWithUndo()) {
         e.preventDefault();
         return;
       }
       if (!this.chart.isBoxSelected()) return;
       e.preventDefault();
       this.clearCalc();
+    });
+    // 되돌리기 알림이 떠 있는 동안 Ctrl+Z (⌘Z). 입력칸에서는 글자 되돌리기를 그대로 둔다
+    document.addEventListener('keydown', (e) => {
+      if (!this.undoAction || !(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || e.code !== 'KeyZ') return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName))) return;
+      e.preventDefault();
+      this.runUndo();
     });
     // TradingView처럼 Alt+R로 차트 보기 초기화. 한글 입력 상태에서도 되도록 e.code로 본다
     document.addEventListener('keydown', (e) => {
@@ -761,7 +935,7 @@ export class App {
     return {
       picker, tf, sltf, long, short, status, statusReason, themeBtn,
       loadError, chart, empty, card, sideChip, title, entry, times, rr, rrInput, rrLabel, reasons,
-      sl, tp, slWhy, tpWhy, sizing, restore, del, settingsInputs, settingRows, modeHelp, settingsSummaryEl, toast, tools,
+      sl, tp, slWhy, tpWhy, sizing, restore, del, settingsInputs, settingRows, modeHelp, settingsSummaryEl, toast, undo, tools, tour,
     };
   }
 
@@ -792,12 +966,13 @@ export class App {
     });
     clear.innerHTML = DRAW_ICONS.clear;
     clear.addEventListener('click', () => {
-      const n = (this.drawingsBySymbol[this.ui.symbol] ?? []).length;
-      if (n === 0) return this.toast('지울 작도가 없습니다.');
+      const sym = this.ui.symbol;
+      const prev = [...(this.drawingsBySymbol[sym] ?? [])];
+      if (prev.length === 0) return this.toast('지울 작도가 없습니다.');
       this.chart.setDrawings([]);
-      delete this.drawingsBySymbol[this.ui.symbol];
+      delete this.drawingsBySymbol[sym];
       saveDrawings(this.d.storage, this.drawingsBySymbol);
-      this.toast(`${this.ui.symbol} 작도 ${n}개를 지웠습니다.`);
+      this.offerUndo(`${sym} 작도 ${prev.length}개를 지웠습니다`, () => this.restoreDrawings(sym, prev));
     });
     list.append(h('div', { class: 'draw-sep' }), clear);
     const bar = h('div', { class: 'draw-toolbar', 'data-testid': 'draw-toolbar' }, toggle, list);
@@ -820,7 +995,7 @@ export class App {
     reset.addEventListener('click', () => this.pickDrawColor(null));
     const del = h('button', { type: 'button', class: 'draw-tool danger', 'data-testid': 'draw-delete', title: '지우기 (Delete)', 'aria-label': '지우기' });
     del.innerHTML = DRAW_ICONS.clear;
-    del.addEventListener('click', () => this.chart.deleteSelectedDrawing());
+    del.addEventListener('click', () => this.deleteDrawingWithUndo());
     const bar = h('div', { class: 'draw-edit', 'data-testid': 'draw-edit', hidden: true }, name, ...swatches, custom, reset, del);
     return { bar, name, swatches, custom };
   }
@@ -881,6 +1056,40 @@ export class App {
     if (this.el && this.chart) this.renderNow(true);
   }
 
+  /**
+   * 버튼을 누르면 새 테마가 버튼 자리에서 원으로 퍼져 화면을 덮는다 (View Transitions).
+   * 지원하지 않는 브라우저나 '동작 줄이기' 설정이면 바로 바뀐다. 저장은 누르는 즉시.
+   */
+  private switchTheme(from: HTMLElement): void {
+    const next: ThemeMode = this.themeMode === 'dark' ? 'light' : 'dark';
+    const doc = document as Document & { startViewTransition?: (update: () => void) => { ready: Promise<void> } };
+    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    if (!doc.startViewTransition || reduce) {
+      this.setTheme(next, true);
+      return;
+    }
+    try {
+      this.d.storage.setItem(THEME_KEY, next);
+    } catch {
+      // 저장 못 해도 이번 화면에는 적용
+    }
+    const r = from.getBoundingClientRect();
+    const x = r.left + r.width / 2;
+    const y = r.top + r.height / 2;
+    const radius = Math.hypot(Math.max(x, window.innerWidth - x), Math.max(y, window.innerHeight - y));
+    const t = doc.startViewTransition(() => this.setTheme(next, false));
+    t.ready
+      .then(() => {
+        document.documentElement.animate(
+          { clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${radius}px at ${x}px ${y}px)`] },
+          { duration: 500, easing: 'cubic-bezier(0.4, 0, 0.2, 1)', pseudoElement: '::view-transition-new(root)' },
+        );
+      })
+      .catch(() => {
+        // 전환이 건너뛰어져도 테마는 이미 바뀌었다
+      });
+  }
+
   private loadDrawColor(): string | null {
     try {
       const c = this.d.storage.getItem(DRAW_COLOR_KEY);
@@ -937,13 +1146,26 @@ export class App {
       this.renderNow();
     });
     const mk = (id: string) => h('dd', { class: 'num', 'data-testid': `sizing-${id}` });
-    const sum = { total: mk('total'), lev: mk('lev'), loss: mk('loss'), profit: mk('profit'), avg: mk('avg'), rr: mk('rr') };
+    const sum = { total: mk('total'), lev: mk('lev'), fee: mk('fee'), loss: mk('loss'), profit: mk('profit'), avg: mk('avg'), rr: mk('rr') };
+    // 손절 시 수수료가 손실에서 차지하는 몫: 한 줄 + 얇은 막대 (10% 미만 초록, 20% 미만 노랑, 그 이상 빨강)
+    const feeFill = h('span', { class: 'fee-fill', 'data-testid': 'sizing-fee-fill' });
+    const feeTitle = '전부 체결 후 손절 시: 지정가 진입 0.02% + 시장가 손절 0.055% (Bybit 기본 등급). 막대 끝 = 50%';
+    // 금액은 윗줄, '손실의 몇 %'는 얇은 막대 오른쪽에 (한 줄이 길어져 줄바꿈되지 않게)
+    const feeShare = h('span', { class: 'fee-share num', 'data-testid': 'sizing-fee-share' });
+    const feeMeter = h(
+      'div',
+      { class: 'fee-row', title: feeTitle },
+      h('div', { class: 'fee-meter', 'aria-hidden': 'true' }, feeFill, h('span', { class: 'fee-tick', style: 'left: 20%' }), h('span', { class: 'fee-tick', style: 'left: 40%' })),
+      feeShare,
+    );
     sum.avg.classList.add('avg');
     const summary = h(
       'dl',
       { class: 'metrics', 'data-testid': 'sizing-summary' },
       h('dt', {}, '총 포지션'), sum.total,
       h('dt', {}, '필요 레버리지'), sum.lev,
+      h('dt', { title: feeTitle }, '손절 시 수수료'), sum.fee,
+      feeMeter,
       h('dt', { class: 'group' }, '모두 체결되면'), h('dd', { class: 'group' }, avgToggle),
       h('dt', { class: 'avg' }, '전부 체결 시 예상 평단'), sum.avg,
       h('dt', {}, '손절 시'), sum.loss,
@@ -1021,7 +1243,7 @@ export class App {
     linear.addEventListener('click', () => apply('linear'));
     equal.addEventListener('click', () => apply('equal'));
     for (const c of [capital, splits, weights]) c.addEventListener('keydown', (e) => e.key === 'Enter' && c.blur());
-    return { bar, fold, box, capital, risk, splits, weights, linear, equal, reason, table, body, summary, sum, avgShow };
+    return { bar, fold, box, capital, risk, splits, weights, linear, equal, reason, table, body, summary, sum, avgShow, feeFill, feeMeter, feeShare };
   }
 
   /** 상단 바의 분할 진입 입력칸을 저장된 값으로 맞춘다 (시나리오가 없어도 보인다) */
@@ -1053,10 +1275,18 @@ export class App {
     return r.ok ? { plan: r.plan, reason: null } : { plan: null, reason: r.reason };
   }
 
-  /** 누르면 복사되는 숫자 (value: 복사할 값, 표시와 다르면 지정. 금액은 쉼표 없이) */
-  private copyCell(text: string, what: string, value = text): HTMLElement {
-    const b = h('button', { type: 'button', class: 'copy', 'data-testid': 'copy', title: `${what} 복사` }, text);
-    b.addEventListener('click', () => this.copy(value));
+  /**
+   * 누르면 복사되는 숫자 (value: 복사할 값, 표시와 다르면 지정. 금액은 쉼표 없이).
+   * 복사하면 1.2초 동안 그 칸이 초록 + 왼쪽에 체크 (글자 자리는 그대로라 표가 흔들리지 않음)
+   */
+  private copyCell(text: string, what: string, value: string, key: string): HTMLElement {
+    const on = this.copied !== null && this.copied.key === key && Date.now() < this.copied.until;
+    const b = h(
+      'button',
+      { type: 'button', class: on ? 'copy copied' : 'copy', 'data-testid': 'copy', 'data-copy-key': key, title: on ? '복사됨' : `${what} 복사` },
+      text,
+    );
+    b.addEventListener('click', () => this.copy(value, key));
     return b;
   }
 
@@ -1077,10 +1307,10 @@ export class App {
           'tr',
           { 'data-testid': 'sizing-row', class: t.tooSmall ? 'too-small' : '' },
           h('td', {}, `${t.n}차 `, h('span', { class: 'muted small' }, `${(t.share * 100).toFixed(0)}%`)),
-          h('td', { class: 'num' }, this.copyCell(formatPrice(t.price, s.tickSize), '가격')),
+          h('td', { class: 'num' }, this.copyCell(formatPrice(t.price, s.tickSize), '가격', formatPrice(t.price, s.tickSize), `${t.n}-price`)),
           // 복사값 = 보이는 값에서 쉼표만 뺀 것 (toFixed와 표시 반올림이 반 센트에서 갈리지 않게)
-          h('td', { class: 'num' }, this.copyCell(usdt(t.notional), '금액', usdt(t.notional).replace(/,/g, ''))),
-          h('td', { class: 'num' }, this.copyCell(t.qty.toFixed(qd), '수량')),
+          h('td', { class: 'num' }, this.copyCell(usdt(t.notional), '금액', usdt(t.notional).replace(/,/g, ''), `${t.n}-amount`)),
+          h('td', { class: 'num' }, this.copyCell(t.qty.toFixed(qd), '수량', t.qty.toFixed(qd), `${t.n}-qty`)),
           // 1차부터 이 분할까지 체결됐을 때의 평단 (1차 = 진입가)
           h(
             'td',
@@ -1095,6 +1325,14 @@ export class App {
     const lev = plan.leverage;
     setText(z.sum.total, `${usdt(plan.totalNotional)} USDT`);
     setText(z.sum.lev, lev > 1 ? `${(Math.ceil(lev * 10) / 10).toFixed(1)}배 이상` : '없음 (1배 이하)');
+    const fee = feeAtStop(plan);
+    const zone = fee.sharePct === null ? '' : fee.sharePct < 10 ? 'low' : fee.sharePct < 20 ? 'mid' : 'high';
+    setText(z.sum.fee, `${usdt(fee.fee)} USDT`);
+    setText(z.feeShare, fee.sharePct === null ? '' : `손실의 ${fee.sharePct.toFixed(0)}%`);
+    z.sum.fee.dataset.zone = zone;
+    z.feeShare.dataset.zone = zone;
+    z.feeFill.dataset.zone = zone;
+    z.feeFill.style.width = `${Math.min(100, ((fee.sharePct ?? 0) / 50) * 100)}%`;
     setText(z.sum.loss, `−${usdt(plan.lossAtSl)} (−${plan.lossPct.toFixed(2)}%)`);
     setText(z.sum.profit, plan.profitAtTp === null ? '—' : `+${usdt(plan.profitAtTp)} (+${plan.profitPct!.toFixed(2)}%)`);
     setText(z.sum.avg, formatPrice(plan.avgEntry, s.tickSize));
@@ -1213,6 +1451,7 @@ export class App {
       e.rrInput.value = m.rr === null ? '' : formatRR(m.rr).slice(2);
       e.rrInput.style.width = `${Math.max(2, e.rrInput.value.length) + 0.4}ch`;
     }
+    const rrNow = e.rrInput.value;
     setText(e.rrLabel, this.sizing.splits > 1 ? '손익비 (1차만 체결 시)' : '손익비');
     e.rr.dataset.valid = String(m.valid);
     e.reasons.replaceChildren(...m.reasons.map((r) => h('li', {}, r)));
@@ -1236,6 +1475,7 @@ export class App {
     setText(e.slWhy, slRationale(s.auto.sl, s.side));
     setText(e.tpWhy, tpRationale(s.auto.tp, s.side));
     const plan = this.renderSizing(s);
+    this.rollChanged(s.id, rrNow);
 
     const profit = m.rewardDist === null ? null : `목표 +${fp(m.rewardDist)} (${formatPct(m.rewardPct!)})`;
     const loss = m.riskDist === null ? null : `손절 −${fp(m.riskDist)} (${formatPct(m.riskPct!)})`;

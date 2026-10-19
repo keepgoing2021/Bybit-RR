@@ -88,8 +88,8 @@ test('black dark theme by default; the theme button switches to light and back, 
   await expect(toggle).toContainText('라이트');
 
   await toggle.click();
-  // 라이트: 흰 바탕, 꼬리·'1:'·평단 같은 흰 강조는 거의 검정으로
-  expect(await look()).toEqual({ theme: 'light', attr: 'light', body: 'rgb(255, 255, 255)', chart: '#FFFFFF', wick: '#14171C', rrHead: 'rgb(20, 23, 28)' });
+  // 라이트: 흰 바탕, 꼬리·'1:'·평단 같은 흰 강조는 거의 검정으로 (원으로 퍼지는 전환 뒤)
+  await expect.poll(look).toEqual({ theme: 'light', attr: 'light', body: 'rgb(255, 255, 255)', chart: '#FFFFFF', wick: '#14171C', rrHead: 'rgb(20, 23, 28)' });
   await expect(toggle).toContainText('다크');
   expect(await page.evaluate(() => localStorage.getItem('rrtool.v1.theme'))).toBe('light');
 
@@ -104,9 +104,50 @@ test('black dark theme by default; the theme button switches to light and back, 
   expect((await look()).chart).toBe('#FFFFFF');
 
   await page.getByTestId('theme-toggle').click();
-  await page.reload();
+  await page.reload(); // 누르는 즉시 저장되므로 전환 도중에 새로고침해도 남는다
   await waitLive(page);
   expect((await look()).body).toBe('rgb(0, 0, 0)');
+});
+
+test('theme switch spreads as a circle from the button; instant when motion is reduced', async ({ page }) => {
+  await open(page, { tf: '15' });
+  // 원 애니메이션 호출을 기록
+  await page.evaluate(() => {
+    const w = window as unknown as { __anims: { frames: unknown; pseudo?: string; duration?: number }[] };
+    w.__anims = [];
+    const orig = Element.prototype.animate;
+    Element.prototype.animate = function (frames, opts) {
+      const o = typeof opts === 'object' ? opts : {};
+      w.__anims.push({ frames, pseudo: (o as KeyframeAnimationOptions).pseudoElement ?? undefined, duration: Number(o.duration) });
+      return orig.call(this, frames, opts);
+    };
+  });
+  const toggle = page.getByTestId('theme-toggle');
+  const b = (await toggle.boundingBox())!;
+  await toggle.click();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  // 원은 새 화면이 준비된 다음 프레임에 그려진다
+  type Rec = { frames: { clipPath: string[] }; pseudo?: string; duration?: number };
+  const circleAnim = () =>
+    page.evaluate(() => (window as unknown as { __anims: Rec[] }).__anims.find((a) => a.pseudo === '::view-transition-new(root)') ?? null);
+  await expect.poll(circleAnim).not.toBeNull();
+  const circle = (await circleAnim())!;
+  expect(circle.duration).toBe(500);
+  const [from, to] = circle.frames.clipPath;
+  const m = from.match(/^circle\(0px at ([\d.]+)px ([\d.]+)px\)$/)!;
+  expect(Math.abs(Number(m[1]) - (b.x + b.width / 2))).toBeLessThan(1);
+  expect(Math.abs(Number(m[2]) - (b.y + b.height / 2))).toBeLessThan(1);
+  // 끝 원은 버튼에서 가장 먼 화면 모서리까지 덮는다
+  const vp = page.viewportSize()!;
+  const far = Math.hypot(Math.max(b.x + b.width / 2, vp.width - b.x - b.width / 2), Math.max(b.y + b.height / 2, vp.height - b.y - b.height / 2));
+  expect(Math.abs(Number(to.match(/^circle\(([\d.]+)px/)![1]) - far)).toBeLessThan(1);
+  // 동작 줄이기: 원 없이 누르는 즉시
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.evaluate(() => ((window as unknown as { __anims: unknown[] }).__anims.length = 0));
+  await toggle.click();
+  expect(await page.evaluate(() => document.documentElement.dataset.theme)).toBe('dark');
+  await page.waitForTimeout(300);
+  expect(await page.evaluate(() => (window as unknown as { __anims: unknown[] }).__anims.length)).toBe(0);
 });
 
 test('entry stays fixed while price moves', async ({ page }) => {
@@ -232,7 +273,7 @@ test('pressing SHORT after LONG recalculates right away at the current price (no
   expect(after.side).toBe('SHORT');
   expect(after.source).toEqual({ sl: 'auto', tp: 'auto' });
   expect(Math.abs(after.entry - (await page.evaluate(() => window.__rrDebug.getLastPrice()))!)).toBeLessThan(after.entry * 0.002);
-  await expect(page.locator('[role=dialog]')).toHaveCount(0);
+  await expect(page.locator('[role=dialog]:visible')).toHaveCount(0); // (사용 안내 말풍선은 닫혀 있음)
 });
 
 test('clear removes the calculation from the panel and the chart', async ({ page }) => {
@@ -277,13 +318,156 @@ test('order table numbers copy on click', async ({ page }) => {
   await page.getByTestId('sizing-capital').press('Enter');
   const qty = page.getByTestId('sizing-row').first().locator('td:nth-child(4) [data-testid=copy]');
   const text = (await qty.textContent())!;
+  const tableBox = async () => page.getByTestId('sizing-table').evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    return [Math.round(r.width), Math.round(r.height)];
+  });
+  const before = await tableBox();
   await qty.click();
   await expect.poll(() => page.evaluate(() => window.__rrDebug.getLastCopied())).toBe(text);
-  await expect(page.getByTestId('toast')).toContainText(text);
+  // 누른 숫자 자리가 초록 체크로 (아래 알림은 없음), 옆 칸을 덮지 않고 표 크기도 그대로, 1.2초 뒤 원래대로
+  await expect(qty).toHaveClass(/copied/);
+  await expect(qty).toHaveAttribute('title', '복사됨');
+  const badge = await qty.evaluate((el) => {
+    const a = getComputedStyle(el, '::after');
+    return { content: a.content, left: a.left, right: a.right };
+  });
+  expect(badge).toEqual({ content: '"✓"', left: '-3px', right: '-3px' });
+  await expect(page.getByTestId('toast')).toBeHidden();
+  expect(await tableBox()).toEqual(before);
+  await expect(qty).not.toHaveClass(/copied/, { timeout: 3_000 });
   const money = page.getByTestId('sizing-row').first().locator('td:nth-child(3) [data-testid=copy]');
   await money.click();
   await expect.poll(() => page.evaluate(() => window.__rrDebug.getLastCopied())).toBe((await money.textContent())!.replace(/,/g, ''));
+  await expect(money).toHaveClass(/copied/);
+  await expect(qty).not.toHaveClass(/copied/); // 다른 칸은 그대로
 });
+
+/** 안내의 빛 상자가 대상을 감싸고(화면 안으로 자른 범위), 말풍선이 화면 안에 다 들어오는지 */
+export async function tourLayout(page: Page, selector: string) {
+  return page.evaluate((sel) => {
+    const vw = document.documentElement.clientWidth;
+    const vh = window.innerHeight;
+    const t = document.querySelector(sel)!.getBoundingClientRect();
+    const s = document.querySelector('[data-testid=tour-spot]')!.getBoundingClientRect();
+    const p = document.querySelector('[data-testid=tour-tip]')!.getBoundingClientRect();
+    const clip = { l: Math.max(0, t.left), t: Math.max(0, t.top), r: Math.min(vw, t.right), b: Math.min(vh, t.bottom) };
+    return {
+      covers: s.left <= clip.l + 0.5 && s.top <= clip.t + 0.5 && s.right >= clip.r - 0.5 && s.bottom >= clip.b - 0.5,
+      tight: s.width - (clip.r - clip.l) <= 14 && s.height - (clip.b - clip.t) <= 14,
+      tipInside: p.left >= 0 && p.top >= 0 && p.right <= vw && p.bottom <= vh,
+    };
+  }, selector);
+}
+
+test('first-use tour: 5 spots with skip / back / next, keys work, clicks behind are blocked, shown once, "?" reopens', async ({ page }) => {
+  await page.goto('/tests/harness/index.html?tour=1');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  const tour = page.getByTestId('tour');
+  await expect(tour).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByTestId('feed-status')).toHaveAttribute('data-state', 'live');
+  const count = page.getByTestId('tour-count');
+  const title = page.getByTestId('tour-title');
+  const next = page.getByTestId('tour-next');
+  const steps: [string, string][] = [
+    ['종목 고르기', '.topbar .field:has([data-testid=symbol])'],
+    ['LONG 또는 SHORT', '.topbar .sides'],
+    ['운영자산과 손실 한도', '[data-testid=sizing-bar]'],
+    ['차트에서 고치기', '.chart-wrap'],
+    ['주문표 복사', '.panel .scenario'],
+  ];
+  const check = async (k: number) => {
+    await expect(count).toHaveText(`${k + 1} / 5`);
+    await expect(title).toHaveText(steps[k][0]);
+    await expect.poll(async () => tourLayout(page, steps[k][1]), { timeout: 3_000 }).toEqual({ covers: true, tight: true, tipInside: true });
+  };
+  await check(0);
+  await expect(page.getByTestId('tour-prev')).toBeHidden();
+  await expect(next).toHaveText('다음');
+  await expect(next).toBeFocused();
+  await page.keyboard.press('ArrowRight');
+  await check(1);
+  await next.click();
+  await check(2);
+  await page.getByTestId('tour-prev').click();
+  await check(1);
+  await page.keyboard.press('Enter'); // 다음 버튼에 포커스: 한 번만 넘어간다
+  await check(2);
+  await page.keyboard.press('ArrowLeft');
+  await check(1);
+  await page.keyboard.press('ArrowRight');
+  // Shift+Tab으로 '이전'에 포커스 → Enter는 그 버튼(이전)으로
+  await page.keyboard.press('Shift+Tab');
+  await expect(page.getByTestId('tour-prev')).toBeFocused();
+  await page.keyboard.press('Enter');
+  await check(1);
+  // Tab은 말풍선 버튼 안에서만 돈다 (건너뛰기 → 이전 → 다음 → 건너뛰기)
+  await expect(next).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(page.getByTestId('tour-skip')).toBeFocused();
+  await page.keyboard.press('Shift+Tab');
+  await expect(next).toBeFocused();
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  await check(3);
+  await next.click();
+  await check(4);
+  await expect(next).toHaveText('시작하기');
+  // 안내가 떠 있는 동안 뒤의 화면은 눌리지 않는다
+  const long = await page.getByTestId('btn-long').boundingBox();
+  await page.mouse.click(long!.x + long!.width / 2, long!.y + long!.height / 2);
+  await page.waitForTimeout(200);
+  expect(await scenario(page)).toBeNull();
+  await next.click();
+  await expect(tour).toBeHidden();
+  expect(await page.evaluate(() => localStorage.getItem('rrtool.v1.tourDone'))).toBe('1');
+  // 다시 들어와도 저절로 뜨지 않는다
+  await page.reload();
+  await waitLive(page);
+  await page.waitForTimeout(400);
+  await expect(tour).toBeHidden();
+  // '?'로 다시 보기, Esc는 건너뛰기
+  await expect(page.getByTestId('tour-open')).toContainText('안내');
+  await page.getByTestId('tour-open').click();
+  await check(0);
+  await page.keyboard.press('Escape');
+  await expect(tour).toBeHidden();
+  await page.getByTestId('btn-long').click();
+  await expect.poll(() => scenario(page)).not.toBeNull();
+});
+
+test('clearing a calculation, deleting a drawing or clearing all drawings can be undone for 5 seconds (button or Ctrl+Z)', async ({ page }) => {
+  await open(page, { tf: '15' });
+  const s = await validLong(page);
+  const bar = page.getByTestId('undo-bar');
+  // 계산 지우기 → 되돌리기 버튼
+  await page.locator('.card').getByText('지우기', { exact: true }).click();
+  await expect.poll(() => scenario(page)).toBeNull();
+  await expect(bar).toBeVisible();
+  await expect(page.getByTestId('undo-text')).toHaveText('계산을 지웠습니다');
+  await page.getByTestId('undo-btn').click();
+  await expect.poll(async () => (await scenario(page))?.id).toBe(s.id);
+  expect((await scenario(page))!.applied).toEqual(s.applied);
+  await expect(bar).toBeHidden();
+  // 박스를 눌러 선택 → Delete → Ctrl+Z
+  const g = (await rendered(page))!;
+  const r = await page.evaluate(() => window.__rrDebug.chartClientRect());
+  await page.mouse.click(r.left + (g.x1 + g.x2) / 2, r.top + (g.yEntry + g.ySl!) / 2);
+  await expect.poll(() => page.evaluate(() => window.__rrDebug.isBoxSelected())).toBe(true);
+  await page.keyboard.press('Delete');
+  await expect.poll(() => scenario(page)).toBeNull();
+  await page.keyboard.press('Control+z');
+  await expect.poll(async () => (await scenario(page))?.id).toBe(s.id);
+  // 5초가 지나면 알림이 사라지고 되돌릴 수 없다
+  await page.locator('.card').getByText('지우기', { exact: true }).click();
+  await expect(bar).toBeVisible();
+  await expect(bar).toBeHidden({ timeout: 7_000 });
+  await page.keyboard.press('Control+z');
+  await page.waitForTimeout(200);
+  expect(await scenario(page)).toBeNull();
+});
+
 
 test('manual input snaps to tick', async ({ page }) => {
   await open(page, { tf: '15' });
@@ -787,6 +971,93 @@ test('split entries: 3 or 5 splits between entry and SL, loss at SL capped at th
   await expect(page.getByTestId('sizing-row')).toHaveCount(5);
 });
 
+test('fee at stop: amount and share of the loss, colored by zone, with a small meter (end = 50%)', async ({ page }) => {
+  await open(page, { tf: '15' });
+  const s = await validLong(page); // SL = 엔트리 − 10
+  await page.getByTestId('sizing-capital').fill('10,000');
+  await page.getByTestId('sizing-capital').press('Enter');
+  const num = (t: string) => Number(t.replace(/,/g, ''));
+  const read = async () => {
+    const total = num((await page.getByTestId('sizing-total').textContent())!.match(/([\d,.]+) USDT/)![1]);
+    const loss = num((await page.getByTestId('sizing-loss').textContent())!.match(/−([\d,.]+)/)![1]);
+    const t = (await page.getByTestId('sizing-fee').textContent())!;
+    const m = t.match(/^([\d,.]+) USDT$/)!;
+    expect(m, t).not.toBeNull();
+    const sh = (await page.getByTestId('sizing-fee-share').textContent())!.match(/^손실의 (\d+)%$/)!;
+    return { total, loss, fee: num(m[1]), share: Number(sh[1]) };
+  };
+  const f = await read();
+  // 수수료 = 전부 체결 금액 × (0.02% + 0.055%), 몫 = 수수료 ÷ 손절 손실
+  expect(Math.abs(f.fee - f.total * 0.00075)).toBeLessThan(0.011);
+  expect(Math.abs(f.share - (f.fee / f.loss) * 100)).toBeLessThan(0.6);
+  const zoneOf = (v: number) => (v < 10 ? 'low' : v < 20 ? 'mid' : 'high');
+  await expect(page.getByTestId('sizing-fee')).toHaveAttribute('data-zone', zoneOf((f.total * 0.00075 / f.loss) * 100));
+  await expect(page.getByTestId('sizing-fee-share')).toHaveAttribute('data-zone', zoneOf((f.total * 0.00075 / f.loss) * 100));
+  // 한 줄씩: 금액 칸과 '손실의 %'가 줄바꿈되지 않는다
+  for (const id of ['sizing-fee', 'sizing-fee-share']) {
+    const lines = await page.getByTestId(id).evaluate((el) => {
+      const r = document.createRange();
+      r.selectNodeContents(el);
+      return new Set([...r.getClientRects()].map((x) => Math.round(x.top))).size;
+    });
+    expect(lines).toBe(1);
+  }
+  const fillPct = async () => page.getByTestId('sizing-fee-fill').evaluate((el) => {
+    const p = el.parentElement!.getBoundingClientRect();
+    return (el.getBoundingClientRect().width / p.width) * 100;
+  });
+  expect(Math.abs((await fillPct()) - Math.min(100, (f.total * 0.00075 / f.loss) * 100 / 50 * 100))).toBeLessThan(1.5);
+  // 손절을 넓히면 포지션이 작아져 몫이 줄고 색이 바뀐다
+  await setLevel(page, 'sl', (s.entry - 400).toFixed(1));
+  await expect.poll(async () => (await read()).share).toBeLessThan(f.share);
+  const g = await read();
+  await expect(page.getByTestId('sizing-fee')).toHaveAttribute('data-zone', zoneOf((g.total * 0.00075 / g.loss) * 100));
+  expect(await fillPct()).toBeLessThan(await (async () => Math.min(100, f.share * 2) + 2)());
+  const colors = await page.getByTestId('sizing-fee').evaluate((el) => getComputedStyle(el).color);
+  expect(colors).not.toBe('');
+});
+
+test('RR and the profit roll in when they change, but not on every price tick or while dragging', async ({ page }) => {
+  await open(page, { tf: '15', speed: 4 });
+  await page.getByTestId('btn-long').click();
+  await expect.poll(() => scenario(page)).not.toBeNull();
+  await page.getByTestId('sizing-capital').fill('10,000');
+  await page.getByTestId('sizing-capital').press('Enter');
+  await expect(page.getByTestId('sizing-row')).toHaveCount(3);
+  const cls = () => page.evaluate(() => ({
+    rr: [...document.querySelector('[data-testid=rr-edit]')!.classList].filter((c) => c.startsWith('roll')).join(),
+    sum: [...document.querySelector('[data-testid=sizing-rr]')!.classList].filter((c) => c.startsWith('roll')).join(),
+    profit: [...document.querySelector('[data-testid=sizing-profit]')!.classList].filter((c) => c.startsWith('roll')).join(),
+  }));
+  const before = await cls();
+  // 시세만 흐를 때는 그대로
+  await page.waitForTimeout(1500);
+  expect(await cls()).toEqual(before);
+  // 칩으로 RR을 바꾸면 세 곳 모두 다시 굴러간다 (roll-a ↔ roll-b)
+  await expect.poll(async () => (await rendered(page))?.presets.length ?? 0).toBeGreaterThan(2);
+  const { g, r, shown } = await visiblePresets(page);
+  const pick = shown.find((p) => p.label !== '1:1.5')!;
+  await page.mouse.click(r.left + (g.x1 + g.x2) / 2, r.top + pick.y);
+  await expect(page.getByTestId('rr-input')).toHaveValue(pick.label.slice(2));
+  const after = await cls();
+  for (const k of ['rr', 'sum', 'profit'] as const) {
+    expect(after[k]).toMatch(/^roll-[ab]$/);
+    expect(after[k]).not.toBe(before[k]);
+  }
+  // 끄는 동안에는 굴리지 않는다
+  const g2 = (await rendered(page))!;
+  await page.mouse.move(r.left + (g2.x1 + g2.x2) / 2, r.top + g2.ySl!);
+  await page.mouse.down();
+  for (let i = 1; i <= 6; i++) await page.mouse.move(r.left + (g2.x1 + g2.x2) / 2, r.top + g2.ySl! + i * 6);
+  expect(await cls()).toEqual(after);
+  await page.mouse.up();
+  // 손을 떼면 한 번 굴러간다
+  await expect.poll(async () => (await cls()).rr).not.toBe(after.rr);
+  // 숫자를 줄여서 보여주는 애니메이션은 움직임 줄이기 설정에서 꺼진다
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  expect(await page.getByTestId('rr-edit').evaluate((el) => getComputedStyle(el.querySelector('input')!).animationName)).toBe('none');
+});
+
 /** 상단 바 입력칸에 적고 Enter */
 async function typeIn(page: Page, testid: string, text: string) {
   const el = page.getByTestId(testid);
@@ -1230,8 +1501,14 @@ test('Esc cancels a drawing in progress; the trash button clears this symbol', a
   await page.mouse.click(...(await at(page, 0.5, 0.3)));
   expect((await drawings(page)).drawings).toHaveLength(2);
   await page.getByTestId('draw-clear').click();
-  await expect(page.getByTestId('toast')).toContainText('작도 2개를 지웠습니다');
+  await expect(page.getByTestId('undo-text')).toContainText('작도 2개를 지웠습니다');
   expect((await drawings(page)).drawings).toHaveLength(0);
+  // 되돌리면 두 개 다 돌아오고, 새로고침해도 남는다
+  await page.getByTestId('undo-btn').click();
+  await expect.poll(async () => (await drawings(page)).drawings.length).toBe(2);
+  await page.reload();
+  await waitLive(page);
+  await expect.poll(async () => (await drawings(page)).drawings.length).toBe(2);
 });
 
 test('drawings are 1px; a selected drawing gets an edit bar to change its color, remembered for the next one', async ({ page }) => {

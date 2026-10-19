@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_SIZING,
   EQUAL_RISK_WORD,
+  feeAtStop,
   linearRatio,
   MAX_SPLITS,
   parseSplitCount,
@@ -267,5 +268,16 @@ describe('typed split count and weights (top-bar inputs)', () => {
     expect(resizeSplits(c, 4)).toMatchObject({ weightMode: 'custom', customWeights: [20, 30, 50, 50], splits: 4 });
     expect(resizeSplits(c, 2)).toMatchObject({ weightMode: 'custom', customWeights: [20, 30], splits: 2 });
     expect(resizeSplits(c, 1)).toMatchObject({ weightMode: 'linear', splits: 1, customWeights: [20, 30, 50] });
+  });
+});
+
+describe('feeAtStop (fee meter under the order table)', () => {
+  it('limit entries (maker 0.02%) + market stop (taker 0.055%) on the full position, as a share of the loss', () => {
+    // 1만 USDT, 손실 1% = 100 USDT, 3분할 1:2:3, 손절폭 0.72% → 총 포지션 약 24,999 → 수수료 약 18.75 (손실의 18.75%)
+    expect(feeAtStop({ totalNotional: 25_000, lossAtSl: 100 })).toEqual({ fee: expect.closeTo(18.75, 9), sharePct: expect.closeTo(18.75, 9) });
+    const r = planSizing(base());
+    if (!r.ok) throw new Error(r.reason);
+    expect(feeAtStop(r.plan).fee).toBeCloseTo(r.plan.totalNotional * 0.00075, 9);
+    expect(feeAtStop({ totalNotional: 0, lossAtSl: 0 }).sharePct).toBeNull();
   });
 });

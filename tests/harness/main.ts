@@ -3,7 +3,7 @@
 import '../../src/styles.css';
 import type { Scheduler } from '../../src/data/bybit/socket';
 import { safeStorage } from '../../src/core/persistence';
-import { App } from '../../src/ui/app';
+import { App, TOUR_KEY } from '../../src/ui/app';
 import { DemoProvider } from '../fixtures/demo/provider';
 
 const params = new URLSearchParams(location.search);
@@ -17,6 +17,15 @@ const scheduler: Scheduler = {
 };
 
 // 가짜 시세의 시계: 페이지를 연 시각부터 speed 배속으로 흐른다
+// 첫 사용 안내는 ?tour 가 있을 때만 (다른 테스트에서는 이미 본 것으로 둔다)
+if (!params.has('tour')) {
+  try {
+    localStorage.setItem(TOUR_KEY, '1');
+  } catch {
+    // 무시
+  }
+}
+
 const t0 = Date.now();
 const fakeNow = () => t0 + (Date.now() - t0) * speed;
 let provider: DemoProvider | null = null;

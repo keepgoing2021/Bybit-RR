@@ -128,3 +128,49 @@ test('phone: the SL candle label sits below the (wrapped) legend; SL 기준 show
   });
   expect(h.labelY - 10).toBeGreaterThanOrEqual(legendBottom); // 칩 높이 20
 });
+
+test('phone: the first-use tour fits the screen at every step; the fold button stands in for the order settings; "?" is an icon', async ({ page }) => {
+  await page.goto('/tests/harness/index.html?tour=1');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await expect(page.getByTestId('tour')).toBeVisible({ timeout: 20_000 });
+  const targets = [
+    '.topbar .field:has([data-testid=symbol])',
+    '.topbar .sides',
+    '[data-testid=sizing-toggle]',
+    '.chart-wrap',
+    '.panel .scenario',
+  ];
+  for (let k = 0; k < targets.length; k++) {
+    await expect(page.getByTestId('tour-count')).toHaveText(`${k + 1} / 5`);
+    await expect
+      .poll(() =>
+        page.evaluate((sel) => {
+          const vw = document.documentElement.clientWidth;
+          const vh = window.innerHeight;
+          const t = document.querySelector(sel)!.getBoundingClientRect();
+          const s = document.querySelector('[data-testid=tour-spot]')!.getBoundingClientRect();
+          const p = document.querySelector('[data-testid=tour-tip]')!.getBoundingClientRect();
+          const bar = document.querySelector('.topbar .sides')!.getBoundingClientRect();
+          const self = document.querySelector(sel) === document.querySelector('.topbar .sides');
+          return {
+            // 대상이 통째로 보이고, 하단 LONG/SHORT 줄에 가리지 않는다
+            targetOnScreen: t.top >= 0 && t.bottom <= (self ? vh : bar.top) + 0.5,
+            covers: s.left <= Math.max(0, t.left) + 0.5 && s.right >= Math.min(vw, t.right) - 0.5 && s.top <= Math.max(0, t.top) + 0.5 && s.bottom >= Math.min(vh, t.bottom) - 0.5,
+            tipInside: p.left >= 0 && p.top >= 0 && p.right <= vw && p.bottom <= vh,
+          };
+        }, targets[k]),
+        { timeout: 3_000 },
+      )
+      .toEqual({ targetOnScreen: true, covers: true, tipInside: true });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+    const btn = await rect(page, 'tour-next');
+    expect(btn.height).toBeGreaterThanOrEqual(40);
+    await page.getByTestId('tour-next').tap();
+  }
+  await expect(page.getByTestId('tour')).toBeHidden();
+  const q = await rect(page, 'tour-open');
+  expect(q.width).toBeGreaterThanOrEqual(32);
+  expect(q.right).toBeLessThanOrEqual((await rect(page, 'theme-toggle')).left);
+  await expect(page.getByTestId('tour-open').locator('.label')).toBeHidden();
+});

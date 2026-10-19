@@ -246,3 +246,16 @@ export function resizeSplits(s: SizingSettings, n: number): SizingSettings {
   const cw = s.customWeights;
   return { ...s, splits: n, customWeights: Array.from({ length: n }, (_, k) => cw[Math.min(k, cw.length - 1)] ?? 1) };
 }
+
+/** Bybit 기본 등급 수수료 (지정가 진입 = 메이커, 시장가 손절 = 테이커). 2026-10 Bybit 수수료 표 기준 */
+export const FEE_MAKER = 0.0002;
+export const FEE_TAKER = 0.00055;
+
+/**
+ * 전부 체결된 뒤 SL에 맞았을 때 내는 수수료와, 그것이 손실(가격 손실)에서 차지하는 비율(%).
+ * 진입은 지정가(메이커), 손절은 시장가(테이커)로 가정. 손실이 0이면 비율은 null
+ */
+export function feeAtStop(plan: Pick<SizingPlan, 'totalNotional' | 'lossAtSl'>): { fee: number; sharePct: number | null } {
+  const fee = plan.totalNotional * (FEE_MAKER + FEE_TAKER);
+  return { fee, sharePct: plan.lossAtSl > 0 ? (fee / plan.lossAtSl) * 100 : null };
+}

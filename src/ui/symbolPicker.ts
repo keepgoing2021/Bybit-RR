@@ -20,6 +20,8 @@ export class SymbolPicker {
   private readonly list: HTMLUListElement;
   private readonly note: HTMLSpanElement;
   private readonly tabs: Map<SymbolSort, HTMLButtonElement>;
+  /** 고른 탭 뒤의 알약 하나가 탭 사이를 미끄러져 옮겨 간다 */
+  private readonly pill: HTMLSpanElement;
   private symbols: SymbolInfo[] = [];
   private results: SymbolInfo[] = [];
   private stats = new Map<string, TickerStat>();
@@ -49,10 +51,11 @@ export class SymbolPicker {
       SYMBOL_SORTS.map((s) => [s, h('button', { type: 'button', class: 'symbol-sort', 'data-testid': `symbol-sort-${s}` }, SORT_LABEL[s])]),
     );
     this.note = h('span', { class: 'symbol-note', 'data-testid': 'symbol-note' });
+    this.pill = h('span', { class: 'symbol-pill', 'data-testid': 'symbol-pill', 'aria-hidden': 'true' });
     const head = h(
       'div',
       { class: 'symbol-head' },
-      h('div', { class: 'symbol-tabs', role: 'group', 'aria-label': '정렬' }, ...this.tabs.values(), this.note),
+      h('div', { class: 'symbol-tabs', role: 'group', 'aria-label': '정렬' }, this.pill, ...this.tabs.values(), this.note),
       h('div', { class: 'symbol-cols' }, h('span', {}, '종목 / 거래대금'), h('span', {}, '현재가'), h('span', {}, '24h')),
     );
     this.list = h('ul', { id: 'symbol-list', class: 'symbol-list', role: 'listbox', 'data-testid': 'symbol-list' });
@@ -99,8 +102,23 @@ export class SymbolPicker {
     this.render();
     this.list.scrollTop = 0;
     show(this.panel, true);
+    this.placePill(false); // 열 때는 미끄러지지 않고 제자리에
     this.input.setAttribute('aria-expanded', 'true');
     void this.refreshStats();
+  }
+
+  /** 알약을 고른 탭 자리로. 패널이 보일 때만 잴 수 있다 */
+  private placePill(slide: boolean): void {
+    const b = this.tabs.get(this.sort)!;
+    if (!b.offsetWidth) return;
+    this.pill.classList.toggle('instant', !slide);
+    this.pill.style.width = `${b.offsetWidth}px`;
+    this.pill.style.height = `${b.offsetHeight}px`;
+    this.pill.style.transform = `translate(${b.offsetLeft}px, ${b.offsetTop}px)`;
+    if (!slide) {
+      void this.pill.offsetWidth; // 제자리 배치를 먼저 반영한 뒤 다음 이동부터 미끄러지게
+      this.pill.classList.remove('instant');
+    }
   }
 
   private rank(query: string): void {
@@ -137,6 +155,7 @@ export class SymbolPicker {
     this.rank(this.input.value);
     this.active = 0;
     this.render();
+    this.placePill(true);
     this.list.scrollTop = 0;
   }
 

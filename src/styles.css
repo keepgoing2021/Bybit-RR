@@ -184,16 +184,42 @@ input[data-testid='symbol'] {
 }
 
 .symbol-tabs {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 6px;
 }
 
+/* 고른 탭 뒤에서 미끄러지는 알약 (탭 글자는 그 위에) */
+.symbol-pill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  box-sizing: border-box;
+  border-radius: 999px;
+  border: 1px solid var(--entry);
+  background: var(--ink-08);
+  pointer-events: none;
+  transition: transform 0.26s cubic-bezier(0.3, 0.9, 0.3, 1), width 0.26s cubic-bezier(0.3, 0.9, 0.3, 1);
+}
+
+.symbol-pill.instant {
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .symbol-pill {
+    transition: none;
+  }
+}
+
 button.symbol-sort {
+  position: relative;
   min-height: 0;
   padding: 3px 10px;
   border-radius: 999px;
-  border: 1px solid var(--line);
+  border: 1px solid transparent;
   background: transparent;
   color: var(--muted);
   font-size: 12px;
@@ -202,8 +228,6 @@ button.symbol-sort {
 
 button.symbol-sort.active {
   color: var(--text);
-  border-color: var(--entry);
-  background: var(--ink-08);
 }
 
 .symbol-note {
@@ -549,6 +573,93 @@ button.copy {
 
 button.copy:hover {
   color: var(--entry);
+}
+
+/* 복사됨: 1.2초 동안 숫자 자리에 초록 '✓ 복사됨' 표 (숫자 자리는 그대로라 표가 흔들리지 않는다) */
+button.copy {
+  position: relative;
+}
+
+button.copy.copied {
+  color: transparent;
+  border-bottom-color: transparent;
+}
+
+/* 숫자 자리를 그대로 덮는 초록 체크 (옆 칸을 가리지 않게 숫자 폭 안에서만) */
+button.copy.copied::after {
+  content: '✓';
+  position: absolute;
+  left: -3px;
+  right: -3px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 1px 0;
+  text-align: center;
+  border-radius: 4px;
+  background: var(--profit);
+  color: #08110d;
+  font-size: 11.5px;
+  font-weight: 700;
+  white-space: nowrap;
+  pointer-events: none;
+  animation: copy-pop 0.28s ease-out;
+}
+
+@keyframes copy-pop {
+  0% {
+    transform: translateY(-50%) scale(0.85);
+    opacity: 0;
+  }
+  60% {
+    transform: translateY(-50%) scale(1.06);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-50%);
+  }
+}
+
+/* 손익비·목표 시 수익이 바뀌면 아래에서 굴러 올라옴 (두 이름을 번갈아 써서 매번 다시 시작) */
+.roll-a input.rr,
+dd.roll-a {
+  animation: roll-a 0.32s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.roll-b input.rr,
+dd.roll-b {
+  animation: roll-b 0.32s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes roll-a {
+  from {
+    transform: translateY(55%);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+@keyframes roll-b {
+  from {
+    transform: translateY(55%);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  button.copy.copied::after,
+  .roll-a input.rr,
+  .roll-b input.rr,
+  dd.roll-a,
+  dd.roll-b {
+    animation: none;
+  }
 }
 
 .rr-row {
@@ -1201,6 +1312,8 @@ button.weights-preset.active {
 @media (max-width: 640px) {
   :root {
     --bottom-bar: calc(68px + env(safe-area-inset-bottom));
+    /* 안내 등에서 어떤 칸으로 스크롤할 때 하단 LONG/SHORT 줄 밑에 숨지 않게 */
+    scroll-padding-bottom: calc(var(--bottom-bar) + 8px);
   }
 
   #app {
@@ -1389,4 +1502,300 @@ button.weights-preset.active {
   .theme-toggle .label {
     display: none;
   }
+}
+
+/* 손절 시 수수료 몫: 주문표 요약 안의 한 줄 + 얇은 막대와 '손실의 몇 %' */
+.metrics dd[data-zone='low'],
+.fee-share[data-zone='low'] {
+  color: var(--profit);
+}
+
+.metrics dd[data-zone='mid'],
+.fee-share[data-zone='mid'] {
+  color: var(--entry);
+}
+
+.metrics dd[data-zone='high'],
+.fee-share[data-zone='high'] {
+  color: var(--loss);
+}
+
+.fee-row {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: -2px 0 4px;
+}
+
+.fee-share {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.fee-meter {
+  flex: 1;
+  position: relative;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--raised);
+}
+
+.fee-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-radius: 999px;
+  background: var(--muted);
+  transition: width 0.2s ease-out, background-color 0.2s;
+}
+
+.fee-fill[data-zone='low'] {
+  background: var(--profit);
+}
+
+.fee-fill[data-zone='mid'] {
+  background: var(--entry);
+}
+
+.fee-fill[data-zone='high'] {
+  background: var(--loss);
+}
+
+.fee-tick {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 1px;
+  background: var(--line-hover);
+}
+
+/* 되돌리기 알림 (지운 직후 5초) */
+.undo-bar {
+  position: fixed;
+  left: 50%;
+  bottom: 22px;
+  z-index: 45;
+  transform: translateX(-50%);
+  width: min(420px, calc(100vw - 24px));
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--raised);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+  animation: undo-up 0.22s ease-out;
+}
+
+.undo-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px 8px 16px;
+  font-size: 14px;
+}
+
+button.undo-btn {
+  margin-left: auto;
+  min-height: 36px;
+  color: var(--entry);
+  border-color: var(--entry);
+  background: transparent;
+  font-weight: 700;
+}
+
+.undo-track {
+  height: 3px;
+  background: var(--line);
+}
+
+.undo-progress {
+  display: block;
+  height: 3px;
+  background: var(--entry);
+}
+
+.undo-progress.run-a {
+  animation: undo-run-a 5s linear forwards;
+}
+
+.undo-progress.run-b {
+  animation: undo-run-b 5s linear forwards;
+}
+
+@keyframes undo-run-a {
+  from {
+    width: 100%;
+  }
+  to {
+    width: 0;
+  }
+}
+
+@keyframes undo-run-b {
+  from {
+    width: 100%;
+  }
+  to {
+    width: 0;
+  }
+}
+
+@keyframes undo-up {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%);
+  }
+}
+
+@media (max-width: 640px) {
+  .undo-bar {
+    bottom: calc(var(--bottom-bar) + 12px);
+  }
+}
+
+/* 첫 사용 안내: 화면을 어둡게 하고 한 곳씩 비춘다 */
+.tour {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  --tour-dim: rgba(0, 0, 0, 0.7);
+}
+
+:root[data-theme='light'] .tour {
+  --tour-dim: rgba(10, 12, 16, 0.55);
+}
+
+.tour-spot {
+  position: fixed;
+  border-radius: 10px;
+  box-shadow: 0 0 0 9999px var(--tour-dim);
+  outline: 2px solid var(--entry);
+  pointer-events: none;
+  transition:
+    left 0.35s cubic-bezier(0.3, 0.9, 0.3, 1),
+    top 0.35s cubic-bezier(0.3, 0.9, 0.3, 1),
+    width 0.35s cubic-bezier(0.3, 0.9, 0.3, 1),
+    height 0.35s cubic-bezier(0.3, 0.9, 0.3, 1);
+}
+
+.tour-tip {
+  position: fixed;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  border-radius: 10px;
+  background: var(--raised);
+  border: 1px solid var(--line-hover);
+  color: var(--text);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+  transition:
+    left 0.35s cubic-bezier(0.3, 0.9, 0.3, 1),
+    top 0.35s cubic-bezier(0.3, 0.9, 0.3, 1);
+}
+
+.tour.instant .tour-spot,
+.tour.instant .tour-tip {
+  transition: none;
+}
+
+.tour-count {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--entry);
+}
+
+.tour-title {
+  font-size: 15px;
+}
+
+.tour-body {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+.tour-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.tour-actions button {
+  min-height: 36px;
+  padding: 0 14px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.tour-actions .tour-skip {
+  margin-right: auto;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.tour-actions .tour-next {
+  color: #000;
+  background: var(--entry);
+  border-color: var(--entry);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tour-spot,
+  .tour-tip {
+    transition: none;
+  }
+}
+
+/* '?' 안내 다시 보기 (테마 버튼 옆, 폰에서는 아이콘만) */
+.tour-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 30px;
+  padding: 3px 10px;
+  font-size: 12.5px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.tour-open .icon {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+@media (max-width: 640px) {
+  .tour-open {
+    min-width: 34px;
+    min-height: 34px;
+    justify-content: center;
+    padding: 0;
+  }
+
+  .tour-open .label {
+    display: none;
+  }
+
+  .tour-actions button {
+    min-height: 40px;
+  }
+}
+
+/* 테마 전환: 새 화면이 버튼 자리에서 원으로 퍼진다 (원은 app.ts에서 그린다). 기본 교차 페이드는 끈다 */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
 }
