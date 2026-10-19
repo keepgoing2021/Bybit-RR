@@ -55,26 +55,21 @@ const DEFAULT_UI: UiSelection = { provider: 'bybit', symbol: 'BTCUSDT', timefram
  */
 type SettingField = { key: keyof AnalysisSettings; label: string; hint?: string; options?: [string, string][]; step?: string; modes?: SlMode[] };
 const CORE_SETTINGS: SettingField[] = [
-  { key: 'slMode', label: 'SL 잡는 법', options: SL_MODES.map((m) => [m, SL_MODE_NAMES[m]]) },
-  { key: 'swingBars', label: '스윙 판별 (좌우 봉 수)', hint: '좌우 이만큼의 봉보다 낮아야(높아야) 스윙', modes: ['swing'] },
-  { key: 'slLowestBars', label: '최근 몇 봉', hint: '마감 봉 수 (진행 중인 봉도 포함)', modes: ['lowestN'] },
-  { key: 'lookback', label: '찾을 범위 (봉)', modes: ['spike'] },
-  { key: 'slBufferTicks', label: 'SL 여유 (틱)', hint: '꼬리 끝보다 몇 틱 더 바깥에 둘지' },
-  { key: 'defaultRR', label: '기본 손익비 1:', hint: '새 계산의 TP 자리', step: '0.1' },
+  { key: 'slMode', label: 'SL 방식', options: SL_MODES.map((m) => [m, SL_MODE_NAMES[m]]) },
+  { key: 'swingBars', label: '좌우 봉 수', modes: ['swing'] },
+  { key: 'slLowestBars', label: '봉 수', modes: ['lowestN'] },
+  { key: 'lookback', label: '찾을 봉 수', modes: ['spike'] },
+  { key: 'slBufferTicks', label: 'SL 여유 (틱)', hint: '꼬리 끝 바깥으로' },
+  { key: 'defaultRR', label: '기본 손익비 1:', step: '0.1' },
 ];
 const ADVANCED_SETTINGS: SettingField[] = [
-  // 평소 캔들 크기 = ATR (캔들 하나가 보통 위아래로 움직이는 폭). '가장 큰 캔들' 방식에서만 쓴다
-  { key: 'atrPeriod', label: '평소 캔들 크기: 잴 봉 수', hint: "캔들 하나가 보통 움직이는 폭을 최근 몇 봉으로 잴지 ('가장 큰 캔들' 방식)" },
-  {
-    key: 'atrMethod',
-    label: '평소 캔들 크기: 재는 법',
-    hint: "'가장 큰 캔들' 방식 · 기본값은 TradingView와 같은 방식",
-    options: [['wilder', '최근 봉에 더 무게'], ['sma', '모든 봉 똑같이']],
-  },
-  { key: 'boxOffsetBars', label: '박스 시작 (진입 봉에서 오른쪽 봉 수)' },
-  { key: 'boxExtendBars', label: '박스 오른쪽 연장 (봉)' },
-  { key: 'staleAfterSec', label: '연결 지연으로 볼 시간 (초)' },
-  { key: 'maxPriceAgeSec', label: '가격 유효 시간 (초)' },
+  // 평균 캔들 크기 = ATR. '가장 큰 캔들' 방식에서만 쓴다
+  { key: 'atrPeriod', label: '평균 캔들 크기 (봉)', hint: '큰 캔들 방식' },
+  { key: 'atrMethod', label: '평균 내는 법', hint: '큰 캔들 방식', options: [['wilder', '최근 봉 중시'], ['sma', '단순 평균']] },
+  { key: 'boxOffsetBars', label: '박스 시작 (봉)' },
+  { key: 'boxExtendBars', label: '박스 연장 (봉)' },
+  { key: 'staleAfterSec', label: '지연 판정 (초)' },
+  { key: 'maxPriceAgeSec', label: '가격 유효 (초)' },
 ];
 /** 바꾸면 지금 계산의 자동 SL·TP를 다시 계산하는 설정 */
 const ANALYSIS_KEYS: (keyof AnalysisSettings)[] = ['slMode', 'swingBars', 'slLowestBars', 'lookback', 'atrPeriod', 'atrMethod', 'slBufferTicks', 'defaultRR'];
@@ -674,7 +669,7 @@ export class App {
     const advanced = h(
       'details',
       { class: 'settings-advanced', 'data-testid': 'settings-advanced' },
-      h('summary', {}, '고급 (평소 캔들 크기 · 박스 · 연결)'),
+      h('summary', {}, '고급'),
       h('div', { class: 'settings-grid' }, ...buildRows(ADVANCED_SETTINGS)),
     );
     const resetSettings = h('button', { type: 'button', class: 'link' }, '기본값으로 되돌리기');
@@ -685,7 +680,7 @@ export class App {
       h('summary', {}, h('span', {}, '자동 제안 설정'), settingsSummaryEl),
       settingsBody,
       advanced,
-      h('p', { class: 'muted small' }, '바꾸면 지금 계산의 자동 SL·TP도 바로 다시 계산합니다 (직접 고친 값은 그대로). 시간봉은 상단 "SL 기준".'),
+      h('p', { class: 'muted small' }, '바꾸면 바로 다시 계산 (직접 고친 값은 유지)'),
       resetSettings,
     );
 

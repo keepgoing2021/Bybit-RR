@@ -106,9 +106,9 @@ describe('formatPct', () => {
 
 describe('settingsSummary (one line shown even when the settings box is closed)', () => {
   it('names the SL method with its one number, the margin and the RR', () => {
-    expect(settingsSummary(DEFAULT_SETTINGS)).toBe('스윙 저점·고점 (좌우 2봉) · 여유 0틱 · 손익비 1:1.5');
-    expect(settingsSummary({ ...DEFAULT_SETTINGS, slMode: 'lowestN', slLowestBars: 30, slBufferTicks: 3, defaultRR: 2 })).toBe('최근 30봉 최저·최고 · 여유 3틱 · 손익비 1:2');
-    expect(settingsSummary({ ...DEFAULT_SETTINGS, slMode: 'spike' })).toBe('가장 큰 캔들 (최근 50봉) · 여유 0틱 · 손익비 1:1.5');
-    expect(settingsSummary({ ...DEFAULT_SETTINGS, slMode: 'prevCandle' })).toBe('직전 마감 봉 · 여유 0틱 · 손익비 1:1.5');
+    expect(settingsSummary(DEFAULT_SETTINGS)).toBe('스윙 2봉 · 여유 0틱 · 1:1.5');
+    expect(settingsSummary({ ...DEFAULT_SETTINGS, slMode: 'lowestN', slLowestBars: 30, slBufferTicks: 3, defaultRR: 2 })).toBe('최근 30봉 최저 · 여유 3틱 · 1:2');
+    expect(settingsSummary({ ...DEFAULT_SETTINGS, slMode: 'spike' })).toBe('큰 캔들 50봉 · 여유 0틱 · 1:1.5');
+    expect(settingsSummary({ ...DEFAULT_SETTINGS, slMode: 'prevCandle' })).toBe('직전 봉 · 여유 0틱 · 1:1.5');
   });
 });

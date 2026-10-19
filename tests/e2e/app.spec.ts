@@ -333,17 +333,17 @@ test('auto-suggestion settings: one-line summary, only the core items, the chose
   const summary = page.getByTestId('settings-summary');
   // 접혀 있어도 지금 적용 중인 값이 보인다
   await expect(summary).toBeVisible();
-  await expect(summary).toHaveText('스윙 저점·고점 (좌우 2봉) · 여유 0틱 · 손익비 1:1.5');
+  await expect(summary).toHaveText('스윙 2봉 · 여유 0틱 · 1:1.5');
   await details.locator(':scope > summary').click();
   const visible = async () =>
     page.locator('details.settings .setting').evaluateAll((rows) =>
       rows.filter((r) => (r as HTMLElement).checkVisibility()).map((r) => (r as HTMLElement).dataset.key),
     );
   expect(await visible()).toEqual(['slMode', 'swingBars', 'slBufferTicks', 'defaultRR']);
-  await expect(page.getByTestId('setting-mode-help')).toContainText('최근에 꺾였던 자리');
+  await expect(page.getByTestId('setting-mode-help')).toHaveText('최근 꺾인 저점 (숏은 고점)');
   await page.getByTestId('setting-slMode').selectOption('lowestN');
   expect(await visible()).toEqual(['slMode', 'slLowestBars', 'slBufferTicks', 'defaultRR']);
-  await expect(summary).toHaveText('최근 20봉 최저·최고 · 여유 0틱 · 손익비 1:1.5');
+  await expect(summary).toHaveText('최근 20봉 최저 · 여유 0틱 · 1:1.5');
   await page.getByTestId('setting-slMode').selectOption('prevCandle');
   expect(await visible()).toEqual(['slMode', 'slBufferTicks', 'defaultRR']);
   await page.getByTestId('setting-slMode').selectOption('swing');
@@ -362,7 +362,7 @@ test('auto-suggestion settings: one-line summary, only the core items, the chose
   await expect.poll(async () => (await scenario(page))!.applied.sl).toBe(Number((s0.applied.sl! - 0.5).toFixed(1)));
   const s1 = (await scenario(page))!;
   expect([s1.id, s1.entry, s1.priceTime]).toEqual([s0.id, s0.entry, s0.priceTime]);
-  await expect(summary).toHaveText('스윙 저점·고점 (좌우 2봉) · 여유 5틱 · 손익비 1:1.5');
+  await expect(summary).toHaveText('스윙 2봉 · 여유 5틱 · 1:1.5');
   // 기본값으로 되돌리면 다시 원래 SL
   await page.locator('details.settings button.link').click();
   await expect.poll(async () => (await scenario(page))!.applied.sl).toBe(s0.applied.sl);

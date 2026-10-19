@@ -76,27 +76,27 @@ export function tpRationale(a: AutoTP, _side: Side, _timeZone?: string): string 
 export const SL_MODE_NAMES: Record<SlMode, string> = {
   swing: '스윙 저점·고점',
   lowestN: '최근 N봉 최저·최고',
-  prevCandle: '직전 마감 봉',
+  prevCandle: '직전 봉',
   spike: '가장 큰 캔들',
 };
 
 /** SL 방식 한 줄 설명 (LONG 기준, SHORT는 반대). 시간봉은 상단 'SL 기준' */
 export const SL_MODE_HELP: Record<SlMode, string> = {
-  swing: '최근에 꺾였던 자리. 좌우 N봉보다 낮은 꼬리(SHORT는 높은 꼬리) 중 엔트리 너머 가장 최근 것',
-  lowestN: '최근 N봉(진행 중인 봉 포함) 중 가장 낮은 값(SHORT는 가장 높은 값)',
-  prevCandle: '방금 마감된 봉 하나의 저가(SHORT는 고가)',
-  spike: '최근 봉들 중 평소 캔들 크기보다 가장 길게 움직인 캔들의 꼬리 끝',
+  swing: '최근 꺾인 저점 (숏은 고점)',
+  lowestN: '최근 N봉 중 최저가 (숏은 최고가)',
+  prevCandle: '직전 봉의 저가 (숏은 고가)',
+  spike: '평소보다 크게 움직인 캔들의 꼬리',
 };
 
-/** 자동 제안 설정 접힌 상태에서도 보이는 한 줄 요약. 예: '스윙 저점·고점 (좌우 2봉) · 여유 0틱 · 손익비 1:1.5' */
+/** 자동 제안 설정 접힌 상태에서도 보이는 한 줄 요약. 예: '스윙 2봉 · 여유 0틱 · 1:1.5' */
 export function settingsSummary(s: AnalysisSettings): string {
   const how =
     s.slMode === 'swing'
-      ? `스윙 저점·고점 (좌우 ${s.swingBars}봉)`
+      ? `스윙 ${s.swingBars}봉`
       : s.slMode === 'lowestN'
-        ? `최근 ${s.slLowestBars}봉 최저·최고`
+        ? `최근 ${s.slLowestBars}봉 최저`
         : s.slMode === 'spike'
-          ? `가장 큰 캔들 (최근 ${s.lookback}봉)`
-          : '직전 마감 봉';
-  return `${how} · 여유 ${s.slBufferTicks}틱 · 손익비 1:${s.defaultRR}`;
+          ? `큰 캔들 ${s.lookback}봉`
+          : '직전 봉';
+  return `${how} · 여유 ${s.slBufferTicks}틱 · 1:${s.defaultRR}`;
 }
