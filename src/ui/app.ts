@@ -161,6 +161,8 @@ export class App {
   private lastCopied: string | null = null;
   /** 방금 복사한 주문표 칸 (표는 매번 새로 그려지므로 앱이 기억). 1.2초 동안 초록 체크 */
   private copied: { key: string; until: number } | null = null;
+  /** 주문표가 마지막으로 그린 내용 (같으면 줄을 다시 만들지 않는다) */
+  private sizingTableSig = '';
   private feeTier: FeeTier = DEFAULT_FEE_TIER;
   /** 되돌리기 알림 (마지막 지우기 하나만) */
   private undoAction: { run: () => void; timer: number } | null = null;
@@ -1406,18 +1408,9 @@ export class App {
     return b;
   }
 
-  private renderSizing(s: Scenario): SizingPlan | null {
-    const z = this.el.sizing;
-    const { plan, reason } = this.sizingPlan(s);
-    show(z.reason, reason !== null);
-    setText(z.reason, reason ?? '');
-    show(z.table, plan !== null);
-    show(z.summary, plan !== null);
-    if (!plan) return null;
-
-    const info = this.symbols.find((x) => x.symbol === s.symbol);
-    const qd = info?.qtyStep ? decimalsOf(info.qtyStep) : 4;
-    z.body.replaceChildren(
+  /** 주문표 줄 (1차·2차…: 가격·금액·수량은 누르면 복사, 체결 시 평단) */
+  private renderSizingRows(s: Scenario, plan: SizingPlan, info: SymbolInfo | undefined, qd: number): void {
+    this.el.sizing.body.replaceChildren(
       ...plan.tranches.map((t) => {
         const row = h(
           'tr',
@@ -1438,6 +1431,33 @@ export class App {
         return row;
       }),
     );
+  }
+
+  private renderSizing(s: Scenario): SizingPlan | null {
+    const z = this.el.sizing;
+    const { plan, reason } = this.sizingPlan(s);
+    show(z.reason, reason !== null);
+    setText(z.reason, reason ?? '');
+    show(z.table, plan !== null);
+    show(z.summary, plan !== null);
+    if (!plan) return null;
+
+    const info = this.symbols.find((x) => x.symbol === s.symbol);
+    const qd = info?.qtyStep ? decimalsOf(info.qtyStep) : 4;
+    const copiedKey = this.copied !== null && Date.now() < this.copied.until ? this.copied.key : '';
+    const sig = JSON.stringify([
+      s.tickSize,
+      qd,
+      info?.minQty,
+      info?.minNotional,
+      copiedKey,
+      plan.tranches.map((t) => [t.n, t.share, t.price, t.notional, t.qty, t.avgIfFilled, t.tooSmall]),
+    ]);
+    // 시세가 올 때마다 표를 새로 만들면 누르는 사이(누름→뗌) 버튼이 바뀌어 복사 클릭이 사라진다 → 내용이 바뀔 때만
+    if (sig !== this.sizingTableSig) {
+      this.sizingTableSig = sig;
+      this.renderSizingRows(s, plan, info, qd);
+    }
     const lev = plan.leverage;
     setText(z.sum.total, `${usdt(plan.totalNotional)} USDT`);
     setText(z.sum.lev, lev > 1 ? `${(Math.ceil(lev * 10) / 10).toFixed(1)}배 이상` : '없음 (1배 이하)');

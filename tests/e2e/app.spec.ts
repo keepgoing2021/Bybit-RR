@@ -344,6 +344,32 @@ test('order table numbers copy on click', async ({ page }) => {
   await expect(qty).not.toHaveClass(/copied/); // 다른 칸은 그대로
 });
 
+test('a slow click on an order-table number still copies: the table is not rebuilt on every price tick', async ({ page }) => {
+  await open(page, { tf: '15' });
+  await validLong(page);
+  await page.getByTestId('sizing-capital').fill('10000');
+  await page.getByTestId('sizing-capital').press('Enter');
+  const qty = page.getByTestId('sizing-row').first().locator('td:nth-child(4) [data-testid=copy]');
+  // 시세가 몇 번 오는 동안(가짜 시세는 0.25초마다) 같은 버튼이 그대로 있다
+  await qty.evaluate((el) => el.setAttribute('data-mark', 'same'));
+  await page.waitForTimeout(1_000);
+  await expect(qty).toHaveAttribute('data-mark', 'same');
+  // 0.7초 동안 눌렀다 떼도 복사된다 (누르는 사이 버튼이 바뀌면 클릭이 사라진다)
+  const text = (await qty.textContent())!;
+  const b = (await qty.boundingBox())!;
+  await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+  await page.mouse.down();
+  await page.waitForTimeout(700);
+  await page.mouse.up();
+  await expect.poll(() => page.evaluate(() => window.__rrDebug.getLastCopied())).toBe(text);
+  await expect(qty).toHaveClass(/copied/);
+  // 내용이 바뀌면(운영자산) 표는 새로 그려진다
+  await page.getByTestId('sizing-capital').fill('20000');
+  await page.getByTestId('sizing-capital').press('Enter');
+  await expect(qty).not.toHaveAttribute('data-mark', 'same');
+  await expect(qty).not.toHaveText(text);
+});
+
 /** 안내의 빛 상자가 대상을 감싸고(화면 안으로 자른 범위), 말풍선이 화면 안에 다 들어오는지 */
 export async function tourLayout(page: Page, selector: string) {
   return page.evaluate((sel) => {
