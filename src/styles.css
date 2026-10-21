@@ -1,12 +1,16 @@
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap');
 
 :root {
   /* 다크 (기본): 검정 바탕. 값은 src/chart/theme.ts의 DARK와 같게 */
   --bg: #000000;
   --panel: #0b0c0f;
   --raised: #15171c;
-  /* 패널 안 카드 (가격·손익비·주문표·근거 묶음) */
-  --card: #111318;
+  /* 패널 안 카드 (가격·손익비·분할 진입·리스크·근거 묶음), 카드 안의 움푹한 칸(입력·표 줄·칩) */
+  --card: #101216;
+  --card-line: #1d2128;
+  --well: #07080a;
+  /* 고른 칩의 은은한 빛 */
+  --glow: rgba(46, 189, 133, 0.32);
   --line: #262a31;
   --line-hover: #3d434d;
   --text: #e6e8eb;
@@ -27,6 +31,8 @@
   --error-text: #ffc9ce;
   --danger-text: #ffb3ba;
   --font: 'IBM Plex Sans KR', system-ui, -apple-system, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+  /* 패널 숫자 (가격·금액·손익비): 자릿수가 세로로 맞는 고정폭 */
+  --mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   color-scheme: dark;
 }
 
@@ -36,6 +42,9 @@
   --panel: #f5f6f8;
   --raised: #ffffff;
   --card: #ffffff;
+  --card-line: #e2e6eb;
+  --well: #f4f6f8;
+  --glow: rgba(18, 160, 107, 0.22);
   --line: #dde1e6;
   --line-hover: #b9c0c9;
   --text: #14171c;
@@ -449,7 +458,8 @@ button.link {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 360px;
+  /* 패널: 넓은 화면에서 400px까지 (1280px 이하는 360px) */
+  grid-template-columns: minmax(0, 1fr) clamp(360px, 28vw, 400px);
 }
 
 .chart-wrap {
@@ -470,10 +480,10 @@ button.link {
   border-left: 1px solid var(--line);
   background: var(--panel);
   overflow-y: auto;
-  padding: 18px 18px 28px;
+  padding: 16px 14px 28px;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 18px;
 }
 
 .empty p {
@@ -486,45 +496,131 @@ button.link {
   gap: 12px;
 }
 
+/* 패널 맨 위: 롱·숏 알약 + 종목·봉 + 지우기 (카드와 같은 판) */
 .card-head {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+  padding: 8px 8px 8px 8px;
+  border: 1px solid var(--card-line);
+  border-radius: 14px;
+  background: var(--card);
 }
 
 .side-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--mono);
   font-weight: 700;
-  font-size: 12px;
-  padding: 2px 8px;
-  border-radius: 4px;
-  color: var(--bg);
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  padding: 6px 14px;
+  border-radius: 9px;
+  color: #04130c;
+}
+
+.side-chip::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.75;
 }
 
 .side-chip.long {
   background: var(--profit);
+  box-shadow: 0 4px 18px var(--glow);
 }
 
 .side-chip.short {
   background: var(--loss);
+  color: #1d0508;
+  box-shadow: 0 4px 18px color-mix(in srgb, var(--loss) 30%, transparent);
 }
 
 .scenario-title {
   font-weight: 600;
+  font-size: 13.5px;
 }
 
 .card-head [data-testid='btn-clear'] {
   margin-left: auto;
+  padding: 6px 10px;
+  border-radius: 8px;
+  color: var(--muted);
+  text-decoration: none;
 }
 
-/* 패널 카드: 같은 일을 하는 칸끼리 테두리로 묶는다 */
+.card-head [data-testid='btn-clear']:hover {
+  color: var(--text);
+  background: var(--ink-08);
+}
+
+/* 패널 카드: 같은 일을 하는 칸끼리 한 판에 (머리 = 아이콘 + 제목 + 알약) */
 .panel-card {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 12px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--card-line);
+  border-radius: 16px;
   background: var(--card);
+}
+
+.pc-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.pc-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--profit);
+}
+
+.pc-title {
+  margin: 0;
+  font-size: 14.5px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+
+.pc-meta {
+  margin-left: auto;
+  font-size: 11.5px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* 작은 알약: 지금 목표가(초록), 분할 수·분할 비중(노랑) */
+.tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+
+.tag.profit {
+  color: var(--profit);
+  border-color: color-mix(in srgb, var(--profit) 32%, transparent);
+  background: color-mix(in srgb, var(--profit) 12%, transparent);
+}
+
+.tag.entry {
+  color: var(--entry);
+  border-color: color-mix(in srgb, var(--entry) 32%, transparent);
+  background: color-mix(in srgb, var(--entry) 12%, transparent);
 }
 
 .panel-card.levels > .muted.small {
@@ -532,37 +628,51 @@ button.link {
   text-align: right;
 }
 
-/* 진입·손절·목표: 이름 | 가격 입력 | % | 자동/수동 */
+/* 진입·손절·목표: 이름(+ 시장가·자동·수동) | % | 가격 입력(오른쪽) */
 .prices {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 10px;
 }
 
 .price-row {
   display: grid;
-  grid-template-columns: 36px 1fr 64px 52px;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 150px);
   align-items: center;
-  gap: 8px;
-  padding-left: 8px;
-  border-left: 3px solid var(--line);
+  gap: 10px;
 }
 
-.price-row.entry {
-  border-left-color: var(--entry);
-}
-
-.price-row.sl {
-  border-left-color: var(--loss);
-}
-
-.price-row.tp {
-  border-left-color: var(--profit);
+.price-label {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  min-width: 0;
+  white-space: nowrap;
 }
 
 .price-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   font-weight: 600;
-  font-size: 13px;
+  font-size: 13.5px;
+}
+
+/* 이름 앞 점: 진입 노랑, 손절 빨강, 목표 초록 (차트 선 색과 같다) */
+.price-name::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--entry);
+}
+
+.price-row.sl .price-name::before {
+  background: var(--loss);
+}
+
+.price-row.tp .price-name::before {
+  background: var(--profit);
 }
 
 /* 손절은 빨강, 목표는 초록 (이름과 숫자) */
@@ -579,12 +689,25 @@ button.link {
 .price-row input {
   width: 100%;
   min-width: 0;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--card-line);
+  border-radius: 10px;
+  background: var(--well);
+  font-family: var(--mono);
   font-size: 15px;
+  font-weight: 500;
+  text-align: right;
+}
+
+.price-row input:hover {
+  border-color: var(--line-hover);
 }
 
 .price-row .pct {
   text-align: right;
-  font-size: 13px;
+  font-family: var(--mono);
+  font-size: 12.5px;
 }
 
 .price-row.sl .pct {
@@ -596,20 +719,17 @@ button.link {
 }
 
 .price-row .source-badge {
-  text-align: right;
+  font-size: 11.5px;
 }
 
 .why {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
 }
 
-.why-title {
-  margin: 0;
-  font-size: 12px;
+.why .pc-icon {
   color: var(--muted);
-  font-weight: 600;
 }
 
 /* 주문표 숫자: 누르면 복사 */
@@ -716,12 +836,16 @@ dd.roll-b {
 
 .rr-row {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
 
-/* 손익비 빠른 선택 칩 한 줄 */
+.rr-row > .muted {
+  font-size: 12.5px;
+}
+
+/* 손익비 빠른 선택 칩 한 줄: 위 1:x, 아래 전부 체결 시 수익 (운영자산이 있을 때) */
 .rr-chips {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -729,25 +853,54 @@ dd.roll-b {
 }
 
 button.rr-chip {
-  min-height: 30px;
-  padding: 0;
-  border-radius: 6px;
-  border: 1px solid var(--line);
-  background: transparent;
-  color: var(--muted);
-  font-size: 12.5px;
-  font-weight: 700;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: 44px;
+  padding: 6px 0;
+  border-radius: 10px;
+  border: 1px solid var(--card-line);
+  background: var(--well);
+  color: var(--text);
+  font-family: var(--mono);
+  transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
+}
+
+.rr-chip-ratio {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.rr-chip-profit {
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--profit);
+}
+
+.rr-chip-profit:empty {
+  display: none;
 }
 
 button.rr-chip:hover:not(:disabled) {
-  color: var(--text);
   border-color: var(--line-hover);
 }
 
+/* 고른 칩: 초록으로 채우고 은은하게 빛나게 (패널에서 가장 눈에 띄는 한 곳) */
 button.rr-chip.active {
-  color: #08110d;
+  color: #04130c;
   background: var(--profit);
   border-color: var(--profit);
+  box-shadow: 0 6px 22px var(--glow);
+}
+
+button.rr-chip.active .rr-chip-ratio {
+  font-weight: 700;
+}
+
+button.rr-chip.active .rr-chip-profit {
+  color: rgba(4, 19, 12, 0.72);
 }
 
 button.rr-chip:disabled {
@@ -755,10 +908,17 @@ button.rr-chip:disabled {
   cursor: not-allowed;
 }
 
+.rr-profit-note {
+  margin: -4px 0 0;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
 .rr {
-  font-size: 34px;
+  font-family: var(--mono);
+  font-size: 24px;
   font-weight: 700;
-  line-height: 1.1;
+  line-height: 1.15;
 }
 
 .rr-edit {
@@ -766,10 +926,10 @@ button.rr-chip:disabled {
   flex-shrink: 0;
   white-space: nowrap;
   align-items: baseline;
-  padding: 2px 10px 4px 12px;
-  border: 1px solid var(--ink-40);
-  border-radius: 8px;
-  background: var(--ink-04);
+  padding: 5px 10px 5px 12px;
+  border: 1px solid var(--card-line);
+  border-radius: 10px;
+  background: var(--well);
   cursor: text;
   transition: background 0.12s, border-color 0.12s;
 }
@@ -815,8 +975,8 @@ button.rr-chip:disabled {
 }
 
 .rr-hint {
-  margin: -2px 0 0;
-  font-size: 12px;
+  margin: -4px 0 0;
+  font-size: 11.5px;
   color: var(--muted);
   text-align: right;
 }
@@ -846,16 +1006,8 @@ button.rr-chip:disabled {
 .metrics dd {
   margin: 0;
   text-align: right;
-}
-
-.level-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.level-name {
-  font-weight: 600;
+  font-family: var(--mono);
+  font-size: 13px;
 }
 
 .source-badge {
@@ -870,6 +1022,7 @@ button.rr-chip:disabled {
 .rationale {
   margin: 0;
   font-size: 12px;
+  line-height: 1.5;
   color: var(--muted);
 }
 
@@ -1010,32 +1163,109 @@ button.danger {
   gap: 8px;
 }
 
-.sizing .metrics dt {
+.risk-card .metrics dt {
   white-space: nowrap;
+  font-size: 13px;
 }
 
-/* 모두 체결 시 평단: 흰 강조 줄 (차트의 흰 평단 선과 짝) */
-.sizing .metrics .avg-row {
-  grid-column: 1 / -1;
+/* 전부 체결 시 예상 평단: 흰 강조 띠 (차트의 흰 평단 선과 짝) + 오른쪽 아래 '차트에 평단 선' */
+.avg-box {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.avg-box .avg-row {
+  align-self: stretch;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 6px 8px;
-  border-left: 3px solid var(--ink);
-  border-radius: 4px;
-  background: var(--ink-10);
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--ink-25);
+  border-radius: 12px;
+  background: var(--ink-08);
 }
 
-.sizing .metrics dt.avg,
-.sizing .metrics dd.avg {
+.avg-box dt.avg,
+.avg-box dd.avg {
+  margin: 0;
   color: var(--ink);
   font-weight: 700;
-  font-size: 16px;
+  font-size: 14px;
 }
 
-.sizing .metrics dd.avg {
+.avg-box dd.avg {
+  font-family: var(--mono);
   font-size: 18px;
+}
+
+/* 리스크 카드: 손절 시(빨강) / 목표 시(초록) 두 칸 */
+.risk-boxes {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.risk-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--loss) 40%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--loss) 7%, transparent);
+}
+
+.risk-box.profit {
+  border-color: color-mix(in srgb, var(--profit) 40%, transparent);
+  background: color-mix(in srgb, var(--profit) 7%, transparent);
+}
+
+.risk-box dt {
+  font-size: 12px;
+}
+
+.risk-card .risk-box dd {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+}
+
+.risk-amt {
+  font-family: var(--mono);
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--loss);
+  white-space: nowrap;
+}
+
+.risk-box.profit .risk-amt {
+  color: var(--profit);
+}
+
+.risk-amt.long {
+  font-size: 15.5px;
+}
+
+.risk-unit {
+  margin-left: 4px;
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.risk-sub {
+  font-family: var(--font);
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
 }
 
 .avg-toggle {
@@ -1054,26 +1284,27 @@ button.danger {
   cursor: pointer;
 }
 
-.sizing .metrics .group {
-  margin-top: 4px;
-  padding-top: 6px;
-  border-top: 1px solid var(--line);
-  font-size: 12px;
+/* 분할 진입 표: 줄마다 둥근 판 (가격·금액·수량은 누르면 복사) */
+.table-scroll {
+  margin: -5px 0;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
 }
 
 .sizing-table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0 5px;
   font-size: 12px;
 }
 
 .sizing-table th {
   white-space: nowrap;
   color: var(--muted);
+  font-size: 11px;
   font-weight: 500;
   text-align: right;
-  padding: 4px 4px;
-  border-bottom: 1px solid var(--line);
+  padding: 0 4px;
 }
 
 .sizing-table th:first-child,
@@ -1082,10 +1313,44 @@ button.danger {
 }
 
 .sizing-table td {
-  padding: 4px 4px;
+  padding: 8px 4px;
   text-align: right;
-  border-bottom: 1px solid var(--line);
   white-space: nowrap;
+  background: var(--well);
+  border-top: 1px solid var(--card-line);
+  border-bottom: 1px solid var(--card-line);
+}
+
+.sizing-table td.num {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  letter-spacing: -0.02em;
+}
+
+.sizing-table td:first-child {
+  padding-left: 8px;
+  border-left: 1px solid var(--card-line);
+  border-radius: 10px 0 0 10px;
+  font-weight: 600;
+}
+
+.sizing-table td:last-child {
+  padding-right: 8px;
+  border-right: 1px solid var(--card-line);
+  border-radius: 0 10px 10px 0;
+}
+
+/* 차수 옆 비중: 노란 작은 알약 */
+.sizing-table td:first-child .muted {
+  display: inline-block;
+  margin-left: 2px;
+  padding: 0 5px;
+  border-radius: 999px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--entry);
+  background: color-mix(in srgb, var(--entry) 13%, transparent);
 }
 
 .sizing-table .stage-avg.final {
@@ -1554,16 +1819,23 @@ button.weights-preset.active {
 
   /* 폰은 카드 안쪽 여백을 줄여 주문표 폭을 지킨다 */
   .panel-card {
-    padding: 10px;
+    padding: 12px;
   }
 
   .sizing.panel-card {
-    padding: 10px 8px;
+    padding: 12px 8px;
+  }
+
+  .panel-card {
+    border-radius: 14px;
   }
 
   button.rr-chip {
-    min-height: 38px;
-    font-size: 13.5px;
+    min-height: 46px;
+  }
+
+  .rr-chip-ratio {
+    font-size: 14px;
   }
 }
 
@@ -1909,11 +2181,11 @@ button.undo-btn {
 }
 
 button.fee-tier {
-  min-height: 26px;
+  min-height: 28px;
   padding: 0;
-  border-radius: 5px;
-  border: 1px solid var(--line);
-  background: transparent;
+  border-radius: 8px;
+  border: 1px solid var(--card-line);
+  background: var(--well);
   color: var(--muted);
   font-size: 11.5px;
   font-weight: 600;
@@ -1926,9 +2198,9 @@ button.fee-tier:hover {
 }
 
 button.fee-tier.active {
-  color: var(--text);
-  border-color: var(--entry);
-  background: var(--ink-08);
+  color: var(--entry);
+  border-color: color-mix(in srgb, var(--entry) 60%, transparent);
+  background: color-mix(in srgb, var(--entry) 12%, transparent);
 }
 
 .fee-rates {
@@ -1944,25 +2216,34 @@ button.fee-tier.active {
   }
 }
 
-/* SL 여유: 손절 줄 바로 아래. 가격 줄과 같은 칸 (이름 | 입력 % | 설명), 아래 줄에 칩과 안내 */
+/* 스탑 털림 방지: 손절 줄 바로 아래의 움푹한 판 — 윗줄 방패 + 이름 | 설명, 아랫줄 칩 | 입력 %, 그 아래 안내 */
 .buffer-row {
   display: grid;
-  grid-template-columns: 36px 1fr 64px 52px;
+  grid-template-columns: minmax(0, 1fr) 104px;
   align-items: center;
-  gap: 6px 8px;
-  margin-top: -2px;
-  padding-left: 8px;
-  /* 손절 줄의 빨간 막대를 옅게 이어 같은 묶음으로 */
-  border-left: 3px solid color-mix(in srgb, var(--loss) 35%, transparent);
+  gap: 8px 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--card-line);
+  border-radius: 12px;
+  background: var(--well);
 }
 
 .buffer-name {
-  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
   font-weight: 600;
   color: var(--loss);
+  white-space: nowrap;
+}
+
+.buffer-icon {
+  display: inline-flex;
 }
 
 .buffer-input {
+  grid-column: 2;
   display: flex;
   align-items: center;
   gap: 4px;
@@ -1972,7 +2253,13 @@ button.fee-tier.active {
 .buffer-input input {
   width: 100%;
   min-width: 0;
-  font-size: 14px;
+  min-height: 32px;
+  border: 1px solid var(--card-line);
+  border-radius: 8px;
+  background: var(--card);
+  font-family: var(--mono);
+  font-size: 13.5px;
+  text-align: right;
 }
 
 .buffer-unit {
@@ -1981,27 +2268,29 @@ button.fee-tier.active {
 }
 
 .buffer-hint {
-  grid-column: 3 / -1;
+  grid-column: 2;
   font-size: 11px;
   color: var(--muted);
   text-align: right;
   line-height: 1.25;
+  white-space: nowrap;
 }
 
 .buffer-chips {
-  grid-column: 2 / -1;
+  grid-column: 1;
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 4px;
 }
 
 button.buffer-chip {
-  min-height: 26px;
+  min-height: 32px;
   padding: 0;
-  border-radius: 5px;
-  border: 1px solid var(--line);
-  background: transparent;
+  border-radius: 8px;
+  border: 1px solid var(--card-line);
+  background: var(--card);
   color: var(--muted);
+  font-family: var(--mono);
   font-size: 12px;
   font-weight: 600;
 }
@@ -2012,13 +2301,13 @@ button.buffer-chip:hover {
 }
 
 button.buffer-chip.active {
-  color: var(--text);
-  border-color: var(--loss);
-  background: var(--ink-08);
+  color: var(--loss);
+  border-color: color-mix(in srgb, var(--loss) 60%, transparent);
+  background: color-mix(in srgb, var(--loss) 12%, transparent);
 }
 
 .buffer-note {
-  grid-column: 2 / -1;
+  grid-column: 1 / -1;
   font-size: 11.5px;
   color: var(--muted);
 }

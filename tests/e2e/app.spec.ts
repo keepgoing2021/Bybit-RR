@@ -356,6 +356,7 @@ test('a slow click on an order-table number still copies: the table is not rebui
   await expect(qty).toHaveAttribute('data-mark', 'same');
   // 0.7초 동안 눌렀다 떼도 복사된다 (누르는 사이 버튼이 바뀌면 클릭이 사라진다)
   const text = (await qty.textContent())!;
+  await qty.scrollIntoViewIfNeeded();
   const b = (await qty.boundingBox())!;
   await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
   await page.mouse.down();
@@ -544,7 +545,7 @@ test('auto-suggestion settings: one-line summary, only the core items, the chose
   const summary = page.getByTestId('settings-summary');
   // 접혀 있어도 지금 적용 중인 값이 보인다
   await expect(summary).toBeVisible();
-  await expect(summary).toHaveText('스윙 2봉 · 1:1.5'); // SL 여유는 패널 손절 줄 아래로 옮겨 요약에서 뺐다
+  await expect(summary).toHaveText('스윙 2봉 · 1:1.5'); // 스탑 털림 방지는 패널 손절 줄 아래로 옮겨 요약에서 뺐다
   await details.locator(':scope > summary').click();
   const visible = async () =>
     page.locator('details.settings .setting').evaluateAll((rows) =>
@@ -576,7 +577,7 @@ test('auto-suggestion settings: one-line summary, only the core items, the chose
   const s1 = (await scenario(page))!;
   expect([s1.id, s1.entry, s1.priceTime]).toEqual([s0.id, s0.entry, s0.priceTime]);
   await expect(page.getByTestId('sl-rationale')).toContainText('스윙');
-  // 다른 설정을 바꿔도 패널의 SL 여유는 그대로 (설정 칸에 없다고 0으로 돌아가지 않는다)
+  // 다른 설정을 바꿔도 패널의 스탑 털림 방지는 그대로 (설정 칸에 없다고 0으로 돌아가지 않는다)
   await page.getByTestId('sl-buffer').fill('0.1');
   await page.getByTestId('sl-buffer').press('Enter');
   await setSetting(page, 'defaultRR', '2');
@@ -586,7 +587,7 @@ test('auto-suggestion settings: one-line summary, only the core items, the chose
   await expect.poll(async () => (await scenario(page))!.applied.sl).toBe(s0.applied.sl);
 });
 
-test('SL 여유 sits right under the SL row: chips 0/0.5/1/2% or typed %, recalculates the auto SL, warns inside the hunting zone, keeps a dragged SL', async ({ page }) => {
+test('스탑 털림 방지 (SL buffer) sits right under the SL row: chips 0/0.5/1/2% or typed %, recalculates the auto SL, warns inside the hunting zone, keeps a dragged SL', async ({ page }) => {
   await open(page, { tf: '15' });
   await page.getByTestId('btn-long').click();
   await expect.poll(() => scenario(page)).not.toBeNull();
@@ -613,7 +614,7 @@ test('SL 여유 sits right under the SL row: chips 0/0.5/1/2% or typed %, recalc
   await chips.filter({ hasText: /^1%$/ }).click();
   await expect.poll(async () => (await scenario(page))!.applied.sl).toBe(slFor(1));
   expect(await lit()).toEqual(['1%']);
-  await expect(page.getByTestId('sl-rationale')).toContainText('여유 1%');
+  await expect(page.getByTestId('sl-rationale')).toContainText('스탑 털림 방지 1%');
   const s1 = (await scenario(page))!;
   expect([s1.id, s1.entry, s1.priceTime, s1.source.sl]).toEqual([s0.id, s0.entry, s0.priceTime, 'auto']);
   // 직접 적기 (칩에 없는 값이면 칩은 꺼짐)
@@ -624,7 +625,7 @@ test('SL 여유 sits right under the SL row: chips 0/0.5/1/2% or typed %, recalc
   // 잘못 적으면 알려 주고 그대로
   await page.getByTestId('sl-buffer').fill('abc');
   await page.getByTestId('sl-buffer').press('Enter');
-  await expect(page.getByTestId('toast')).toContainText('SL 여유는');
+  await expect(page.getByTestId('toast')).toContainText('스탑 털림 방지는');
   await expect(page.getByTestId('sl-buffer')).toHaveValue('0.25');
   // 2%면 SL이 헌팅존(꼬리 끝 2~10%) 안 → 경고
   await chips.filter({ hasText: /^2%$/ }).click();
@@ -924,7 +925,7 @@ test('panel RR chips 1:1–1:3 move TP like the chart chips; the current RR is l
   await expect(chips.first()).toBeEnabled();
 });
 
-test('the panel is grouped into cards (prices / RR / order table / reasons); SL in red and TP in green', async ({ page }) => {
+test('the panel is grouped into cards (prices / RR / split entry / risk / reasons), each with an icon head; SL in red and TP in green', async ({ page }) => {
   await open(page, { tf: '15' });
   await validLong(page);
   // 큰 금액(총 포지션 7만대)에서도 요약 숫자가 한 줄로 들어가는지 함께 본다
@@ -934,10 +935,15 @@ test('the panel is grouped into cards (prices / RR / order table / reasons); SL 
   const look = () =>
     page.evaluate(() => {
       const panelBg = getComputedStyle(document.querySelector('.panel')!).backgroundColor;
-      const groups = ['group-levels', 'group-rr', 'sizing', 'group-why'].map((id) => {
+      const groups = ['group-levels', 'group-rr', 'sizing', 'group-risk', 'group-why'].map((id) => {
         const el = document.querySelector(`[data-testid=${id}]`)!;
         const cs = getComputedStyle(el);
-        return { id, border: cs.borderTopStyle, card: cs.backgroundColor !== panelBg && cs.backgroundColor !== 'rgba(0, 0, 0, 0)', radius: cs.borderTopLeftRadius };
+        // 카드 머리: 아이콘(svg) + 제목
+        const head = el.querySelector(':scope > .pc-head');
+        return {
+          id, border: cs.borderTopStyle, card: cs.backgroundColor !== panelBg && cs.backgroundColor !== 'rgba(0, 0, 0, 0)', radius: cs.borderTopLeftRadius,
+          head: !!head?.querySelector('svg') && !!head.querySelector('.pc-title')?.textContent,
+        };
       });
       const color = (sel: string) => getComputedStyle(document.querySelector(sel)!).color;
       return {
@@ -949,13 +955,8 @@ test('the panel is grouped into cards (prices / RR / order table / reasons); SL 
         tpName: color('.price-row.tp .price-name'),
         tpInput: color('[data-testid=tp-input]'),
         entryInput: color('[data-testid=entry-input]'),
-        // 주문표 요약의 '모두 체결되면' 줄은 카드가 아니라 위 선 하나만
-        foldRow: (() => {
-          const cs = getComputedStyle(document.querySelector('.sizing .metrics dt.group')!);
-          return [cs.borderLeftStyle, cs.borderTopStyle, cs.backgroundColor];
-        })(),
-        // 요약 숫자들은 한 줄씩 (카드 여백이 생겨도 줄바꿈되지 않게)
-        wrappedSummary: [...document.querySelectorAll('[data-testid=sizing-summary] dd:not(.group)')]
+        // 리스크 카드의 줄 숫자들은 한 줄씩 (손절 시·목표 시 두 칸은 금액 + 설명 두 줄이 정상)
+        wrappedSummary: [...document.querySelectorAll('[data-testid=sizing-summary] > dd')]
           .filter((el) => (el as HTMLElement).offsetParent && el.textContent)
           .filter((el) => {
             const r = document.createRange();
@@ -971,12 +972,11 @@ test('the panel is grouped into cards (prices / RR / order table / reasons); SL 
       };
     });
   const d = await look();
-  for (const g of d.groups) expect(g, g.id).toEqual({ id: g.id, border: 'solid', card: true, radius: '8px' });
+  for (const g of d.groups) expect(g, g.id).toEqual({ id: g.id, border: 'solid', card: true, radius: '16px', head: true });
   expect(d.inLevels && d.inRr).toBe(true);
   expect([d.slName, d.slInput]).toEqual(['rgb(240, 97, 109)', 'rgb(240, 97, 109)']);
   expect([d.tpName, d.tpInput]).toEqual(['rgb(46, 189, 133)', 'rgb(46, 189, 133)']);
   expect(d.entryInput).toBe('rgb(230, 232, 235)'); // 진입은 기본 글자색
-  expect(d.foldRow).toEqual(['none', 'solid', 'rgba(0, 0, 0, 0)']);
   expect(d.wrappedSummary).toEqual([]);
   expect(d.hintLines).toBe(1); // 안내 문구는 한 줄
   // 라이트에서도 카드가 패널과 구분된다
@@ -984,6 +984,43 @@ test('the panel is grouped into cards (prices / RR / order table / reasons); SL 
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
   await expect.poll(async () => (await look()).groups.every((g) => g.card)).toBe(true);
   expect((await look()).slInput).toBe('rgb(224, 62, 77)');
+});
+
+test('RR chips show the profit at each chip TP with every split filled (only once capital is set); the RR card head shows the TP', async ({ page }) => {
+  await open(page, { tf: '15' });
+  const s = await validLong(page); // SL = 진입 − 10, TP = 진입 + 30
+  const profits = page.getByTestId('rr-chip-profit');
+  await expect(page.getByTestId('rr-tp')).toHaveText((s.entry + 30).toFixed(1));
+  // 운영자산 전: 금액 없음, 칩은 1:x 한 줄
+  await expect(profits).toHaveText(['', '', '', '', '']);
+  await expect(page.getByTestId('rr-profit-note')).toBeHidden();
+  await page.getByTestId('sizing-capital').fill('10000');
+  await page.getByTestId('sizing-capital').press('Enter');
+  await expect(page.getByTestId('rr-profit-note')).toBeVisible();
+  await expect(profits.first()).not.toHaveText('');
+  // 칩 금액 = 표의 분할(가격·수량)이 전부 체결된 뒤 그 칩의 TP(진입 + x × 10)에서 수익
+  const rows = await page.getByTestId('sizing-row').evaluateAll((trs) =>
+    trs.map((tr) => [Number((tr as HTMLTableRowElement).cells[1].textContent!.replace(/,/g, '')), Number((tr as HTMLTableRowElement).cells[3].textContent)]),
+  );
+  const shown = (t: string) => Number(t.replace(/^\+/, '').replace(/,/g, ''));
+  const texts = await profits.allTextContents();
+  [1, 1.5, 2, 2.5, 3].forEach((v, i) => {
+    const tp = s.entry + v * 10;
+    const want = rows.reduce((a, [price, qty]) => a + qty * (tp - price), 0);
+    expect(texts[i]).toMatch(/^\+[\d,]+(\.\d\d)?$/);
+    expect(Math.abs(shown(texts[i]) - want), `1:${v}`).toBeLessThanOrEqual(0.5);
+  });
+  // 지금 TP(1:3) 칩 = 리스크 카드의 '목표 시'
+  const target = Number((await page.getByTestId('sizing-profit').textContent())!.match(/\+([\d,.]+)/)![1].replace(/,/g, ''));
+  expect(Math.abs(shown(texts[4]) - target)).toBeLessThanOrEqual(0.5);
+  // 손절 시·목표 시는 빨강·초록 두 칸
+  const boxes = await page.locator('.risk-box').evaluateAll((els) => els.map((e) => getComputedStyle(e.querySelector('.risk-amt')!).color));
+  expect(boxes).toEqual(['rgb(240, 97, 109)', 'rgb(46, 189, 133)']);
+  // 운영자산을 지우면 금액도 사라진다
+  await page.getByTestId('sizing-capital').fill('');
+  await page.getByTestId('sizing-capital').press('Enter');
+  await expect(profits).toHaveText(['', '', '', '', '']);
+  await expect(page.getByTestId('group-risk')).toBeHidden();
 });
 
 test('typing an RR moves TP to that RR, keeping entry and SL', async ({ page }) => {
@@ -1370,7 +1407,7 @@ test('stop-hunting zone: 2–10% beyond the SL wick, as wide as the RR box, with
     }, { x1: g.x2 + 6, x2: Math.min(paneW - 6, g.x2 + 26), y: yMid });
     expect(out).toBeLessThan(8);
   }
-  // SL 여유를 5%(구간 안)로 하면 이름표가 경고로, 1%면 다시 보통. 자동 SL일 때 구간은 꼬리 기준이라 그대로
+  // 스탑 털림 방지를 5%(구간 안)로 하면 이름표가 경고로, 1%면 다시 보통. 자동 SL일 때 구간은 꼬리 기준이라 그대로
   await page.getByTestId('sl-buffer').fill('5');
   await page.getByTestId('sl-buffer').press('Enter');
   await expect.poll(async () => (await hunt()).slInside).toBe(true);
@@ -1629,7 +1666,7 @@ test('average entry at each fill stage: table column, emphasized all-filled row,
   await page.getByTestId('sizing-capital').press('Enter');
   const avgCell = page.getByTestId('sizing-avg');
   await expect(avgCell).not.toHaveText('');
-  await expect(page.getByTestId('sizing-summary')).toContainText('전부 체결 시 예상 평단');
+  await expect(page.getByTestId('sizing-avg-box')).toContainText('전부 체결 시 예상 평단');
   expect(await avgCell.evaluate((el) => getComputedStyle(el).fontWeight)).toBe('700');
   expect(await avgCell.evaluate((el) => getComputedStyle(el).color)).toBe('rgb(255, 255, 255)');
   const s = (await scenario(page))!;

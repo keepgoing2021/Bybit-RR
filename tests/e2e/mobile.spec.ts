@@ -251,7 +251,7 @@ test('phone: the stop-hunting zone label stays clear of the SL / target / RR lab
   }
 });
 
-test('phone: SL 여유 row under the SL row fits the screen with tappable chips', async ({ page }) => {
+test('phone: 스탑 털림 방지 row under the SL row fits the screen with tappable chips', async ({ page }) => {
   await open(page);
   await page.getByTestId('btn-long').tap();
   await expect.poll(() => page.evaluate(() => (window as unknown as W).__rrDebug.getScenario())).not.toBeNull();

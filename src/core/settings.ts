@@ -19,7 +19,7 @@ export interface AnalysisSettings {
   lookback: number;
   atrPeriod: number;
   atrMethod: AtrMethod;
-  /** SL 여유 (%): 꼬리 끝 가격의 이만큼 바깥에 SL (LONG은 아래, SHORT는 위). 이전 버전의 틱 단위 값(slBufferTicks)은 쓰지 않는다 */
+  /** 스탑 털림 방지 (%, 화면 이름. 예전 이름 SL 여유): 꼬리 끝 가격의 이만큼 바깥에 SL (LONG은 아래, SHORT는 위). 이전 버전의 틱 단위 값(slBufferTicks)은 쓰지 않는다 */
   slBufferPct: number;
   /** 스윙 판별 봉 수 (좌우 각각) */
   swingBars: number;
@@ -63,7 +63,7 @@ export const SETTING_RANGES: Record<NumericKey, [number, number]> = {
   maxPriceAgeSec: [5, 3600],
 };
 
-/** SL 여유 허용 범위 (%, 소수 셋째 자리까지) */
+/** 스탑 털림 방지 허용 범위 (%, 소수 셋째 자리까지) */
 export const SL_BUFFER_PCT_RANGE: [number, number] = [0, 10];
 
 /** 기본 손익비 허용 범위 (소수 둘째 자리까지) */

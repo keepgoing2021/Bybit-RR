@@ -27,6 +27,7 @@ import {
   MAX_SPLITS,
   parseSplitCount,
   planSizing,
+  profitAt,
   ratioLabel,
   readWeightsInput,
   resizeSplits,
@@ -41,9 +42,10 @@ import type { SocketState } from '../data/bybit/socket';
 import { CandleStore } from '../data/candleStore';
 import type { FeedListener, MarketDataProvider } from '../data/provider';
 import { h, setText, show } from './dom';
-import { formatClock, formatPct, formatTime, settingsSummary, SL_MODE_HELP, SL_MODE_NAMES, slRationale, tfName, tpRationale } from './format';
+import { compactUsdt, formatClock, formatPct, formatTime, settingsSummary, SL_MODE_HELP, SL_MODE_NAMES, slRationale, tfName, tpRationale } from './format';
 import { HUNT_FAR_PCT, HUNT_NEAR_PCT, huntTip, huntZone, inHuntZone } from '../core/huntZone';
 import { FlowBoard } from './flowBoard';
+import { icon, type IconName } from './icons';
 import { SymbolPicker } from './symbolPicker';
 import { Tour, type TourStep } from './tour';
 
@@ -60,7 +62,7 @@ export interface AppDeps {
 const DEFAULT_UI: UiSelection = { provider: 'bybit', symbol: 'BTCUSDT', timeframe: '15' };
 
 /**
- * 자동 제안 설정 칸. core = 늘 보이는 핵심 4개 (SL 방식 + 그 방식의 숫자 1개 + SL 여유 + 손익비),
+ * 자동 제안 설정 칸. core = 늘 보이는 핵심 (SL 방식 + 그 방식의 숫자 1개 + 손익비),
  * advanced = '고급'에 접어 두는 것. modes가 있으면 그 SL 방식일 때만 보인다.
  */
 type SettingField = { key: keyof AnalysisSettings; label: string; hint?: string; options?: [string, string][]; step?: string; modes?: SlMode[] };
@@ -69,7 +71,7 @@ const CORE_SETTINGS: SettingField[] = [
   { key: 'swingBars', label: '좌우 봉 수', modes: ['swing'] },
   { key: 'slLowestBars', label: '봉 수', modes: ['lowestN'] },
   { key: 'lookback', label: '찾을 봉 수', modes: ['spike'] },
-  // SL 여유(%)는 자주 바꾸는 핵심 값이라 여기 대신 패널 손절 줄 바로 아래에 둔다
+  // 스탑 털림 방지(%)는 자주 바꾸는 핵심 값이라 여기 대신 패널 손절 줄 바로 아래에 둔다
   { key: 'defaultRR', label: '기본 손익비 1:', step: '0.1' },
 ];
 const ADVANCED_SETTINGS: SettingField[] = [
@@ -110,11 +112,26 @@ export const THEME_KEY = 'rrtool.v1.theme';
 /** 손절 시 수수료에 쓰는 Bybit 수수료 등급 (일반·VIP1~5) */
 export const FEE_TIER_KEY = 'rrtool.v1.feetier';
 
-/** 패널 손절 줄 아래 SL 여유 빠른 선택 (%) */
+/** 패널 손절 줄 아래 스탑 털림 방지 빠른 선택 (%) */
 const SL_BUFFER_CHIPS = [0, 0.5, 1, 2];
 
 /** 패널의 손익비 빠른 선택 칩 */
 const RR_CHIPS = [1, 1.5, 2, 2.5, 3];
+
+/** 패널 카드 머리: 아이콘 + 제목, 뒤로 알약·설명 (오른쪽 끝으로 미는 건 .pc-meta) */
+function cardHead(ic: IconName, text: string, ...extra: (HTMLElement | null)[]): HTMLDivElement {
+  return h('div', { class: 'pc-head' }, icon(ic), h('h3', { class: 'pc-title' }, text), ...extra);
+}
+
+/** 리스크 칸의 큰 금액(+ 작은 USDT) + 아래 설명 줄. 9자 이상이면 글자를 줄여 칸 안에 (바뀔 때만 다시 씀) */
+function bigAmount(dd: HTMLElement, main: string, sub: string): void {
+  const unit = main === '—' ? '' : 'USDT';
+  if (dd.textContent === main + unit + sub) return;
+  dd.replaceChildren(
+    h('span', { class: `risk-amt${main.length >= 9 ? ' long' : ''}` }, main, unit ? h('span', { class: 'risk-unit' }, unit) : null),
+    h('span', { class: 'risk-sub' }, sub),
+  );
+}
 
 /** 첫 사용 안내를 봤는지 (끝까지 보거나 건너뛰면 '1'. 그 뒤로는 '?' 버튼으로만 다시 연다) */
 export const TOUR_KEY = 'rrtool.v1.tourDone';
@@ -815,14 +832,15 @@ export class App {
           this.renderNow(true);
         }
       });
-      const row = h('div', { class: `price-row ${which}` }, h('span', { class: 'price-name' }, name), input, pct, badge);
+      // 이름(+ 시장가·자동·수동) | % | 가격 입력 (오른쪽 정렬)
+      const row = h('div', { class: `price-row ${which}` }, h('span', { class: 'price-label' }, h('span', { class: 'price-name' }, name), badge), pct, input);
       return { row, input, pct, badge };
     };
     const entry = priceRow('entry', '진입');
     const sl = priceRow('sl', '손절');
-    // SL 여유: 손절 줄 바로 아래. 꼬리 끝에서 바깥으로 몇 % 더 둘지 (칩 또는 직접 입력)
+    // 스탑 털림 방지(설정 이름 slBufferPct): 손절 줄 바로 아래. 꼬리 끝에서 바깥으로 몇 % 더 둘지 (칩 또는 직접 입력)
     const bufferInput = h('input', {
-      class: 'num', 'data-testid': 'sl-buffer', inputmode: 'decimal', autocomplete: 'off', 'aria-label': 'SL 여유 % (꼬리 끝 바깥으로)',
+      class: 'num', 'data-testid': 'sl-buffer', inputmode: 'decimal', autocomplete: 'off', 'aria-label': '스탑 털림 방지 % (꼬리 끝 바깥으로)',
     });
     const bufferChips = SL_BUFFER_CHIPS.map((v) => {
       const b = h('button', { type: 'button', class: 'buffer-chip num', 'data-testid': 'sl-buffer-chip', 'data-pct': String(v), 'aria-pressed': 'false' }, `${v}%`);
@@ -830,20 +848,20 @@ export class App {
       return b;
     });
     const bufferNote = h('span', { class: 'buffer-note', 'data-testid': 'sl-buffer-note' });
-    // 가격 줄과 같은 칸: 이름(여유) | 입력 % | 설명 / 아래 줄에 빠른 선택 칩, 그 아래 안내
+    // 가격 줄과 같은 칸 나눔: 윗줄 이름 | 설명, 아랫줄 빠른 선택 칩 | 입력 % (가격 줄의 % 자리), 그 아래 안내
     const bufferRow = h(
       'div',
       { class: 'buffer-row', 'data-testid': 'sl-buffer-row', title: '자동 SL을 꼬리 끝(롱은 저가, 숏은 고가)에서 바깥으로 이만큼 더 둡니다' },
-      h('span', { class: 'buffer-name' }, '여유'),
+      h('span', { class: 'buffer-name' }, icon('shield', 'buffer-icon'), '스탑 털림 방지'),
+      h('span', { class: 'buffer-hint' }, '꼬리 끝 바깥으로'),
+      h('div', { class: 'buffer-chips', role: 'group', 'aria-label': '스탑 털림 방지 빠른 선택' }, ...bufferChips),
       h('label', { class: 'buffer-input' }, bufferInput, h('span', { class: 'buffer-unit' }, '%')),
-      h('span', { class: 'buffer-hint' }, 'SL을 꼬리 끝 바깥으로'),
-      h('div', { class: 'buffer-chips', role: 'group', 'aria-label': 'SL 여유 빠른 선택' }, ...bufferChips),
       bufferNote,
     );
     bufferInput.addEventListener('change', () => {
       const v = Number(bufferInput.value.replace('%', '').replace(',', '.').trim());
       if (bufferInput.value.trim() === '' || !Number.isFinite(v)) {
-        this.toast(`SL 여유는 ${SL_BUFFER_PCT_RANGE[0]}~${SL_BUFFER_PCT_RANGE[1]} 사이 숫자로 적으세요 (예: 0.5).`);
+        this.toast(`스탑 털림 방지는 ${SL_BUFFER_PCT_RANGE[0]}~${SL_BUFFER_PCT_RANGE[1]} 사이 숫자로 적으세요 (예: 0.5).`);
         bufferInput.value = String(this.settings.slBufferPct);
         return;
       }
@@ -861,27 +879,45 @@ export class App {
     const tpWhy = h('p', { class: 'rationale', 'data-testid': 'tp-rationale' });
     const restore = h('button', { type: 'button', 'data-testid': 'btn-restore' }, '자동값으로 되돌리기');
     // 손익비 빠른 선택: 누르면 TP가 그 손익비 자리로 (차트의 1:x 칩과 같은 동작)
+    // 칩 아래 금액 = 분할 전부 체결 후 그 손익비 자리(TP)에서의 수익. 운영자산을 넣었을 때만
     const rrChips = RR_CHIPS.map((v) => {
-      const b = h('button', { type: 'button', class: 'rr-chip num', 'data-testid': 'rr-chip', 'data-rr': String(v), 'aria-pressed': 'false' }, `1:${v}`);
+      const b = h(
+        'button',
+        { type: 'button', class: 'rr-chip num', 'data-testid': 'rr-chip', 'data-rr': String(v), 'aria-pressed': 'false' },
+        h('span', { class: 'rr-chip-ratio' }, `1:${v}`),
+        h('span', { class: 'rr-chip-profit', 'data-testid': 'rr-chip-profit' }),
+      );
       b.addEventListener('click', () => this.applyRR(String(v)));
       return b;
     });
-    // 패널은 카드 묶음: 가격 / 손익비 / 주문표 / 근거
+    // 지금 목표가 (손익비 카드 머리의 초록 알약)
+    const rrTp = h('span', { class: 'tag profit num', 'data-testid': 'rr-tp', title: '지금 목표가 (TP)' });
+    const rrProfitNote = h('p', { class: 'rr-profit-note', 'data-testid': 'rr-profit-note', hidden: true }, '칩 아래 = 분할 전부 체결 후 그 자리 수익 (USDT)');
+    // 패널은 카드 묶음: 가격 / 손익비 / 분할 진입 / 리스크 / 근거
     const card = h(
       'div',
       { class: 'card', hidden: true },
       h('div', { class: 'card-head' }, sideChip, title, del),
-      h('div', { class: 'panel-card levels', 'data-testid': 'group-levels' }, h('div', { class: 'prices' }, entry.row, sl.row, bufferRow, tp.row), times),
+      h(
+        'div',
+        { class: 'panel-card levels', 'data-testid': 'group-levels' },
+        cardHead('levels', '진입 / 손절 / 목표'),
+        h('div', { class: 'prices' }, entry.row, sl.row, bufferRow, tp.row),
+        times,
+      ),
       h(
         'div',
         { class: 'panel-card rr-group', 'data-testid': 'group-rr' },
+        cardHead('target', '목표가 & 손익비', rrTp),
         h('div', { class: 'rr-row' }, rrLabel, rr),
         h('div', { class: 'rr-chips', 'data-testid': 'rr-chips', role: 'group', 'aria-label': '손익비 빠른 선택' }, ...rrChips),
+        rrProfitNote,
         h('p', { class: 'rr-hint', 'data-testid': 'rr-hint' }, '✎ 숫자를 고치거나 1:x 칩을 누르면 TP 이동'),
       ),
       reasons,
       sizing.box,
-      h('div', { class: 'panel-card why', 'data-testid': 'group-why' }, h('p', { class: 'why-title' }, '자동 제안 근거'), slWhy, tpWhy),
+      sizing.riskCard,
+      h('div', { class: 'panel-card why', 'data-testid': 'group-why' }, cardHead('info', '자동 제안 근거'), slWhy, tpWhy),
       h('div', { class: 'actions' }, restore),
       h('p', { class: 'note' }, '가격 기준 계산입니다. 수수료·슬리피지·펀딩비는 반영하지 않았습니다. 주문은 Bybit에서 직접 넣습니다.'),
     );
@@ -1016,7 +1052,7 @@ export class App {
 
     return {
       picker, tf, sltf, long, short, status, statusReason, themeBtn,
-      loadError, chart, empty, card, sideChip, title, entry, times, rr, rrInput, rrLabel, rrChips, reasons, bufferInput, bufferChips, bufferNote,
+      loadError, chart, empty, card, sideChip, title, entry, times, rr, rrInput, rrLabel, rrChips, rrTp, rrProfitNote, reasons, bufferInput, bufferChips, bufferNote,
       sl, tp, slWhy, tpWhy, sizing, restore, del, settingsInputs, settingRows, modeHelp, settingsSummaryEl, toast, undo, tools, tour, flow,
     };
   }
@@ -1275,20 +1311,26 @@ export class App {
       feeShare,
     );
     sum.avg.classList.add('avg');
+    // 분할 진입 카드 아래: 전부 체결 시 예상 평단 (흰 강조 띠, 차트의 흰 평단 선과 짝) + 차트 선 켜기
+    const avgBox = h(
+      'div',
+      { class: 'avg-box', 'data-testid': 'sizing-avg-box' },
+      h('dl', { class: 'avg-row' }, h('dt', { class: 'avg' }, '전부 체결 시 예상 평단'), sum.avg),
+      avgToggle,
+    );
+    // 리스크 카드: 손절 시 / 목표 시 두 칸 (빨강·초록 테두리) + 포지션 규모·레버리지·손익비·수수료
+    const lossBox = h('div', { class: 'risk-box loss' }, h('dt', {}, '손절 시'), sum.loss);
+    const profitBox = h('div', { class: 'risk-box profit' }, h('dt', {}, '목표 시'), sum.profit);
     const summary = h(
       'dl',
       { class: 'metrics', 'data-testid': 'sizing-summary' },
+      h('div', { class: 'risk-boxes' }, lossBox, profitBox),
       h('dt', {}, '총 포지션'), sum.total,
       h('dt', {}, '필요 레버리지'), sum.lev,
+      h('dt', {}, '손익비 (전부 체결 시)'), sum.rr,
       feeDt, sum.fee,
       feeMeter,
       feeTiers,
-      h('dt', { class: 'group' }, '모두 체결되면'), h('dd', { class: 'group' }, avgToggle),
-      // 강조 띠는 두 칸을 묶은 한 줄 (긴 이름이 왼쪽 칸 폭을 넓혀 숫자들이 줄바꿈되지 않게)
-      h('div', { class: 'avg-row' }, h('dt', { class: 'avg' }, '전부 체결 시 예상 평단'), sum.avg),
-      h('dt', {}, '손절 시'), sum.loss,
-      h('dt', {}, '목표 시'), sum.profit,
-      h('dt', {}, '손익비'), sum.rr,
     );
     const note = h(
       'p',
@@ -1313,15 +1355,19 @@ export class App {
       bar.dataset.open = String(open);
       fold.setAttribute('aria-expanded', String(open));
     });
+    // 분할 수 알약 (예: 3분할, 1이면 '한 번에')
+    const splitsPill = h('span', { class: 'tag entry num', 'data-testid': 'sizing-splits-pill' });
     const box = h(
       'section',
       { class: 'sizing panel-card', 'data-testid': 'sizing' },
-      h('div', { class: 'level-head' }, h('span', { class: 'level-name' }, '주문표'), h('span', { class: 'muted small' }, '숫자를 누르면 복사')),
+      cardHead('split', '분할 진입', splitsPill, h('span', { class: 'pc-meta' }, '숫자를 누르면 복사')),
       reason,
-      table,
-      summary,
+      // 금액이 아주 커서(수백만 USDT) 표가 카드보다 넓어지면 표만 옆으로 밀어 본다 (패널은 넘치지 않게)
+      h('div', { class: 'table-scroll' }, table),
+      avgBox,
       note,
     );
+    const riskCard = h('section', { class: 'risk-card panel-card', 'data-testid': 'group-risk', hidden: true }, cardHead('gauge', '리스크'), summary);
     const apply = (src: 'capital' | 'risk' | 'splits' | 'weights' | 'linear' | 'equal') => {
       const cap = Number(capital.value.replace(/[,\s]/g, ''));
       const prev = this.sizing;
@@ -1361,7 +1407,7 @@ export class App {
     linear.addEventListener('click', () => apply('linear'));
     equal.addEventListener('click', () => apply('equal'));
     for (const c of [capital, splits, weights]) c.addEventListener('keydown', (e) => e.key === 'Enter' && c.blur());
-    return { bar, fold, box, capital, risk, splits, weights, linear, equal, reason, table, body, summary, sum, avgShow, feeFill, feeMeter, feeShare, feeDt, feeTierBtns, feeRates };
+    return { bar, fold, box, riskCard, capital, risk, splits, weights, linear, equal, reason, table, body, summary, sum, avgShow, avgBox, splitsPill, feeFill, feeMeter, feeShare, feeDt, feeTierBtns, feeRates };
   }
 
   /** 상단 바의 분할 진입 입력칸을 저장된 값으로 맞춘다 (시나리오가 없어도 보인다) */
@@ -1377,6 +1423,7 @@ export class App {
     z.equal.classList.toggle('active', cfg.weightMode === 'equalRisk');
     z.linear.title = `${ratioLabel(Math.max(cfg.splits, 2))} (뒤로 갈수록 크게)`;
     z.avgShow.checked = cfg.showAvgLine;
+    setText(z.splitsPill, cfg.splits === 1 ? '한 번에' : `${cfg.splits}분할`);
     // 폰 요약 버튼: '주문 설정 · 10,000 USDT · 1% · 3분할 1:2:3'
     const cap = cfg.capital === null ? '운영자산 입력' : `${cfg.capital.toLocaleString('en-US')} USDT`;
     const ratio = cfg.splits === 1 ? '1회 진입' : `${cfg.splits}분할 ${weightsText(cfg)}`;
@@ -1440,6 +1487,8 @@ export class App {
     setText(z.reason, reason ?? '');
     show(z.table, plan !== null);
     show(z.summary, plan !== null);
+    show(z.avgBox, plan !== null);
+    show(z.riskCard, plan !== null);
     if (!plan) return null;
 
     const info = this.symbols.find((x) => x.symbol === s.symbol);
@@ -1480,14 +1529,15 @@ export class App {
     z.feeShare.dataset.zone = zone;
     z.feeFill.dataset.zone = zone;
     z.feeFill.style.width = `${Math.min(100, ((fee.sharePct ?? 0) / 50) * 100)}%`;
-    setText(z.sum.loss, `−${usdt(plan.lossAtSl)} (−${plan.lossPct.toFixed(2)}%)`);
-    setText(z.sum.profit, plan.profitAtTp === null ? '—' : `+${usdt(plan.profitAtTp)} (+${plan.profitPct!.toFixed(2)}%)`);
+    // 큰 금액 + 아래 작은 줄 (USDT · 자산 대비 %)
+    bigAmount(z.sum.loss, `−${usdt(plan.lossAtSl)}`, `자산 대비 −${plan.lossPct.toFixed(2)}%`);
+    bigAmount(z.sum.profit, plan.profitAtTp === null ? '—' : `+${usdt(plan.profitAtTp)}`, plan.profitAtTp === null ? 'TP를 정하면 계산' : `자산 대비 +${plan.profitPct!.toFixed(2)}%`);
     setText(z.sum.avg, formatPrice(plan.avgEntry, s.tickSize));
     setText(z.sum.rr, plan.rr === null ? '—' : formatRR(plan.rr));
     return plan;
   }
 
-  /** SL 여유(%)를 바꾸고 지금 계산의 자동 SL을 다시 계산 (직접 옮긴 SL은 그대로) */
+  /** 스탑 털림 방지(%)를 바꾸고 지금 계산의 자동 SL을 다시 계산 (직접 옮긴 SL은 그대로) */
   private async setSlBuffer(pct: number): Promise<void> {
     this.settings = sanitizeSettings({ ...this.settings, slBufferPct: pct });
     saveSettings(this.d.storage, this.settings);
@@ -1497,7 +1547,7 @@ export class App {
   }
 
   private async applySettings(changed: keyof AnalysisSettings): Promise<void> {
-    // 설정 칸에 없는 값(SL 여유 등)은 지금 값을 그대로 둔다
+    // 설정 칸에 없는 값(스탑 털림 방지 등)은 지금 값을 그대로 둔다
     const raw: Record<string, unknown> = { ...this.settings };
     for (const [key, control] of this.el.settingsInputs) {
       raw[key] = control instanceof HTMLSelectElement ? control.value : Number(control.value);
@@ -1561,7 +1611,7 @@ export class App {
     this.renderSlBuffer();
   }
 
-  /** 손절 줄 아래 SL 여유: 입력칸·칩, 직접 옮긴 SL이면 안내, SL이 헌팅존 안이면 경고 */
+  /** 손절 줄 아래 스탑 털림 방지: 입력칸·칩, 직접 옮긴 SL이면 안내, SL이 헌팅존 안이면 경고 */
   private renderSlBuffer(): void {
     const e = this.el;
     const v = this.settings.slBufferPct;
@@ -1631,12 +1681,22 @@ export class App {
     // 지금 손익비와 같은 칩을 켜고, SL이 진입가 반대편에 없어 TP를 정할 수 없으면 칩을 잠근다
     const rrCan = tpForRR(s.side, s.entry, s.applied.sl, 1, tick) !== null;
     const rrShown = m.rr === null ? null : formatRR(m.rr);
+    // 칩 아래 금액: 운영자산이 있으면 분할 전부 체결 후 그 칩의 TP 자리에서 수익
+    const chipPlan = this.sizingPlan(s).plan;
     for (const b of e.rrChips) {
+      const v = Number(b.dataset.rr);
       const on = rrShown === `1:${b.dataset.rr}`;
       b.classList.toggle('active', on);
       b.setAttribute('aria-pressed', String(on));
       b.disabled = !rrCan;
+      const at = chipPlan && rrCan ? tpForRR(s.side, s.entry, s.applied.sl, v, tick) : null;
+      const gain = chipPlan && at !== null ? profitAt(chipPlan, s.side, at) : null;
+      setText(b.querySelector('.rr-chip-profit')!, gain === null ? '' : `+${compactUsdt(gain)}`);
+      b.title = at === null ? `TP를 손익비 1:${v} 자리로` : `TP ${formatPrice(at, tick)}${gain === null ? '' : ` · 전부 체결 시 +${usdt(gain)} USDT`}`;
     }
+    show(e.rrProfitNote, !!chipPlan && rrCan);
+    setText(e.rrTp, s.applied.tp === null ? '' : formatPrice(s.applied.tp, tick));
+    show(e.rrTp, s.applied.tp !== null);
     setText(e.rrLabel, this.sizing.splits > 1 ? '손익비 (1차만 체결 시)' : '손익비');
     e.rr.dataset.valid = String(m.valid);
     e.reasons.replaceChildren(...m.reasons.map((r) => h('li', {}, r)));

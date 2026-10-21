@@ -50,7 +50,7 @@ export function slRationale(a: AutoSL, side: Side, timeZone?: string): string {
   const edge = side === 'LONG' ? '저가' : '고가';
   const sign = side === 'LONG' ? '−' : '+';
   const buffer =
-    (a.bufferPct ?? 0) > 0 ? ` ${sign} 여유 ${a.bufferPct}%` : (a.bufferTicks ?? 0) > 0 ? ` ${sign} 버퍼 ${a.bufferTicks}틱` : '';
+    (a.bufferPct ?? 0) > 0 ? ` ${sign} 스탑 털림 방지 ${a.bufferPct}%` : (a.bufferTicks ?? 0) > 0 ? ` ${sign} 버퍼 ${a.bufferTicks}틱` : '';
   if (a.method === 'swing') {
     const kind = side === 'LONG' ? '저점' : '고점';
     return `SL: ${tfName(a.timeframe)} 최근 확정 스윙 ${kind}${buffer} (${formatTime(a.candle.time, timeZone)} 캔들)`;
@@ -90,7 +90,7 @@ export const SL_MODE_HELP: Record<SlMode, string> = {
   spike: '평소보다 크게 움직인 캔들의 꼬리',
 };
 
-/** 자동 제안 설정 접힌 상태에서도 보이는 한 줄 요약. 예: '스윙 2봉 · 여유 0% · 1:1.5' */
+/** 자동 제안 설정 접힌 상태에서도 보이는 한 줄 요약. 예: '스윙 2봉 · 1:1.5' */
 export function settingsSummary(s: AnalysisSettings): string {
   const how =
     s.slMode === 'swing'
@@ -100,6 +100,19 @@ export function settingsSummary(s: AnalysisSettings): string {
         : s.slMode === 'spike'
           ? `큰 캔들 ${s.lookback}봉`
           : '직전 봉';
-  // SL 여유는 패널 손절 줄 아래에 따로 있어서 요약에서 뺀다
+  // 스탑 털림 방지는 패널 손절 줄 아래에 따로 있어서 요약에서 뺀다
   return `${how} · 1:${s.defaultRR}`;
+}
+
+/**
+ * 칩처럼 좁은 자리의 USDT 금액. 1만 미만은 쉼표 정수(100 미만은 소수 둘째 자리), 그 위는 K·M.
+ * 예: 12.5 → '12.50', 1523.4 → '1,523', 12_345 → '12.3K', 2_500_000 → '2.50M'
+ */
+export function compactUsdt(v: number): string {
+  const a = Math.abs(v);
+  const sign = v < 0 ? '−' : '';
+  if (a >= 1e6) return `${sign}${(a / 1e6).toFixed(2)}M`;
+  if (a >= 1e4) return `${sign}${(a / 1e3).toFixed(1)}K`;
+  if (a >= 100) return `${sign}${Math.round(a).toLocaleString('en-US')}`;
+  return `${sign}${a.toFixed(2)}`;
 }

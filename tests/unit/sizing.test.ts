@@ -12,6 +12,7 @@ import {
   parseSplitCount,
   parseWeights,
   planSizing,
+  profitAt,
   ratioLabel,
   readWeightsInput,
   resizeSplits,
@@ -318,5 +319,22 @@ describe('feeAtStop (fee meter under the order table)', () => {
     expect(isFeeTier('vip3')).toBe(true);
     expect(isFeeTier('vip6')).toBe(false);
     expect(isFeeTier(null)).toBe(false);
+  });
+});
+
+describe('profitAt (expected profit under each RR chip, every split filled)', () => {
+  it('equals the plan profit at its own TP; LONG and SHORT; one split = RR × loss', () => {
+    const r = planSizing(base());
+    if (!r.ok) throw new Error(r.reason);
+    expect(profitAt(r.plan, 'LONG', 120)).toBeCloseTo(r.plan.profitAtTp!, 9);
+    expect(profitAt(r.plan, 'LONG', 110)).toBeLessThan(r.plan.profitAtTp!);
+    expect(profitAt(r.plan, 'LONG', 90)).toBeCloseTo(-r.plan.lossAtSl, 9); // SL에서는 손실 한도
+    const s = planSizing(base({ side: 'SHORT', entry: 100, sl: 110, tp: 80 }));
+    if (!s.ok) throw new Error(s.reason);
+    expect(profitAt(s.plan, 'SHORT', 80)).toBeCloseTo(s.plan.profitAtTp!, 9);
+    const one = planSizing(base({ settings: { ...base().settings, splits: 1 } }));
+    if (!one.ok) throw new Error(one.reason);
+    // 1분할: 1:2 자리(엔트리 + 2 × 손절폭)의 수익 = 2 × 손실 (수량 내림 오차 안)
+    expect(profitAt(one.plan, 'LONG', 120)).toBeCloseTo(2 * one.plan.lossAtSl, 6);
   });
 });

@@ -19,7 +19,7 @@ export interface AutoSL {
   score: number | null;
   atr: number | null;
   timeframe: Timeframe;
-  /** SL 여유 (%) */
+  /** 스탑 털림 방지 (%) */
   bufferPct: number;
   /** 이전 버전에 저장된 계산의 틱 단위 여유 (읽기만) */
   bufferTicks?: number;

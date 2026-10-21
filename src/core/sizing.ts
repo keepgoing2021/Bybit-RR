@@ -184,6 +184,15 @@ export function planSizing(i: SizingInput): SizingResult {
 }
 
 /** 직접 입력한 비중 '1:1:2', '20/30/50', '1, 2, 3', '1 2 3' → [..]. 0 이하·숫자 아님·MAX_SPLITS 초과는 null */
+/**
+ * 분할이 전부 체결된 뒤 가격 tp에서 청산했을 때의 수익 (USDT, 수수료 전).
+ * 손익비 칩 아래 금액: 칩이 TP를 옮길 자리마다 이 값을 보여 준다
+ */
+export function profitAt(plan: Pick<SizingPlan, 'tranches'>, side: Side, tp: number): number {
+  const sign = side === 'LONG' ? 1 : -1;
+  return plan.tranches.reduce((a, t) => a + t.qty * sign * (tp - t.price), 0);
+}
+
 export function parseWeights(text: string): number[] | null {
   const t = text.trim();
   if (t === '') return null;
