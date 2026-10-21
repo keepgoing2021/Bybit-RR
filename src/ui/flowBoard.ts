@@ -9,6 +9,9 @@ export const FLOW_MEDIA = '(min-width: 641px)';
 /** 상단 바 오른쪽 빈 자리에 둘 때 판 너비 (px): 이보다 자리가 좁으면 바 끝에 이어 붙인다 */
 export const FLOW_SIDE_MAX_W = 300;
 export const FLOW_SIDE_MIN_W = 256;
+/** 두 줄형(거래대금 한 줄 + 상승률 한 줄) 너비: 바가 한 줄이라 낮을 때 바를 늘리지 않으려고 */
+export const FLOW_WIDE_MAX_W = 460;
+export const FLOW_WIDE_MIN_W = 360;
 /** 판과 다른 칸 사이 간격, 판 위아래 여백 (px) */
 const FLOW_GAP = 14;
 const FLOW_INSET = 8;
@@ -18,7 +21,9 @@ const FLOW_INSET = 8;
  * 줄을 누르면 그 종목 차트로 바꾼다.
  *
  * 자리: 상단 바의 다른 칸 오른쪽에 판이 들어갈 빈 자리가 있으면 그 오른쪽 끝에 겹쳐 둔다(side).
- * 바가 한 줄이라 판보다 낮으면 바를 판 높이만큼만 늘린다. 자리가 없으면(좁은 창) 바의 마지막 줄 끝에 이어 붙인다(inline).
+ * 모양: 바 높이 안에 들어가면 두 칸형(stacked: 거래대금 | 상승률, 각 3줄), 바가 한 줄이라 낮으면
+ * 두 줄형(wide: 거래대금 3개가 한 줄, 상승률 3개가 한 줄)으로 바꿔 바를 늘리지 않는다 (늘리면 로고 줄이 내려앉음).
+ * 그래도 안 들어가면 바를 판 높이만큼 늘린다. 자리가 없으면(좁은 창) 두 줄형으로 바의 마지막 줄 끝에 이어 붙인다(inline).
  * 화면 폭 기준(미디어 쿼리)이 아니라 실제로 잰 자리로 정하므로 윈도우 배율·글꼴이 달라도 겹치거나 잘리지 않는다.
  */
 export class FlowBoard {
@@ -111,12 +116,16 @@ export class FlowBoard {
     const bar = this.root.parentElement;
     if (!bar) return;
     const on = !this.root.hidden && (this.media?.matches ?? false);
+    const root = this.root;
     if (!on) {
-      delete this.root.dataset.place;
-      this.root.style.width = '';
+      delete root.dataset.place;
+      delete root.dataset.layout;
+      root.style.width = '';
       bar.style.minHeight = '';
       return;
     }
+    // 판 없이 바가 원래 차지하는 높이를 재려고 늘린 높이를 먼저 푼다 (한 번에 다시 정하므로 화면이 흔들리지 않는다)
+    bar.style.minHeight = '';
     const b = bar.getBoundingClientRect();
     const cs = getComputedStyle(bar);
     const left = b.left + (parseFloat(cs.borderLeftWidth) || 0) + (parseFloat(cs.paddingLeft) || 0);
@@ -124,23 +133,32 @@ export class FlowBoard {
     // 다른 칸들이 차지한 가장 오른쪽 (판은 바 높이 전체에 걸치므로 모든 줄을 본다)
     let used = left;
     for (const c of bar.children) {
-      if (c === this.root) continue;
+      if (c === root) continue;
       const r = c.getBoundingClientRect();
       if (r.width > 0 && r.height > 0) used = Math.max(used, r.right);
     }
     const room = Math.floor(right - used - FLOW_GAP);
+    const set = (place: 'side' | 'inline', layout: 'stacked' | 'wide', width: number | null) => {
+      root.dataset.place = place;
+      root.dataset.layout = layout;
+      root.style.width = width === null ? '' : `${width}px`;
+    };
     if (room >= FLOW_SIDE_MIN_W) {
-      this.root.dataset.place = 'side';
-      this.root.style.width = `${Math.min(FLOW_SIDE_MAX_W, room)}px`;
-      // 판이 바 안에 다 들어가게: 바 높이 ≥ 판 + 위아래 여백 + 바 테두리
-      const need = this.root.offsetHeight + 2 * FLOW_INSET + (bar.offsetHeight - bar.clientHeight);
-      const minH = `${need}px`;
-      if (bar.style.minHeight !== minH) bar.style.minHeight = minH;
-    } else {
-      this.root.dataset.place = 'inline';
-      this.root.style.width = '';
-      bar.style.minHeight = '';
+      // 바 테두리 안쪽 높이 (판은 그 안에서 위아래 여백을 두고 가운데)
+      const inner = bar.clientHeight;
+      const fits = () => root.offsetHeight + 2 * FLOW_INSET <= inner;
+      set('side', 'stacked', Math.min(FLOW_SIDE_MAX_W, room));
+      if (fits()) return;
+      if (room >= FLOW_WIDE_MIN_W) {
+        set('side', 'wide', Math.min(FLOW_WIDE_MAX_W, room));
+        if (fits()) return;
+      }
+      // 어느 모양도 바 안에 안 들어가면 판 높이만큼 바를 늘린다 (줄은 위에 붙어 있어 로고는 그대로)
+      bar.style.minHeight = `${root.offsetHeight + 2 * FLOW_INSET + (bar.offsetHeight - bar.clientHeight)}px`;
+      return;
     }
+    // 좁은 창: 두 줄형으로 마지막 줄 끝에 (자리가 없으면 새 줄) — 세 줄짜리 두 칸형보다 덜 높다
+    set('inline', 'wide', Math.min(FLOW_WIDE_MAX_W, Math.floor(right - left)));
   }
 
   private render(): void {

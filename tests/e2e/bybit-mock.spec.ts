@@ -145,7 +145,9 @@ test.describe('5-minute board (top right)', () => {
       const bar = document.querySelector('.topbar')!.getBoundingClientRect();
       const board = document.querySelector('[data-testid=flow]') as HTMLElement;
       const f = board.getBoundingClientRect();
-      const lists = [...board.querySelectorAll('.flow-list')].map((l) => l.getBoundingClientRect());
+      const lists = [...board.querySelectorAll('.flow-list')];
+      // 순위 줄(버튼)이 판 안에 다 보이는지 (두 칸형은 세로 3줄, 두 줄형은 가로 3개)
+      const inside = (r: DOMRect) => r.width > 0 && r.left >= f.left - 0.5 && r.right <= f.right + 0.5 && r.top >= f.top - 0.5 && r.bottom <= f.bottom + 0.5;
       const overlap = [...document.querySelectorAll('.topbar > :not(.flow)')].some((el) => {
         const r = el.getBoundingClientRect();
         return r.width > 0 && r.left < f.right && f.left < r.right && r.top < f.bottom && f.top < r.bottom;
@@ -153,7 +155,9 @@ test.describe('5-minute board (top right)', () => {
       return {
         place: board.dataset.place,
         inBar: f.width > 0 && f.left >= bar.left && f.right <= bar.right + 0.5 && f.top >= bar.top && f.bottom <= bar.bottom + 0.5,
-        fullLists: lists.length === 2 && lists.every((r) => r.height >= 60 && r.bottom <= f.bottom + 0.5),
+        layout: board.dataset.layout,
+        fullLists: lists.length === 2 && lists.every((l) => [...l.querySelectorAll('button.flow-row, .flow-empty')].every((e) => inside(e.getBoundingClientRect()))),
+        volumeRows: lists[0]?.querySelectorAll('button.flow-row').length ?? 0,
         overlap,
         rightGap: bar.right - f.right,
         barH: bar.height,
@@ -188,19 +192,44 @@ test.describe('5-minute board (top right)', () => {
   });
 
   // 윈도우 배율 125~150%면 1920px 화면도 1536·1280px로 보인다. 1920px에서는 바가 한 줄이라 판보다 낮다
-  test('every desktop width: the board fits inside the top bar without overlapping or clipping, top right when there is room', async ({ page }) => {
-    for (const [width, place] of [[1920, 'side'], [1280, 'side'], [1100, 'inline'], [800, 'inline']] as const) {
+  /** 판을 잠깐 빼고 잰 상단 바 높이·로고 위치 (판 때문에 바가 늘거나 로고 줄이 내려앉았는지 비교) */
+  const withoutBoard = (page: Page) =>
+    page.evaluate(() => {
+      const bar = document.querySelector('.topbar') as HTMLElement;
+      const brand = document.querySelector('[data-testid=brand]')!;
+      const board = document.querySelector('[data-testid=flow]') as HTMLElement;
+      const now = { barH: Math.round(bar.getBoundingClientRect().height), brandTop: Math.round(brand.getBoundingClientRect().top) };
+      const min = bar.style.minHeight;
+      board.style.display = 'none';
+      bar.style.minHeight = '';
+      const bare = { barH: Math.round(bar.getBoundingClientRect().height), brandTop: Math.round(brand.getBoundingClientRect().top) };
+      board.style.display = '';
+      bar.style.minHeight = min;
+      return { now, bare };
+    });
+
+  test('every desktop width: the board fits inside the top bar without overlapping or clipping, top right when there is room, and never pushes the logo row down', async ({ page }) => {
+    // 1920: 바가 한 줄(74px)이라 두 줄형으로 바를 늘리지 않음, 1280: 두 칸형, 1100·800: 마지막 줄 끝에 두 줄형
+    for (const [width, place, layout] of [[1920, 'side', 'wide'], [1280, 'side', 'stacked'], [1100, 'inline', 'wide'], [800, 'inline', 'wide']] as const) {
       await page.setViewportSize({ width, height: 860 });
       if (width === 1920) await openBybit(page);
       await expect(page.getByTestId('flow-volume').locator('.flow-name')).toHaveCount(3, { timeout: 10_000 });
-      await expect.poll(() => boardLayout(page), { message: `${width}px` }).toMatchObject({ place, inBar: true, fullLists: true, overlap: false });
+      await expect.poll(() => boardLayout(page), { message: `${width}px` }).toMatchObject({ place, layout, inBar: true, fullLists: true, overlap: false, volumeRows: 3 });
       if (place === 'side') expect((await boardLayout(page)).rightGap, `${width}px`).toBeLessThanOrEqual(17);
+      // 로고 줄은 판이 없을 때와 같은 자리
+      const { now, bare } = await withoutBoard(page);
+      expect(now.brandTop, `${width}px`).toBe(bare.brandTop);
+      // 옆에 둘 때는 바 높이도 그대로 (1920 한 줄 바, 1280 두 줄 바)
+      if (place === 'side') expect(now.barH, `${width}px`).toBe(bare.barH);
     }
-    // 다시 넓히면 우측 위로 돌아가고, 바는 판이 들어갈 만큼만 (한 줄짜리 바도 판보다 조금만 높다)
+    // 1100: 둘째 줄 오른쪽 빈자리에 들어가 바가 늘지 않는다
+    await page.setViewportSize({ width: 1100, height: 860 });
+    await expect.poll(() => boardLayout(page)).toMatchObject({ place: 'inline', fullLists: true });
+    const at1100 = await withoutBoard(page);
+    expect(at1100.now.barH).toBe(at1100.bare.barH);
+    // 다시 넓히면 우측 위로 돌아온다
     await page.setViewportSize({ width: 1920, height: 860 });
-    await expect.poll(() => boardLayout(page)).toMatchObject({ place: 'side', inBar: true, fullLists: true, overlap: false });
-    const { barH, boardH } = await boardLayout(page);
-    expect(barH - boardH).toBeLessThanOrEqual(2 * 8 + 1 + 1);
+    await expect.poll(() => boardLayout(page)).toMatchObject({ place: 'side', layout: 'wide', inBar: true, fullLists: true, overlap: false });
   });
 
   test('phone: no board and no 1-minute subscriptions for all symbols', async ({ page, request }) => {

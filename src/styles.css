@@ -121,6 +121,8 @@ input,
   position: relative;
   display: flex;
   flex-wrap: wrap;
+  /* 바가 5분 순위판 때문에 높아져도 줄은 위에 붙어 있게 (기본값이면 줄이 늘어나 로고 줄이 내려앉는다) */
+  align-content: flex-start;
   align-items: flex-end;
   gap: 10px 14px;
   padding: 10px 16px;
@@ -2458,4 +2460,55 @@ button.flow-row.current .flow-name {
   color: var(--muted);
   padding: 2px 3px;
   line-height: 16px;
+}
+
+/*
+ * 두 줄형 (flowBoard.ts가 바가 한 줄이라 낮을 때·좁은 창에서 고른다): 거래대금 3개가 한 줄, 상승률 3개가 한 줄.
+ * 높이 약 54px — 한 줄짜리 상단 바(74px) 안에 들어가 바를 늘리지 않는다
+ */
+.flow[data-layout='wide']:not([hidden]) {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  padding: 4px 8px;
+}
+
+.flow[data-layout='wide'] .flow-col {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.flow[data-layout='wide'] .flow-col + .flow-col {
+  margin-top: 1px;
+  padding: 2px 0 0;
+  border-left: none;
+  border-top: 1px solid var(--line);
+}
+
+.flow[data-layout='wide'] .flow-col-head {
+  flex: 0 0 auto;
+  margin: 0;
+  width: 76px;
+}
+
+/* 출처(Bybit)는 마우스를 올리면 보이는 설명에 있어서 두 줄형에서는 뺀다 */
+.flow[data-layout='wide'] .flow-src {
+  display: none;
+}
+
+.flow[data-layout='wide'] .flow-list {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: row;
+  gap: 2px;
+}
+
+.flow[data-layout='wide'] .flow-list > li {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.flow[data-layout='wide'] button.flow-row {
+  gap: 4px;
 }
