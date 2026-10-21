@@ -5,12 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#000000" />
     <meta name="1rc-build" content="%BUILD_ID%" />
-    <script>
-      // 저장된 테마를 CSS보다 먼저 적용해 라이트 모드에서 검정 화면이 번쩍이지 않게 (키: rrtool.v1.theme)
-      try {
-        if (localStorage.getItem('rrtool.v1.theme') === 'light') document.documentElement.dataset.theme = 'light';
-      } catch (e) {}
-    </script>
+    <!-- 저장된 테마를 CSS보다 먼저 (보안 정책상 페이지 안 스크립트 대신 파일) -->
+    <script src="/theme-init.js"></script>
     <title>1RC — Crypto Risk Calculator</title>
     <meta name="description" content="LONG/SHORT 한 번에 손절·목표·포지션 크기·분할 주문표를 계산하는 Bybit USDT 무기한 리스크 계산기. risk 1. repeat." />
     <meta property="og:type" content="website" />

@@ -44,7 +44,14 @@ npm run check:bybit -- ETHUSDT # 다른 종목
 
 **손으로 배포 (예비):** `npx wrangler login`(처음 한 번) → `npm run deploy` (테스트 → 빌드 → 배포)
 
-설정은 `wrangler.jsonc`, 중계 코드는 `worker/index.js`입니다. 화면(`dist/`)은 그대로 내보내고 `/bybit-api/*`만 Worker가 Bybit로 넘깁니다 — 열린 중계가 되지 않게 **공개 시세 조회(`GET /v5/market/*`)만** 통과합니다.
+설정은 `wrangler.jsonc`, 중계 코드는 `worker/index.js`(규칙은 `worker/proxy.js`)입니다. 화면(`dist/`)은 그대로 내보내고 `/bybit-api/*`만 Worker가 Bybit로 넘깁니다 — 열린 중계가 되지 않게 **공개 시세 조회(`GET /v5/market/*`)만** 통과합니다.
+
+**보안 (2026-10-21 점검):**
+- 중계(`worker/proxy.js`)는 앱이 부르는 공개 시세 주소 3개(`/v5/market/instruments-info`·`tickers`·`kline`)만, GET만 통과합니다. 손님 머리글(쿠키·API 키)은 넘기지 않아 이 중계로 개인 API(주문·잔고)를 부를 수 없고, 다른 사이트가 방문자 브라우저로 부르면(Sec-Fetch-Site) 거절, 질의 512자 초과는 414, 응답은 늘 JSON + nosniff. 같은 질의는 Cloudflare 가장자리에 잠깐 담습니다(종목 정보 5분, 시세 2초, 오류는 안 담음).
+- 화면 응답 머리글은 `public/_headers`: CSP(스크립트는 이 사이트 파일만, 연결은 이 사이트·Bybit REST·웹소켓만, 글꼴은 Google Fonts만, 틀 감싸기 금지), nosniff, X-Frame-Options, Referrer-Policy, Permissions-Policy, HSTS. 그래서 index.html 안에 스크립트를 쓰면 안 됩니다(테마 미리 적용은 `public/theme-init.js`).
+- `worker/index.js`는 default 하나만 내보냅니다(이름 있는 내보내기가 있으면 Workers가 시작하지 못함 — 시험이 지킴).
+- wrangler는 정확한 버전으로 고정(devDependencies). 무료 플랜에서 중계 요청이 하루 10만 건을 넘으면 그날은 중계만 429가 되고 화면(정적 파일)은 계속 뜹니다.
+- 대시보드에서 할 일: 보안 → WAF → 속도 제한 규칙 1개(무료) — 경로가 `/bybit-api/`로 시작, IP당 10초에 30회 넘으면 10초 차단. GitHub·Cloudflare 계정 2단계 인증.
 
 배포 버전은 브라우저가 Bybit REST를 직접 부르고(사용자 IP), 막히면 `/bybit-api` 중계(`worker/index.js`)로 자동 재시도합니다. 실시간 시세(웹소켓)는 항상 브라우저가 직접 연결합니다. 시나리오는 기기·브라우저마다 따로 저장됩니다.
 

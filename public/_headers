@@ -1,0 +1,12 @@
+# Cloudflare Workers 정적 파일 응답 머리글 (2026-10-21 보안 점검). /bybit-api/* 중계 응답은 worker/index.js가 따로 붙인다.
+# CSP: 스크립트는 이 사이트 파일만(페이지 안 스크립트·eval 없음), 연결은 이 사이트 + Bybit REST·웹소켓만,
+# 글꼴은 Google Fonts만, 다른 사이트가 이 화면을 틀(iframe)로 감싸지 못하게.
+# style-src의 'unsafe-inline'은 요소의 style 속성(막대 길이 등) 때문 — 스크립트는 막혀 있어 위험이 낮다.
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://api.bybit.com wss://stream.bybit.com; manifest-src 'self'; worker-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()
+  Cross-Origin-Opener-Policy: same-origin
+  Strict-Transport-Security: max-age=31536000
