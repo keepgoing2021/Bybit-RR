@@ -528,6 +528,11 @@ async function setSetting(page: Page, key: string, value: string) {
   const details = page.locator('details.settings');
   if (!(await details.evaluate((d) => (d as HTMLDetailsElement).open))) await details.locator(':scope > summary').click();
   const control = page.getByTestId(`setting-${key}`);
+  // 고르기 칸(SL 방식·바닥 크기 등)은 selectOption, 숫자 칸은 입력
+  if (await control.evaluate((el) => el.tagName === 'SELECT')) {
+    await control.selectOption(value);
+    return;
+  }
   await control.fill(value);
   await control.press('Enter');
   await control.blur();
@@ -545,7 +550,7 @@ test('auto-suggestion settings: one-line summary, only the core items, the chose
   const summary = page.getByTestId('settings-summary');
   // 접혀 있어도 지금 적용 중인 값이 보인다
   await expect(summary).toBeVisible();
-  await expect(summary).toHaveText('스윙 2봉 · 1:1.5'); // 스탑 털림 방지는 패널 손절 줄 아래로 옮겨 요약에서 뺐다
+  await expect(summary).toHaveText('최근 저점·고점 · 1:1.5'); // 스탑 털림 방지는 패널 손절 줄 아래로 옮겨 요약에서 뺐다, 바닥 크기는 기본(보통)이면 생략
   await details.locator(':scope > summary').click();
   const visible = async () =>
     page.locator('details.settings .setting').evaluateAll((rows) =>
@@ -553,10 +558,14 @@ test('auto-suggestion settings: one-line summary, only the core items, the chose
     );
   expect(await visible()).toEqual(['slMode', 'swingBars', 'defaultRR']);
   await expect(page.getByTestId('setting-slBufferPct')).toHaveCount(0);
-  await expect(page.getByTestId('setting-mode-help')).toHaveText('최근 꺾인 저점 (숏은 고점)');
+  await expect(page.getByTestId('setting-mode-help')).toHaveText('내려왔다 다시 오른 바닥 (숏은 올라갔다 다시 내린 꼭대기)');
+  // SL 방식 이름은 트레이더 용어 대신 차트 모양으로, 바닥 크기는 숫자 대신 세 단계
+  await expect(page.getByTestId('setting-slMode').locator('option')).toHaveText(['최근 저점·고점', 'N봉 중 최저·최고가', '직전 봉 저가·고가', '가장 큰 캔들']);
+  await expect(page.getByTestId('setting-swingBars').locator('option')).toHaveText(['잔물결도 (SL 가깝게)', '보통', '큰 굽이만 (SL 멀게)']);
+  await expect(page.getByTestId('setting-swingBars')).toHaveValue('2');
   await page.getByTestId('setting-slMode').selectOption('lowestN');
   expect(await visible()).toEqual(['slMode', 'slLowestBars', 'defaultRR']);
-  await expect(summary).toHaveText('최근 20봉 최저 · 1:1.5');
+  await expect(summary).toHaveText('20봉 중 최저·최고가 · 1:1.5');
   await page.getByTestId('setting-slMode').selectOption('prevCandle');
   expect(await visible()).toEqual(['slMode', 'defaultRR']);
   await page.getByTestId('setting-slMode').selectOption('swing');
@@ -571,18 +580,20 @@ test('auto-suggestion settings: one-line summary, only the core items, the chose
   await expect.poll(() => scenario(page)).not.toBeNull();
   const s0 = (await scenario(page))!;
   expect(s0.auto.sl.status).toBe('ok');
-  // 스윙 좌우 봉 수를 바꾸면 같은 엔트리·시각으로 자동 SL을 다시 고른다
+  // 바닥 크기를 '큰 굽이만'(양옆 3봉)으로 바꾸면 같은 엔트리·시각으로 자동 SL을 다시 고른다
   await setSetting(page, 'swingBars', '3');
-  await expect(summary).toHaveText('스윙 3봉 · 1:1.5');
+  await expect(summary).toHaveText('최근 저점·고점 (큰 굽이만) · 1:1.5');
+  await expect.poll(async () => (await page.evaluate(() => JSON.parse(localStorage.getItem('rrtool.v1.settings')!).swingBars))).toBe(3);
   const s1 = (await scenario(page))!;
   expect([s1.id, s1.entry, s1.priceTime]).toEqual([s0.id, s0.entry, s0.priceTime]);
-  await expect(page.getByTestId('sl-rationale')).toContainText('스윙');
+  // 근거는 카드 대신 '자동' 표시에 마우스를 올리면
+  await expect(page.getByTestId('sl-source')).toHaveAttribute('title', /최근 (저점|고점)/);
   // 다른 설정을 바꿔도 패널의 스탑 털림 방지는 그대로 (설정 칸에 없다고 0으로 돌아가지 않는다)
   await page.getByTestId('sl-buffer').fill('0.1');
   await page.getByTestId('sl-buffer').press('Enter');
   await setSetting(page, 'defaultRR', '2');
   await expect(page.getByTestId('sl-buffer')).toHaveValue('0.1');
-  // 기본값으로 되돌리면 다시 원래 SL (여유 0 · 스윙 2봉)
+  // 기본값으로 되돌리면 다시 원래 SL (스탑 털림 방지 0 · 바닥 크기 보통)
   await page.locator('details.settings button.link').click();
   await expect.poll(async () => (await scenario(page))!.applied.sl).toBe(s0.applied.sl);
 });
@@ -614,7 +625,7 @@ test('스탑 털림 방지 (SL buffer) sits right under the SL row: chips 0/0.5/
   await chips.filter({ hasText: /^1%$/ }).click();
   await expect.poll(async () => (await scenario(page))!.applied.sl).toBe(slFor(1));
   expect(await lit()).toEqual(['1%']);
-  await expect(page.getByTestId('sl-rationale')).toContainText('스탑 털림 방지 1%');
+  await expect(page.getByTestId('sl-source')).toHaveAttribute('title', /스탑 털림 방지 1%/);
   const s1 = (await scenario(page))!;
   expect([s1.id, s1.entry, s1.priceTime, s1.source.sl]).toEqual([s0.id, s0.entry, s0.priceTime, 'auto']);
   // 직접 적기 (칩에 없는 값이면 칩은 꺼짐)
@@ -675,9 +686,12 @@ test('SL timeframe can be picked in every SL mode: default = chart, picking anot
     expect(s1.auto.sl.candle!.time % 3_600_000).toBe(0); // 1시간봉 캔들
     expect(s1.applied.sl).toBe(s1.auto.sl.price);
     expect(s1.auto.sl.price!).toBeLessThan(s1.entry);
-    await expect(page.getByTestId('sl-rationale')).toContainText('1시간봉 최근 확정 스윙 저점');
-    await expect.poll(() => page.evaluate(() => window.__rrDebug.getHighlight()?.label ?? null)).toBe('SL 기준 1시간봉 스윙 저점');
+    await expect(page.getByTestId('sl-source')).toHaveAttribute('title', /1시간봉 최근 저점/);
+    await expect(page.getByTestId('sl-rationale')).toBeHidden();
+    await expect.poll(() => page.evaluate(() => window.__rrDebug.getHighlight()?.label ?? null)).toBe('SL 기준 1시간봉 최근 저점');
   } else {
+    // 자동 SL을 못 정했으면 그 이유가 손절 줄 아래에 보인다
+    await expect(page.getByTestId('sl-rationale')).toBeVisible();
     await expect(page.getByTestId('sl-rationale')).toContainText('유효한 자동 SL 없음');
   }
 
@@ -726,8 +740,11 @@ test('no TP 기준: TP starts at RR 1:1.5 from the auto SL and can be changed in
   const ticks = (p: number) => Math.round(p * 10);
   expect(Math.round(s.applied.tp! * 10)).toBe(Math.round(ticks(s.entry) + 1.5 * (ticks(s.entry) - ticks(s.applied.sl!))));
   await expect(page.getByTestId('rr-input')).toHaveValue('1.5');
-  await expect(page.getByTestId('tp-rationale')).toContainText('기본 손익비 1:1.5');
-  await expect(page.locator('.card')).not.toContainText('스윙 고점');
+  await expect(page.getByTestId('tp-source')).toHaveAttribute('title', /기본 손익비 1:1\.5/);
+  // 자동 제안 근거 카드는 없다 (근거는 '자동' 표시의 title)
+  await expect(page.getByTestId('group-why')).toHaveCount(0);
+  await expect(page.locator('.card')).not.toContainText('자동 제안 근거');
+  await expect(page.locator('.card')).not.toContainText('최근 고점');
 
   await setSetting(page, 'defaultRR', '2');
   await page.getByTestId('btn-long').click();
@@ -749,8 +766,8 @@ test('LONG on a 4H chart uses the latest confirmed 4H swing low', async ({ page 
   expect(c.time + 3 * H4).toBeLessThanOrEqual(s.priceTime); // 오른쪽 2봉까지 마감돼야 확정
   expect(s.auto.sl.price).toBe(c.low);
   expect(s.auto.sl.price!).toBeLessThan(s.entry);
-  await expect(page.getByTestId('sl-rationale')).toContainText('4시간봉 최근 확정 스윙 저점');
-  await expect.poll(() => page.evaluate(() => window.__rrDebug.getHighlight()?.label ?? null)).toBe('SL 기준 스윙 저점');
+  await expect(page.getByTestId('sl-source')).toHaveAttribute('title', /4시간봉 최근 저점/);
+  await expect.poll(() => page.evaluate(() => window.__rrDebug.getHighlight()?.label ?? null)).toBe('SL 기준 최근 저점');
 });
 
 test('previous-candle SL mode: SL timeframe defaults one frame up and follows the chart timeframe', async ({ page }) => {
@@ -790,7 +807,7 @@ test('previous-candle SL mode uses the previous closed candle of the SL timefram
   expect(s.auto.sl.method).toBe('prevCandle');
   expect(s.auto.sl.timeframe).toBe('240');
   expect(s.auto.sl.candle!.time).toBe(Math.floor(s.priceTime / H4) * H4 - H4);
-  await expect(page.getByTestId('sl-rationale')).toContainText('4시간봉 직전 마감 봉');
+  await expect(page.getByTestId('sl-source')).toHaveAttribute('title', /4시간봉 직전 봉 (저가|고가)/);
   await expect.poll(() => page.evaluate(() => window.__rrDebug.getHighlight()?.label ?? null)).toBe('SL 기준 4시간봉');
 });
 
@@ -925,7 +942,7 @@ test('panel RR chips 1:1–1:3 move TP like the chart chips; the current RR is l
   await expect(chips.first()).toBeEnabled();
 });
 
-test('the panel is grouped into cards (prices / RR / split entry / risk / reasons), each with an icon head; SL in red and TP in green', async ({ page }) => {
+test('the panel is grouped into cards (prices / RR / split entry / risk), each with an icon head; SL in red and TP in green', async ({ page }) => {
   await open(page, { tf: '15' });
   await validLong(page);
   // 큰 금액(총 포지션 7만대)에서도 요약 숫자가 한 줄로 들어가는지 함께 본다
@@ -935,7 +952,7 @@ test('the panel is grouped into cards (prices / RR / split entry / risk / reason
   const look = () =>
     page.evaluate(() => {
       const panelBg = getComputedStyle(document.querySelector('.panel')!).backgroundColor;
-      const groups = ['group-levels', 'group-rr', 'sizing', 'group-risk', 'group-why'].map((id) => {
+      const groups = ['group-levels', 'group-rr', 'sizing', 'group-risk'].map((id) => {
         const el = document.querySelector(`[data-testid=${id}]`)!;
         const cs = getComputedStyle(el);
         // 카드 머리: 아이콘(svg) + 제목
@@ -1463,7 +1480,8 @@ test('RR and the profit roll in when they change, but not on every price tick or
   // 칩으로 RR을 바꾸면 세 곳 모두 다시 굴러간다 (roll-a ↔ roll-b).
   // 패널 칩을 쓴다: 차트 칩은 손절폭이 좁으면(가짜 시세가 그런 시각이면) 겹쳐서 숨겨진다
   await page.locator('[data-testid=rr-chip][data-rr="2.5"]').click();
-  await expect(page.getByTestId('rr-input')).toHaveValue('2.5');
+  // 손절폭이 몇 틱 안 되는 시각이면 호가 단위로 맞춘 TP의 손익비가 2.51처럼 보일 수 있다
+  await expect(page.getByTestId('rr-input')).toHaveValue(/^2\.5\d?$/);
   const r = await chartRect(page);
   const after = await cls();
   for (const k of ['rr', 'sum', 'profit'] as const) {

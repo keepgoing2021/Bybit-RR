@@ -57,10 +57,10 @@ describe('slRationale', () => {
 describe('slRationale — previous higher-timeframe candle', () => {
   it('names the timeframe, the candle and the edge', () => {
     const a = sl({ method: 'prevCandle', timeframe: '720', score: null, atr: null });
-    expect(slRationale(a, 'LONG', TZ)).toBe('SL: 12시간봉 직전 마감 봉 저가 (10월 18일 14:15 캔들)');
-    expect(slRationale({ ...a, bufferPct: 0.2 }, 'SHORT', TZ)).toBe('SL: 12시간봉 직전 마감 봉 고가 + 스탑 털림 방지 0.2% (10월 18일 14:15 캔들)');
+    expect(slRationale(a, 'LONG', TZ)).toBe('SL: 12시간봉 직전 봉 저가 (10월 18일 14:15 캔들)');
+    expect(slRationale({ ...a, bufferPct: 0.2 }, 'SHORT', TZ)).toBe('SL: 12시간봉 직전 봉 고가 + 스탑 털림 방지 0.2% (10월 18일 14:15 캔들)');
     // 이전 버전에 저장된 계산(틱 단위 여유)도 그대로 읽힌다
-    expect(slRationale({ ...a, bufferPct: undefined as unknown as number, bufferTicks: 2 }, 'SHORT', TZ)).toBe('SL: 12시간봉 직전 마감 봉 고가 + 버퍼 2틱 (10월 18일 14:15 캔들)');
+    expect(slRationale({ ...a, bufferPct: undefined as unknown as number, bufferTicks: 2 }, 'SHORT', TZ)).toBe('SL: 12시간봉 직전 봉 고가 + 버퍼 2틱 (10월 18일 14:15 캔들)');
   });
 });
 
@@ -68,22 +68,22 @@ describe('slRationale — last N bars', () => {
   const a = sl({ method: 'lowestN', timeframe: '240', score: null, atr: null, bars: 20 });
 
   it('names the timeframe, the bar count, the edge and the candle', () => {
-    expect(slRationale(a, 'LONG', TZ)).toBe('SL: 4시간봉 최근 20봉 최저가 (10월 18일 14:15 캔들)');
-    expect(slRationale({ ...a, bufferPct: 0.05 }, 'SHORT', TZ)).toBe('SL: 4시간봉 최근 20봉 최고가 + 스탑 털림 방지 0.05% (10월 18일 14:15 캔들)');
+    expect(slRationale(a, 'LONG', TZ)).toBe('SL: 4시간봉 20봉 중 최저가 (10월 18일 14:15 캔들)');
+    expect(slRationale({ ...a, bufferPct: 0.05 }, 'SHORT', TZ)).toBe('SL: 4시간봉 20봉 중 최고가 + 스탑 털림 방지 0.05% (10월 18일 14:15 캔들)');
   });
 
   it('says when the extreme is in the bar still in progress', () => {
     expect(slRationale({ ...a, candle: { ...a.candle!, confirmed: false } }, 'LONG', TZ)).toBe(
-      'SL: 4시간봉 최근 20봉 최저가 (진행 중인 10월 18일 14:15 캔들)',
+      'SL: 4시간봉 20봉 중 최저가 (진행 중인 10월 18일 14:15 캔들)',
     );
   });
 });
 
-describe('slRationale — swing', () => {
-  it('names the timeframe, the swing kind and the candle', () => {
+describe('slRationale — recent low/high (swing)', () => {
+  it('says 최근 저점·고점 (not the trader word "swing"), the timeframe and which candle edge', () => {
     const a = sl({ method: 'swing', timeframe: '240', score: null, atr: null });
-    expect(slRationale(a, 'LONG', TZ)).toBe('SL: 4시간봉 최근 확정 스윙 저점 (10월 18일 14:15 캔들)');
-    expect(slRationale({ ...a, bufferPct: 0.05 }, 'SHORT', TZ)).toBe('SL: 4시간봉 최근 확정 스윙 고점 + 스탑 털림 방지 0.05% (10월 18일 14:15 캔들)');
+    expect(slRationale(a, 'LONG', TZ)).toBe('SL: 4시간봉 최근 저점 (10월 18일 14:15 캔들 저가)');
+    expect(slRationale({ ...a, bufferPct: 0.05 }, 'SHORT', TZ)).toBe('SL: 4시간봉 최근 고점 + 스탑 털림 방지 0.05% (10월 18일 14:15 캔들 고가)');
   });
 });
 
@@ -108,10 +108,14 @@ describe('formatPct', () => {
 
 describe('settingsSummary (one line shown even when the settings box is closed)', () => {
   it('names the SL method with its one number and the RR (the SL margin lives under the SL row)', () => {
-    expect(settingsSummary(DEFAULT_SETTINGS)).toBe('스윙 2봉 · 1:1.5');
-    expect(settingsSummary({ ...DEFAULT_SETTINGS, slMode: 'lowestN', slLowestBars: 30, slBufferPct: 0.1, defaultRR: 2 })).toBe('최근 30봉 최저 · 1:2');
+    expect(settingsSummary(DEFAULT_SETTINGS)).toBe('최근 저점·고점 · 1:1.5');
+    // 바닥 크기는 기본(보통 = 양옆 2봉)이 아닐 때만
+    expect(settingsSummary({ ...DEFAULT_SETTINGS, swingBars: 1 })).toBe('최근 저점·고점 (잔물결도) · 1:1.5');
+    expect(settingsSummary({ ...DEFAULT_SETTINGS, swingBars: 3 })).toBe('최근 저점·고점 (큰 굽이만) · 1:1.5');
+    expect(settingsSummary({ ...DEFAULT_SETTINGS, swingBars: 5 })).toBe('최근 저점·고점 (양옆 5봉) · 1:1.5');
+    expect(settingsSummary({ ...DEFAULT_SETTINGS, slMode: 'lowestN', slLowestBars: 30, slBufferPct: 0.1, defaultRR: 2 })).toBe('30봉 중 최저·최고가 · 1:2');
     expect(settingsSummary({ ...DEFAULT_SETTINGS, slMode: 'spike' })).toBe('큰 캔들 50봉 · 1:1.5');
-    expect(settingsSummary({ ...DEFAULT_SETTINGS, slMode: 'prevCandle' })).toBe('직전 봉 · 1:1.5');
+    expect(settingsSummary({ ...DEFAULT_SETTINGS, slMode: 'prevCandle' })).toBe('직전 봉 저가·고가 · 1:1.5');
   });
 });
 

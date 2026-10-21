@@ -104,7 +104,7 @@ function analyzeSwingSL(i: AnalyzeInput): AutoSL {
   const closed = ltf.candles.filter((c) => isClosedBy(c, ltf.timeframe, cutoff));
   const need = settings.swingBars * 2 + 1;
   if (closed.length < need) {
-    return { ...base, reason: `유효한 자동 SL 없음: 데이터 부족 (확정 캔들 ${closed.length}개, 스윙 판별에 최소 ${need}개 필요)` };
+    return { ...base, reason: `유효한 자동 SL 없음: 데이터 부족 (확정 캔들 ${closed.length}개, 저점·고점 판별에 최소 ${need}개 필요)` };
   }
   const kind = side === 'LONG' ? 'low' : 'high';
   const beyond = (p: number) => (side === 'LONG' ? p < entry : p > entry);
@@ -114,7 +114,7 @@ function analyzeSwingSL(i: AnalyzeInput): AutoSL {
     .find((s) => beyond(s.price));
   if (!swing) {
     const where = side === 'LONG' ? '아래' : '위';
-    return { ...base, reason: `유효한 자동 SL 없음: 엔트리 ${where}에 확정 스윙 ${kind === 'low' ? '저점' : '고점'} 없음` };
+    return { ...base, reason: `유효한 자동 SL 없음: 엔트리 ${where}에 최근 ${kind === 'low' ? '저점' : '고점'} 없음` };
   }
   return finishSL(i, base, closed[swing.index], {});
 }

@@ -42,7 +42,7 @@ import type { SocketState } from '../data/bybit/socket';
 import { CandleStore } from '../data/candleStore';
 import type { FeedListener, MarketDataProvider } from '../data/provider';
 import { h, setText, show } from './dom';
-import { compactUsdt, formatClock, formatPct, formatTime, settingsSummary, SL_MODE_HELP, SL_MODE_NAMES, slRationale, tfName, tpRationale } from './format';
+import { compactUsdt, formatClock, formatPct, formatTime, settingsSummary, SL_MODE_HELP, SL_MODE_NAMES, slRationale, SWING_LEVELS, swingLevelName, tfName, tpRationale } from './format';
 import { HUNT_FAR_PCT, HUNT_NEAR_PCT, huntTip, huntZone, inHuntZone } from '../core/huntZone';
 import { FlowBoard } from './flowBoard';
 import { icon, type IconName } from './icons';
@@ -68,7 +68,8 @@ const DEFAULT_UI: UiSelection = { provider: 'bybit', symbol: 'BTCUSDT', timefram
 type SettingField = { key: keyof AnalysisSettings; label: string; hint?: string; options?: [string, string][]; step?: string; modes?: SlMode[] };
 const CORE_SETTINGS: SettingField[] = [
   { key: 'slMode', label: 'SL 방식', options: SL_MODES.map((m) => [m, SL_MODE_NAMES[m]]) },
-  { key: 'swingBars', label: '좌우 봉 수', modes: ['swing'] },
+  // 저점으로 칠 바닥의 크기: 양옆 몇 봉보다 낮아야 하는지 (숫자 대신 세 단계)
+  { key: 'swingBars', label: '바닥 크기', modes: ['swing'], options: SWING_LEVELS.map(([n, label]) => [String(n), label]) },
   { key: 'slLowestBars', label: '봉 수', modes: ['lowestN'] },
   { key: 'lookback', label: '찾을 봉 수', modes: ['spike'] },
   // 스탑 털림 방지(%)는 자주 바꾸는 핵심 값이라 여기 대신 패널 손절 줄 바로 아래에 둔다
@@ -87,15 +88,15 @@ const ADVANCED_SETTINGS: SettingField[] = [
 const ANALYSIS_KEYS: (keyof AnalysisSettings)[] = ['slMode', 'swingBars', 'slLowestBars', 'lookback', 'atrPeriod', 'atrMethod', 'slBufferPct', 'defaultRR'];
 
 /** 차트의 노란 띠(SL을 정한 캔들) 이름표 */
-/** 차트의 SL 캔들 띠 이름. SL 기준 시간봉이 차트와 다르면 시간봉도 붙인다 (예: 'SL 기준 1시간봉 스윙 저점') */
+/** 차트의 SL 캔들 띠 이름. SL 기준 시간봉이 차트와 다르면 시간봉도 붙인다 (예: 'SL 기준 1시간봉 최근 저점') */
 function slBandLabel(a: AutoSL, side: Side, chartTf: Timeframe): string {
   const low = side === 'LONG';
   const tf = a.timeframe !== chartTf ? `${tfName(a.timeframe)} ` : '';
   switch (a.method) {
     case 'swing':
-      return `SL 기준 ${tf}스윙 ${low ? '저점' : '고점'}`;
+      return `SL 기준 ${tf}최근 ${low ? '저점' : '고점'}`;
     case 'lowestN':
-      return `SL 기준 ${tf}최근 ${a.bars ?? '?'}봉 ${low ? '최저' : '최고'}`;
+      return `SL 기준 ${tf}${a.bars ?? '?'}봉 중 ${low ? '최저가' : '최고가'}`;
     case 'prevCandle':
       return `SL 기준 ${tfName(a.timeframe)}`;
     default:
@@ -875,8 +876,9 @@ export class App {
       }
     });
     const tp = priceRow('tp', '목표');
-    const slWhy = h('p', { class: 'rationale', 'data-testid': 'sl-rationale' });
-    const tpWhy = h('p', { class: 'rationale', 'data-testid': 'tp-rationale' });
+    // 자동 제안 근거는 카드로 늘 보이지 않고 '자동' 표시에 마우스를 올리면 (title).
+    // 자동 SL을 못 정했을 때만 그 이유를 손절 줄 아래에 노랗게 보여 준다
+    const slWhy = h('p', { class: 'sl-warning', 'data-testid': 'sl-rationale', hidden: true });
     const restore = h('button', { type: 'button', 'data-testid': 'btn-restore' }, '자동값으로 되돌리기');
     // 손익비 빠른 선택: 누르면 TP가 그 손익비 자리로 (차트의 1:x 칩과 같은 동작)
     // 칩 아래 금액 = 분할 전부 체결 후 그 손익비 자리(TP)에서의 수익. 운영자산을 넣었을 때만
@@ -902,7 +904,7 @@ export class App {
         'div',
         { class: 'panel-card levels', 'data-testid': 'group-levels' },
         cardHead('levels', '진입 / 손절 / 목표'),
-        h('div', { class: 'prices' }, entry.row, sl.row, bufferRow, tp.row),
+        h('div', { class: 'prices' }, entry.row, sl.row, bufferRow, slWhy, tp.row),
         times,
       ),
       h(
@@ -917,7 +919,6 @@ export class App {
       reasons,
       sizing.box,
       sizing.riskCard,
-      h('div', { class: 'panel-card why', 'data-testid': 'group-why' }, cardHead('info', '자동 제안 근거'), slWhy, tpWhy),
       h('div', { class: 'actions' }, restore),
       h('p', { class: 'note' }, '가격 기준 계산입니다. 수수료·슬리피지·펀딩비는 반영하지 않았습니다. 주문은 Bybit에서 직접 넣습니다.'),
     );
@@ -1053,7 +1054,7 @@ export class App {
     return {
       picker, tf, sltf, long, short, status, statusReason, themeBtn,
       loadError, chart, empty, card, sideChip, title, entry, times, rr, rrInput, rrLabel, rrChips, rrTp, rrProfitNote, reasons, bufferInput, bufferChips, bufferNote,
-      sl, tp, slWhy, tpWhy, sizing, restore, del, settingsInputs, settingRows, modeHelp, settingsSummaryEl, toast, undo, tools, tour, flow,
+      sl, tp, slWhy, sizing, restore, del, settingsInputs, settingRows, modeHelp, settingsSummaryEl, toast, undo, tools, tour, flow,
     };
   }
 
@@ -1550,7 +1551,8 @@ export class App {
     // 설정 칸에 없는 값(스탑 털림 방지 등)은 지금 값을 그대로 둔다
     const raw: Record<string, unknown> = { ...this.settings };
     for (const [key, control] of this.el.settingsInputs) {
-      raw[key] = control instanceof HTMLSelectElement ? control.value : Number(control.value);
+      // 글자 값 고르기(SL 방식·평균 내는 법)만 글자 그대로, 나머지(바닥 크기 고르기 포함)는 숫자
+      raw[key] = key === 'slMode' || key === 'atrMethod' ? control.value : Number(control.value);
     }
     this.settings = sanitizeSettings(raw);
     saveSettings(this.d.storage, this.settings);
@@ -1595,7 +1597,7 @@ export class App {
       ...TIMEFRAMES.map((t) => h('option', { value: t }, t === this.ui.timeframe ? chartMark(t) : tfName(t))),
     );
     e.sltf.value = this.currentSlTf();
-    e.sltf.title = 'SL을 계산할 시간봉 (예: 15분봉 차트에서 1시간봉 스윙 저점). 바꾸면 지금 계산의 자동 SL도 다시 계산';
+    e.sltf.title = 'SL을 계산할 시간봉 (예: 15분봉 차트에서 1시간봉 최근 저점). 바꾸면 지금 계산의 자동 SL도 다시 계산';
     this.renderSizingControls(false);
     show(e.loadError, this.loadError !== null);
     setText(e.loadError, this.loadError ?? '');
@@ -1603,6 +1605,15 @@ export class App {
 
   private renderSettings(): void {
     const e = this.el;
+    // 바닥 크기: 저장된 값이 세 단계 밖이면(예: 5) 그 값을 고를 수 있게 한 칸 더 (안 보이면 다른 설정을 바꿀 때 1로 바뀌어 버림)
+    const swingSel = e.settingsInputs.get('swingBars');
+    if (swingSel instanceof HTMLSelectElement) {
+      const want = String(this.settings.swingBars);
+      swingSel.querySelectorAll<HTMLOptionElement>('option[data-extra]').forEach((o) => o.value !== want && o.remove());
+      if (![...swingSel.options].some((o) => o.value === want)) {
+        swingSel.append(h('option', { value: want, 'data-extra': '' }, swingLevelName(this.settings.swingBars)));
+      }
+    }
     for (const [key, control] of e.settingsInputs) control.value = String(this.settings[key]);
     // 고른 SL 방식에 해당하는 숫자 칸만 보이기
     for (const { row, modes } of e.settingRows.values()) show(row, !modes || modes.includes(this.settings.slMode));
@@ -1717,9 +1728,14 @@ export class App {
       setText(rows[which].badge, s.source[which] === 'manual' ? '수동' : '자동');
       rows[which].badge.dataset.source = s.source[which];
     }
-    setText(e.slWhy, slRationale(s.auto.sl, s.side));
+    // 근거는 '자동'·'수동' 표시의 title로 (마우스를 올리면). 자동 SL을 못 정했으면 손절 줄 아래에 이유
+    const slWhy = slRationale(s.auto.sl, s.side);
+    e.sl.badge.title = slWhy;
+    e.tp.badge.title = tpRationale(s.auto.tp, s.side);
+    const slFailed = s.auto.sl.status !== 'ok' && s.source.sl !== 'manual';
+    setText(e.slWhy, slFailed ? `${slWhy}. SL을 직접 넣거나 자동 제안 설정의 SL 방식·SL 기준을 바꿔 보세요` : '');
+    show(e.slWhy, slFailed);
     this.renderSlBuffer();
-    setText(e.tpWhy, tpRationale(s.auto.tp, s.side));
     const plan = this.renderSizing(s);
     this.rollChanged(s.id, rrNow);
 

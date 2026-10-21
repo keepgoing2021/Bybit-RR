@@ -36,13 +36,13 @@ test('bybit provider loads symbols, candles and live trades through the app', as
   expect(s.symbol).toBe('BTCUSDT');
   expect(s.priceSource).toBe('trade');
   expect(Number((Math.round(s.entry / 0.1) * 0.1).toFixed(1))).toBe(s.entry);
-  // SL(기본): 15분봉 차트의 최근 확정 스윙 저점 — 오른쪽 2봉까지 엔트리 전에 마감된 것
+  // SL(기본): 15분봉 차트의 최근 저점(확정 스윙) — 오른쪽 2봉까지 엔트리 전에 마감된 것
   const M15 = 15 * 60_000;
   expect(s.auto.sl.method).toBe('swing');
   expect(s.auto.sl.timeframe).toBe('15');
   expect(s.auto.sl.candle!.time + 3 * M15).toBeLessThanOrEqual(s.priceTime);
   expect(s.auto.sl.candidatePrice).toBe(s.auto.sl.candle!.low);
-  await expect(page.getByTestId('sl-rationale')).toContainText('15분봉 최근 확정 스윙 저점');
+  await expect(page.getByTestId('sl-source')).toHaveAttribute('title', /15분봉 최근 저점/);
   // TP(기본): 자동 SL에서 손익비 1:1.5 자리
   expect(s.auto.tp.rr).toBe(1.5);
   // 틱(0.1) 정수로 비교: 손절폭이 홀수 틱이면 1.5배가 반 틱이고, 엔트리에서 먼 쪽으로 반올림한다

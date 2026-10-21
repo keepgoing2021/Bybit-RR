@@ -722,14 +722,16 @@ button.link {
   font-size: 11.5px;
 }
 
-.why {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.why .pc-icon {
-  color: var(--muted);
+/* 자동 SL을 못 정했을 때만: 손절 줄 바로 아래 노란 안내 */
+.sl-warning {
+  margin: -4px 0 0;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--warning) 40%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--warning) 9%, transparent);
+  color: var(--warning);
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 /* 주문표 숫자: 누르면 복사 */
@@ -1019,12 +1021,6 @@ button.rr-chip:disabled {
   color: var(--entry);
 }
 
-.rationale {
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--muted);
-}
 
 .actions {
   display: flex;

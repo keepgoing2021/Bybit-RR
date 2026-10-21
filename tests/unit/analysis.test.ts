@@ -340,7 +340,7 @@ describe('analyzeAutoLevels — SL from the latest confirmed swing on the chart 
     const r = analyzeAutoLevels(swingInput({ entry: 75 }));
     expect(r.sl.status).toBe('unavailable');
     expect(r.sl.price).toBeNull();
-    expect(r.sl.reason).toContain('엔트리 아래에 확정 스윙 저점 없음');
+    expect(r.sl.reason).toContain('엔트리 아래에 최근 저점 없음');
   });
 
   it('too few closed bars gives unavailable', () => {
