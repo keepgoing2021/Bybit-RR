@@ -1,4 +1,5 @@
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap');
+/* 글꼴: Pretendard (사이트에서 직접 내보냄, 화면에 쓰인 글자 묶음만 받는 dynamic subset). 숫자는 같은 글꼴의 고정폭 숫자 + 사선 0 */
+@import 'pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css';
 
 :root {
   /* 다크 (기본): 검정 바탕. 값은 src/chart/theme.ts의 DARK와 같게 */
@@ -30,9 +31,9 @@
   --overlay: rgba(0, 0, 0, 0.92);
   --error-text: #ffc9ce;
   --danger-text: #ffb3ba;
-  --font: 'IBM Plex Sans KR', system-ui, -apple-system, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
-  /* 패널 숫자 (가격·금액·손익비): 자릿수가 세로로 맞는 고정폭 */
-  --mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --font: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, system-ui, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+  /* 패널 숫자 (가격·금액·손익비): 따로 고정폭 글꼴을 쓰지 않고 같은 글꼴의 고정폭 숫자(tnum) + 사선 0 (토스·바이낸스 방식) */
+  --mono: var(--font);
   color-scheme: dark;
 }
 
@@ -514,6 +515,7 @@ button.link {
   align-items: center;
   gap: 7px;
   font-family: var(--mono);
+  font-feature-settings: 'tnum', 'zero';
   font-weight: 700;
   font-size: 13px;
   letter-spacing: 0.02em;
@@ -607,6 +609,7 @@ button.link {
   border-radius: 999px;
   border: 1px solid;
   font-family: var(--mono);
+  font-feature-settings: 'tnum', 'zero';
   font-size: 11.5px;
   font-weight: 600;
   line-height: 1.35;
@@ -697,6 +700,7 @@ button.link {
   border-radius: 10px;
   background: var(--well);
   font-family: var(--mono);
+  font-feature-settings: 'tnum', 'zero';
   font-size: 15px;
   font-weight: 500;
   text-align: right;
@@ -709,6 +713,7 @@ button.link {
 .price-row .pct {
   text-align: right;
   font-family: var(--mono);
+  font-feature-settings: 'tnum', 'zero';
   font-size: 12.5px;
 }
 
@@ -869,6 +874,7 @@ button.rr-chip {
   background: var(--well);
   color: var(--text);
   font-family: var(--mono);
+  font-feature-settings: 'tnum', 'zero';
   transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
 }
 
@@ -920,6 +926,7 @@ button.rr-chip:disabled {
 
 .rr {
   font-family: var(--mono);
+  font-feature-settings: 'tnum', 'zero';
   font-size: 24px;
   font-weight: 700;
   line-height: 1.15;
@@ -1011,6 +1018,7 @@ button.rr-chip:disabled {
   margin: 0;
   text-align: right;
   font-family: var(--mono);
+  font-feature-settings: 'tnum', 'zero';
   font-size: 13px;
 }
 
@@ -1197,6 +1205,7 @@ button.danger {
 
 .avg-box dd.avg {
   font-family: var(--mono);
+  font-feature-settings: 'tnum', 'zero';
   font-size: 18px;
 }
 
@@ -1238,6 +1247,7 @@ button.danger {
 
 .risk-amt {
   font-family: var(--mono);
+  font-feature-settings: 'tnum', 'zero';
   font-size: 18px;
   font-weight: 700;
   color: var(--loss);
@@ -1321,8 +1331,8 @@ button.danger {
 
 .sizing-table td.num {
   font-family: var(--mono);
+  font-feature-settings: 'tnum', 'zero';
   font-size: 11.5px;
-  letter-spacing: -0.02em;
 }
 
 .sizing-table td:first-child {
@@ -1345,6 +1355,7 @@ button.danger {
   padding: 0 5px;
   border-radius: 999px;
   font-family: var(--mono);
+  font-feature-settings: 'tnum', 'zero';
   font-size: 10.5px;
   font-weight: 600;
   color: var(--entry);
@@ -2256,6 +2267,7 @@ button.fee-tier.active {
   border-radius: 8px;
   background: var(--card);
   font-family: var(--mono);
+  font-feature-settings: 'tnum', 'zero';
   font-size: 13.5px;
   text-align: right;
 }
@@ -2289,6 +2301,7 @@ button.buffer-chip {
   background: var(--card);
   color: var(--muted);
   font-family: var(--mono);
+  font-feature-settings: 'tnum', 'zero';
   font-size: 12px;
   font-weight: 600;
 }

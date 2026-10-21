@@ -1,7 +1,7 @@
 /** 화면 테마: 다크(기본, 검정 바탕) / 라이트 */
 export type ThemeMode = 'dark' | 'light';
 
-const FONT = "'IBM Plex Sans KR', system-ui, -apple-system, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif";
+const FONT = "'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, system-ui, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif";
 
 /** 차트 색. CSS 변수(src/styles.css의 :root / [data-theme='light'])와 같은 값을 쓴다 */
 export interface Palette {

@@ -15,15 +15,17 @@ describe('site security headers (public/_headers)', () => {
     for (const h of ['X-Content-Type-Options: nosniff', 'X-Frame-Options: DENY', 'Strict-Transport-Security: max-age=']) expect(headers).toContain(h);
   });
 
-  it('allows exactly the outside hosts the app talks to (Bybit REST + websocket, Google Fonts)', () => {
+  it('allows exactly the outside hosts the app talks to (Bybit REST + websocket); fonts come from this site only', () => {
     const config = readFileSync('src/config.ts', 'utf8');
     const rest = config.match(/'(https:\/\/api\.bybit\.com)'/)![1];
     const wsHost = new URL(config.match(/'(wss:\/\/[^']+)'/)![1].replace('wss:', 'https:')).host;
     expect(directive('connect-src').split(' ').slice(1).sort()).toEqual(["'self'", rest, `wss://${wsHost}`].sort());
+    // 글꼴(Pretendard)은 npm 패키지를 빌드에 넣어 이 사이트에서 내보낸다 — 바깥 글꼴 서버 없음
     const css = readFileSync('src/styles.css', 'utf8');
-    expect(css).toContain('https://fonts.googleapis.com/');
-    expect(directive('style-src')).toContain('https://fonts.googleapis.com');
-    expect(directive('font-src')).toContain('https://fonts.gstatic.com');
+    expect(css).toContain("@import 'pretendard/");
+    expect(css).not.toMatch(/https?:\/\//);
+    expect(directive('style-src')).toBe("style-src 'self' 'unsafe-inline'");
+    expect(directive('font-src')).toBe("font-src 'self'");
   });
 
   it('index.html has no inline script (the policy would block it): the theme runs from /theme-init.js before the CSS', () => {
