@@ -30,7 +30,7 @@ const base = (over: Partial<SizingInput> = {}): SizingInput => ({
   sl: 90,
   tp: 120,
   tickSize: 0.1,
-  settings: { capital: 10_000, riskPct: 1, splits: 3, weightMode: 'linear', customWeights: [], showAvgLine: true },
+  settings: { capital: 10_000, riskPct: 1, sizeMode: 'risk', positionValue: null, splits: 3, weightMode: 'linear', customWeights: [], showAvgLine: true },
   ...over,
 });
 const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
@@ -154,7 +154,7 @@ describe('planSizing — order size rules', () => {
 describe('planSizing — when it cannot plan', () => {
   it('needs the capital', () => {
     const r = planSizing(base({ settings: { ...base().settings, capital: null } }));
-    expect(r).toEqual({ ok: false, reason: expect.stringContaining('운영자산') });
+    expect(r).toEqual({ ok: false, reason: expect.stringContaining('총 자산') });
   });
 
   it('needs an SL on the losing side of the entry', () => {
@@ -179,13 +179,13 @@ describe('planSizing — when it cannot plan', () => {
 
 describe('sanitizeSizing', () => {
   it('defaults: no capital yet, 1% risk, 3 splits, linear', () => {
-    expect(DEFAULT_SIZING).toEqual({ capital: null, riskPct: 1, splits: 3, weightMode: 'linear', customWeights: [], showAvgLine: true });
+    expect(DEFAULT_SIZING).toEqual({ capital: null, riskPct: 1, sizeMode: 'value', positionValue: null, splits: 3, weightMode: 'linear', customWeights: [], showAvgLine: true });
     expect(sanitizeSizing(null)).toEqual(DEFAULT_SIZING);
   });
 
   it('keeps valid values and clamps risk %', () => {
     expect(sanitizeSizing({ capital: 2500, riskPct: 0.5, splits: 5, weightMode: 'equalRisk', showAvgLine: false })).toEqual({
-      capital: 2500, riskPct: 0.5, splits: 5, weightMode: 'equalRisk', customWeights: [], showAvgLine: false,
+      capital: 2500, riskPct: 0.5, sizeMode: 'value', positionValue: null, splits: 5, weightMode: 'equalRisk', customWeights: [], showAvgLine: false,
     });
     expect(sanitizeSizing({ riskPct: 50 }).riskPct).toBe(10);
     expect(sanitizeSizing({ riskPct: 0 }).riskPct).toBe(0.1);

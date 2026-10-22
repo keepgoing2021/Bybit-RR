@@ -1435,8 +1435,9 @@ button.danger {
   width: 120px;
 }
 
-.sizing-bar [data-testid='sizing-risk'] {
-  width: 70px;
+.sizing-bar [data-testid='sizing-risk'],
+.sizing-bar [data-testid='sizing-value'] {
+  width: 96px;
 }
 
 /* 분할 수: 숫자 칸 + '분할'. .field > span(라벨 글씨) 스타일을 받지 않게 되돌린다 */
@@ -1759,6 +1760,7 @@ button.weights-preset.active {
   .sizing-bar input,
   .sizing-bar [data-testid='sizing-capital'],
   .sizing-bar [data-testid='sizing-risk'],
+  .sizing-bar [data-testid='sizing-value'],
   .sizing-bar [data-testid='sizing-weights'] {
     width: 100%;
     min-width: 0;

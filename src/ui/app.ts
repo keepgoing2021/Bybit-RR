@@ -33,6 +33,7 @@ import {
   resizeSplits,
   sanitizeSizing,
   weightsText,
+  type SizeMode,
   type SizingPlan,
   type SizingSettings,
 } from '../core/sizing';
@@ -124,13 +125,13 @@ function cardHead(ic: IconName, text: string, ...extra: (HTMLElement | null)[]):
   return h('div', { class: 'pc-head' }, icon(ic), h('h3', { class: 'pc-title' }, text), ...extra);
 }
 
-/** 리스크 칸의 큰 금액(+ 작은 USDT) + 아래 설명 줄. 9자 이상이면 글자를 줄여 칸 안에 (바뀔 때만 다시 씀) */
-function bigAmount(dd: HTMLElement, main: string, sub: string): void {
+/** 리스크 칸의 큰 금액(+ 작은 USDT) + 아래 설명 줄들. 9자 이상이면 글자를 줄여 칸 안에 (바뀔 때만 다시 씀) */
+function bigAmount(dd: HTMLElement, main: string, subs: string[]): void {
   const unit = main === '—' ? '' : 'USDT';
-  if (dd.textContent === main + unit + sub) return;
+  if (dd.textContent === main + unit + subs.join('')) return;
   dd.replaceChildren(
     h('span', { class: `risk-amt${main.length >= 9 ? ' long' : ''}` }, main, unit ? h('span', { class: 'risk-unit' }, unit) : null),
-    h('span', { class: 'risk-sub' }, sub),
+    ...subs.map((t) => h('span', { class: 'risk-sub' }, t)),
   );
 }
 
@@ -286,8 +287,8 @@ export class App {
       {
         // 폰에서는 주문 설정이 접혀 있어 그 버튼을 비춘다
         target: () => (e.sizing.bar.getClientRects().length ? e.sizing.bar : e.sizing.fold),
-        title: '운영자산과 손실 한도',
-        body: '운영자산과 손절 시 잃어도 되는 %를 적으면 분할 주문표가 계산됩니다. 분할 수·비중도 여기서 정합니다.',
+        title: '총 자산과 투입금',
+        body: '총 자산과 이번에 넣을 돈(투입금, 또는 손절 시 잃을 자산 %)을 적으면 분할 주문표가 계산됩니다. 분할 수·비중도 여기서 정합니다.',
       },
       {
         target: () => e.chart.closest('.chart-wrap'),
@@ -1246,12 +1247,26 @@ export class App {
     setText(t.hint, st.tool ? `${placingHint(st.tool, st.placed)} · Esc 취소` : '');
   }
 
-  /** 분할 진입: 입력(운영자산·손실 한도·분할 수·비중)은 상단 바, 분할별 금액표는 패널 */
+  /** 분할 진입: 입력(총 자산·투입금 또는 손실 %·분할 수·비중)은 상단 바, 분할별 금액표는 패널 */
   private buildSizing(field: (label: string, control: HTMLElement) => HTMLElement) {
     const capital = h('input', {
-      'data-testid': 'sizing-capital', inputmode: 'decimal', autocomplete: 'off', placeholder: '예: 10000', 'aria-label': '운영자산 (USDT)',
+      'data-testid': 'sizing-capital', inputmode: 'decimal', autocomplete: 'off', placeholder: '예: 10000', 'aria-label': '총 자산 (USDT)',
+      title: '계좌 전체 자산(에쿼티). 손실·수익이 총 자산의 몇 %인지 계산하는 기준',
     });
-    const risk = h('input', { 'data-testid': 'sizing-risk', type: 'number', step: '0.1', min: '0.1', max: '10', 'aria-label': '손절 시 손실 (%)' });
+    const risk = h('input', { 'data-testid': 'sizing-risk', type: 'number', step: '0.1', min: '0.1', max: '10', 'aria-label': '손절 시 손실 (총 자산 %)' });
+    // 둘째 칸: Bybit 주문창처럼 같은 칸에서 방식만 바꾼다 — 투입금(넣을 돈 → 손실 계산) / 손실 %(잃을 % → 넣을 돈 계산)
+    const value = h('input', {
+      'data-testid': 'sizing-value', inputmode: 'decimal', autocomplete: 'off', 'aria-label': '투입금 (USDT)',
+      title: '이번에 넣을 돈 = 모든 분할의 주문 금액 합 (Bybit 주문창의 주문 금액(Value)과 같은 뜻, 레버리지 곱하기 전). 비우면 총 자산 전부',
+    });
+    const modeBtn = (m: SizeMode, label: string, title: string) => {
+      const b = h('button', { type: 'button', class: 'weights-preset', 'data-testid': `sizing-mode-${m}`, 'aria-pressed': 'false', title }, label);
+      b.addEventListener('click', () => apply(m === 'value' ? 'mode-value' : 'mode-risk'));
+      return b;
+    };
+    const byValue = modeBtn('value', '투입금', '넣을 돈(USDT)을 정하면 손절 시 실제 손실을 계산');
+    const byRisk = modeBtn('risk', '손실 %', '손절 시 총 자산의 몇 %를 잃을지 정하면 넣을 돈을 거꾸로 계산');
+    const sizeField = h('div', { class: 'field size-field' }, h('span', { class: 'weights-head' }, byValue, byRisk), value, risk);
     // 분할 수·비중은 직접 적는다. 예시 두 가지(점점 크게·손실 균등)는 비중 이름 옆 작은 버튼
     const splits = h('input', {
       // 그냥 적는 칸: 위아래 화살표·브라우저 자동완성 목록 없음
@@ -1326,7 +1341,7 @@ export class App {
       'dl',
       { class: 'metrics', 'data-testid': 'sizing-summary' },
       h('div', { class: 'risk-boxes' }, lossBox, profitBox),
-      h('dt', {}, '총 포지션'), sum.total,
+      h('dt', {}, '투입금 (주문 금액)'), sum.total,
       h('dt', {}, '필요 레버리지'), sum.lev,
       h('dt', {}, '손익비 (전부 체결 시)'), sum.rr,
       feeDt, sum.fee,
@@ -1336,13 +1351,13 @@ export class App {
     const note = h(
       'p',
       { class: 'note' },
-      '2차부터 진입~SL을 등간격으로 나눈 가격. 모두 체결된 뒤 SL에 맞아도 손실은 상단의 "손절 시 손실 %" 이하. 금액은 레버리지 전 포지션 규모(증거금 = 금액 ÷ 레버리지), 수량은 주문 단위로 내림.',
+      '2차부터 진입~SL을 등간격으로 나눈 가격. 금액 = Bybit 주문 금액(레버리지 전 포지션 규모, 증거금 = 금액 ÷ 레버리지), 합계 = 투입금. 상단을 손실 %로 두면 모두 체결된 뒤 SL에 맞아도 손실이 총 자산의 그 % 이하가 되게 금액을 정합니다. 수량은 주문 단위로 내림.',
     );
     const bar = h(
       'div',
       { class: 'sizing-bar', 'data-testid': 'sizing-bar', id: 'sizing-bar' },
-      field('운영자산 (USDT)', capital),
-      field('손절 시 손실 %', risk),
+      field('총 자산 (USDT)', capital),
+      sizeField,
       splitsField,
       weightsField,
     );
@@ -1369,7 +1384,7 @@ export class App {
       note,
     );
     const riskCard = h('section', { class: 'risk-card panel-card', 'data-testid': 'group-risk', hidden: true }, cardHead('gauge', '리스크'), summary);
-    const apply = (src: 'capital' | 'risk' | 'splits' | 'weights' | 'linear' | 'equal') => {
+    const apply = (src: 'capital' | 'risk' | 'value' | 'mode-value' | 'mode-risk' | 'splits' | 'weights' | 'linear' | 'equal') => {
       const cap = Number(capital.value.replace(/[,\s]/g, ''));
       const prev = this.sizing;
       let next: SizingSettings = { ...prev };
@@ -1391,11 +1406,21 @@ export class App {
         next = { ...prev, ...r };
       } else if (src === 'linear' || src === 'equal') {
         next = { ...prev, weightMode: src === 'linear' ? 'linear' : 'equalRisk' };
+      } else if (src === 'mode-value' || src === 'mode-risk') {
+        next = { ...prev, sizeMode: src === 'mode-value' ? 'value' : 'risk' };
+      } else if (src === 'value') {
+        const v = Number(value.value.replace(/[,\s]/g, ''));
+        if (value.value.trim() !== '' && !(Number.isFinite(v) && v > 0)) {
+          this.toast('투입금은 0보다 큰 USDT 금액으로 적으세요 (비우면 총 자산 전부).');
+          this.renderSizingControls(true);
+          return;
+        }
       }
       this.sizing = sanitizeSizing({
         ...next,
         capital: capital.value.trim() === '' ? null : cap,
         riskPct: risk.value.trim() === '' ? undefined : Number(risk.value),
+        positionValue: value.value.trim() === '' ? null : Number(value.value.replace(/[,\s]/g, '')),
       });
       saveSizing(this.d.storage, this.sizing);
       this.renderSizingControls(true);
@@ -1403,12 +1428,13 @@ export class App {
     };
     capital.addEventListener('change', () => apply('capital'));
     risk.addEventListener('change', () => apply('risk'));
+    value.addEventListener('change', () => apply('value'));
     splits.addEventListener('change', () => apply('splits'));
     weights.addEventListener('change', () => apply('weights'));
     linear.addEventListener('click', () => apply('linear'));
     equal.addEventListener('click', () => apply('equal'));
-    for (const c of [capital, splits, weights]) c.addEventListener('keydown', (e) => e.key === 'Enter' && c.blur());
-    return { bar, fold, box, riskCard, capital, risk, splits, weights, linear, equal, reason, table, body, summary, sum, avgShow, avgBox, splitsPill, feeFill, feeMeter, feeShare, feeDt, feeTierBtns, feeRates };
+    for (const c of [capital, value, splits, weights]) c.addEventListener('keydown', (e) => e.key === 'Enter' && c.blur());
+    return { bar, fold, box, riskCard, capital, risk, value, byValue, byRisk, splits, weights, linear, equal, reason, table, body, summary, sum, avgShow, avgBox, splitsPill, feeFill, feeMeter, feeShare, feeDt, feeTierBtns, feeRates };
   }
 
   /** 상단 바의 분할 진입 입력칸을 저장된 값으로 맞춘다 (시나리오가 없어도 보인다) */
@@ -1417,6 +1443,16 @@ export class App {
     const cfg = this.sizing;
     if (force || document.activeElement !== z.capital) z.capital.value = cfg.capital === null ? '' : String(cfg.capital);
     if (force || document.activeElement !== z.risk) z.risk.value = String(cfg.riskPct);
+    if (force || document.activeElement !== z.value) z.value.value = cfg.positionValue === null ? '' : String(cfg.positionValue);
+    // 투입금을 비우면 총 자산 전부: 그 금액을 흐리게 보여 준다
+    z.value.placeholder = cfg.capital === null ? '= 총 자산' : `${cfg.capital.toLocaleString('en-US')} (전부)`;
+    const byValue = cfg.sizeMode === 'value';
+    show(z.value, byValue);
+    show(z.risk, !byValue);
+    for (const [b, on] of [[z.byValue, byValue], [z.byRisk, !byValue]] as const) {
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-pressed', String(on));
+    }
     if (force || document.activeElement !== z.splits) z.splits.value = String(cfg.splits);
     if (force || document.activeElement !== z.weights) z.weights.value = weightsText(cfg);
     // 지금 쓰는 예시 버튼 표시 (직접 입력한 비율이면 둘 다 꺼짐)
@@ -1425,11 +1461,12 @@ export class App {
     z.linear.title = `${ratioLabel(Math.max(cfg.splits, 2))} (뒤로 갈수록 크게)`;
     z.avgShow.checked = cfg.showAvgLine;
     setText(z.splitsPill, cfg.splits === 1 ? '한 번에' : `${cfg.splits}분할`);
-    // 폰 요약 버튼: '주문 설정 · 10,000 USDT · 1% · 3분할 1:2:3'
-    const cap = cfg.capital === null ? '운영자산 입력' : `${cfg.capital.toLocaleString('en-US')} USDT`;
+    // 폰 요약 버튼: '10,000 USDT · 투입 3,000 · 3분할 1:2:3' 또는 '10,000 USDT · 손실 1% · …'
+    const cap = cfg.capital === null ? '총 자산 입력' : `${cfg.capital.toLocaleString('en-US')} USDT`;
     const ratio = cfg.splits === 1 ? '1회 진입' : `${cfg.splits}분할 ${weightsText(cfg)}`;
-    setText(z.fold, `${cap} · ${cfg.riskPct}% · ${ratio}`);
-    z.fold.title = '주문 설정 (운영자산·손절 시 손실·분할·비중)';
+    const how = byValue ? `투입 ${cfg.positionValue === null ? '전부' : cfg.positionValue.toLocaleString('en-US')}` : `손실 ${cfg.riskPct}%`;
+    setText(z.fold, `${cap} · ${how} · ${ratio}`);
+    z.fold.title = '주문 설정 (총 자산·투입금 또는 손실 %·분할·비중)';
   }
 
   private sizingPlan(s: Scenario): { plan: SizingPlan | null; reason: string | null } {
@@ -1531,8 +1568,14 @@ export class App {
     z.feeFill.dataset.zone = zone;
     z.feeFill.style.width = `${Math.min(100, ((fee.sharePct ?? 0) / 50) * 100)}%`;
     // 큰 금액 + 아래 작은 줄 (USDT · 자산 대비 %)
-    bigAmount(z.sum.loss, `−${usdt(plan.lossAtSl)}`, `자산 대비 −${plan.lossPct.toFixed(2)}%`);
-    bigAmount(z.sum.profit, plan.profitAtTp === null ? '—' : `+${usdt(plan.profitAtTp)}`, plan.profitAtTp === null ? 'TP를 정하면 계산' : `자산 대비 +${plan.profitPct!.toFixed(2)}%`);
+    // 큰 금액 아래 두 줄: 총 자산 대비 % / 투입금 대비 %
+    const ofValue = (v: number) => (plan.totalNotional > 0 ? (v / plan.totalNotional) * 100 : 0);
+    bigAmount(z.sum.loss, `−${usdt(plan.lossAtSl)}`, [`총 자산 −${plan.lossPct.toFixed(2)}%`, `투입금 −${ofValue(plan.lossAtSl).toFixed(2)}%`]);
+    bigAmount(
+      z.sum.profit,
+      plan.profitAtTp === null ? '—' : `+${usdt(plan.profitAtTp)}`,
+      plan.profitAtTp === null ? ['TP를 정하면 계산'] : [`총 자산 +${plan.profitPct!.toFixed(2)}%`, `투입금 +${ofValue(plan.profitAtTp).toFixed(2)}%`],
+    );
     setText(z.sum.avg, formatPrice(plan.avgEntry, s.tickSize));
     setText(z.sum.rr, plan.rr === null ? '—' : formatRR(plan.rr));
     return plan;
@@ -1739,8 +1782,15 @@ export class App {
     const plan = this.renderSizing(s);
     this.rollChanged(s.id, rrNow);
 
-    const profit = m.rewardDist === null ? null : `목표 +${fp(m.rewardDist)} (${formatPct(m.rewardPct!)})`;
-    const loss = m.riskDist === null ? null : `손절 −${fp(m.riskDist)} (${formatPct(m.riskPct!)})`;
+    // 운영 금액을 넣었으면 가격 %와 실제 금액을 같이 (전부 체결 기준): '손절 −3.21% · −96.39 USDT'
+    const profit =
+      m.rewardDist === null
+        ? null
+        : plan?.profitAtTp != null
+          ? `목표 +${formatPct(m.rewardPct!)} · +${usdt(plan.profitAtTp)} USDT`
+          : `목표 +${fp(m.rewardDist)} (${formatPct(m.rewardPct!)})`;
+    const loss =
+      m.riskDist === null ? null : plan ? `손절 −${formatPct(m.riskPct!)} · −${usdt(plan.lossAtSl)} USDT` : `손절 −${fp(m.riskDist)} (${formatPct(m.riskPct!)})`;
     const center = m.valid ? `손익비 ${formatRR(m.rr!)}` : m.reasons[0] ?? '';
 
     const overlay: OverlayInput = {

@@ -7,11 +7,22 @@ export const MAX_SPLITS = 10;
 /** linear: 금액 1:2:3(:4:5) / equalRisk: 분할마다 SL 손실이 같도록 */
 export type WeightMode = 'linear' | 'equalRisk' | 'custom';
 
+/**
+ * 포지션 크기를 정하는 방식 (상단 바 둘째 칸의 스위치):
+ * - value = 투입금: 넣을 돈(주문 금액, Bybit '주문 금액(Value)'과 같은 뜻 — 레버리지 곱하기 전)을 정하면 손절 시 손실을 계산
+ * - risk  = 자산 %: 손절 시 총 자산의 몇 %를 잃을지 정하면 넣을 돈을 거꾸로 계산 (TradingView 포지션 도구와 같은 방식)
+ */
+export type SizeMode = 'value' | 'risk';
+
 export interface SizingSettings {
-  /** 운영자산 (USDT). 입력 전이면 null */
+  /** 총 자산(에쿼티, USDT). 입력 전이면 null */
   capital: number | null;
-  /** 모든 분할이 체결된 뒤 SL에 맞았을 때의 손실 한도 (운영자산 대비 %) */
+  /** 자산 % 방식: 모든 분할이 체결된 뒤 SL에 맞았을 때의 손실 한도 (총 자산 대비 %) */
   riskPct: number;
+  /** 포지션 크기를 정하는 방식 */
+  sizeMode: SizeMode;
+  /** 투입금 방식: 넣을 돈 (모든 분할의 주문 금액 합, USDT). null이면 총 자산 전부 */
+  positionValue: number | null;
   splits: SplitCount;
   weightMode: WeightMode;
   /** weightMode 'custom'의 비율 (예: [1, 1, 2]). 개수 = 분할 수 */
@@ -20,7 +31,16 @@ export interface SizingSettings {
   showAvgLine: boolean;
 }
 
-export const DEFAULT_SIZING: SizingSettings = { capital: null, riskPct: 1, splits: 3, weightMode: 'linear', customWeights: [], showAvgLine: true };
+export const DEFAULT_SIZING: SizingSettings = {
+  capital: null,
+  riskPct: 1,
+  sizeMode: 'value',
+  positionValue: null,
+  splits: 3,
+  weightMode: 'linear',
+  customWeights: [],
+  showAvgLine: true,
+};
 export const RISK_PCT_RANGE: [number, number] = [0.1, 10];
 
 export function sanitizeSizing(raw: unknown): SizingSettings {
@@ -30,6 +50,8 @@ export function sanitizeSizing(raw: unknown): SizingSettings {
   if (typeof src.riskPct === 'number' && Number.isFinite(src.riskPct)) {
     out.riskPct = Math.min(RISK_PCT_RANGE[1], Math.max(RISK_PCT_RANGE[0], src.riskPct));
   }
+  if (src.sizeMode === 'value' || src.sizeMode === 'risk') out.sizeMode = src.sizeMode;
+  if (typeof src.positionValue === 'number' && Number.isFinite(src.positionValue) && src.positionValue > 0) out.positionValue = src.positionValue;
   if (Number.isInteger(src.splits) && (src.splits as number) >= 1 && (src.splits as number) <= MAX_SPLITS) out.splits = src.splits as number;
   if (src.weightMode === 'linear' || src.weightMode === 'equalRisk' || src.weightMode === 'custom') out.weightMode = src.weightMode;
   const cw = src.customWeights;
@@ -90,7 +112,7 @@ export interface Tranche {
 
 export interface SizingPlan {
   tranches: Tranche[];
-  /** 손실 한도 = 운영자산 × riskPct */
+  /** 손실 한도: 자산 % 방식 = 총 자산 × riskPct, 투입금 방식 = 넣은 돈이 SL에서 잃는 금액 */
   riskBudget: number;
   totalNotional: number;
   totalQty: number;
@@ -103,7 +125,7 @@ export interface SizingPlan {
   profitAtTp: number | null;
   profitPct: number | null;
   rr: number | null;
-  /** 총 포지션 금액 ÷ 운영자산 (필요한 최소 레버리지) */
+  /** 투입금 ÷ 총 자산 (필요한 최소 레버리지) */
   leverage: number;
 }
 
@@ -115,13 +137,15 @@ function floorToStep(x: number, step: number | undefined): number {
 }
 
 /**
- * 분할 진입 계획. 모든 분할이 체결된 뒤 SL에 맞아도 손실이 운영자산의 riskPct%를 넘지 않게
- * 총 포지션을 정하고, 비중대로 나눈다. 수수료·슬리피지·펀딩비는 넣지 않는다.
+ * 분할 진입 계획. 포지션 크기(모든 분할의 주문 금액 합)는
+ * - 투입금 방식: 정한 투입금 그대로 (비우면 총 자산 전부)
+ * - 자산 % 방식: 모든 분할이 체결된 뒤 SL에 맞아도 손실이 총 자산의 riskPct%가 되게
+ * 로 정하고, 비중대로 나눈다. 수수료·슬리피지·펀딩비는 넣지 않는다.
  */
 export function planSizing(i: SizingInput): SizingResult {
   const { side, entry, sl, tp, tickSize, settings } = i;
   const { capital, riskPct, splits, weightMode } = settings;
-  if (capital === null || !(capital > 0)) return { ok: false, reason: '운영자산을 입력하면 분할별 금액을 계산합니다' };
+  if (capital === null || !(capital > 0)) return { ok: false, reason: '총 자산을 입력하면 분할별 금액을 계산합니다' };
   if (sl === null) return { ok: false, reason: 'SL을 정하면 분할별 금액을 계산합니다' };
   const sign = side === 'LONG' ? 1 : -1;
   if (!(sign * (entry - sl) > 0)) {
@@ -133,10 +157,11 @@ export function planSizing(i: SizingInput): SizingResult {
 
   const prices = splitPrices(side, entry, sl, splits, tickSize);
   const shares = splitShares(prices, sl, weightMode, settings.customWeights);
-  const riskBudget = (capital * riskPct) / 100;
   // 금액 1당 SL 손실 = 손절폭 ÷ 가격
   const lossPerNotional = shares.reduce((acc, w, k) => acc + (w * Math.abs(prices[k] - sl)) / prices[k], 0);
-  const total = riskBudget / lossPerNotional;
+  const byValue = (settings.sizeMode ?? 'risk') === 'value';
+  const total = byValue ? (settings.positionValue ?? capital) : (capital * riskPct) / 100 / lossPerNotional;
+  const riskBudget = byValue ? total * lossPerNotional : (capital * riskPct) / 100;
 
   const rows = prices.map((price, k) => {
     const qty = floorToStep((shares[k] * total) / price, i.qtyStep);
