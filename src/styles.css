@@ -1048,6 +1048,17 @@ button.danger {
   color: var(--muted);
 }
 
+/* 분할 진입 표 아래 안내: 짧은 줄 하나씩, 앞에 점 */
+.sizing-note {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.note-line::before {
+  content: '· ';
+}
+
 .settings summary {
   cursor: pointer;
   font-weight: 600;

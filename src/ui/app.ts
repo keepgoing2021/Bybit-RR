@@ -1348,10 +1348,16 @@ export class App {
       feeMeter,
       feeTiers,
     );
+    // 표 아래 안내: 한눈에 두 줄만 (자세한 건 마우스를 올리면). 1분할이면 첫 줄은 숨김
+    const noteSplit = h('span', { class: 'note-line' }, '2차부터는 진입가~SL 사이를 같은 간격으로 나눠 걸어요');
     const note = h(
       'p',
-      { class: 'note' },
-      '2차부터 진입~SL을 등간격으로 나눈 가격. 금액 = Bybit 주문 금액(레버리지 전 포지션 규모, 증거금 = 금액 ÷ 레버리지), 합계 = 투입금. 상단을 손실 %로 두면 모두 체결된 뒤 SL에 맞아도 손실이 총 자산의 그 % 이하가 되게 금액을 정합니다. 수량은 주문 단위로 내림.',
+      {
+        class: 'note sizing-note',
+        title: '금액은 레버리지 곱하기 전 포지션 크기예요 (증거금 = 금액 ÷ 레버리지). 수량은 Bybit 주문 단위로 내림. 손실 % 방식이면 전부 체결된 뒤 손절돼도 손실이 총 자산의 그 % 이하가 되게 금액을 정해요.',
+      },
+      noteSplit,
+      h('span', { class: 'note-line' }, '금액·수량은 Bybit 주문창에 그대로 넣으면 돼요 (레버리지 전 금액)'),
     );
     const bar = h(
       'div',
@@ -1434,7 +1440,7 @@ export class App {
     linear.addEventListener('click', () => apply('linear'));
     equal.addEventListener('click', () => apply('equal'));
     for (const c of [capital, value, splits, weights]) c.addEventListener('keydown', (e) => e.key === 'Enter' && c.blur());
-    return { bar, fold, box, riskCard, capital, risk, value, byValue, byRisk, splits, weights, linear, equal, reason, table, body, summary, sum, avgShow, avgBox, splitsPill, feeFill, feeMeter, feeShare, feeDt, feeTierBtns, feeRates };
+    return { bar, fold, box, riskCard, noteSplit, capital, risk, value, byValue, byRisk, splits, weights, linear, equal, reason, table, body, summary, sum, avgShow, avgBox, splitsPill, feeFill, feeMeter, feeShare, feeDt, feeTierBtns, feeRates };
   }
 
   /** 상단 바의 분할 진입 입력칸을 저장된 값으로 맞춘다 (시나리오가 없어도 보인다) */
@@ -1461,6 +1467,7 @@ export class App {
     z.linear.title = `${ratioLabel(Math.max(cfg.splits, 2))} (뒤로 갈수록 크게)`;
     z.avgShow.checked = cfg.showAvgLine;
     setText(z.splitsPill, cfg.splits === 1 ? '한 번에' : `${cfg.splits}분할`);
+    show(z.noteSplit, cfg.splits > 1);
     // 폰 요약 버튼: '10,000 USDT · 투입 3,000 · 3분할 1:2:3' 또는 '10,000 USDT · 손실 1% · …'
     const cap = cfg.capital === null ? '총 자산 입력' : `${cfg.capital.toLocaleString('en-US')} USDT`;
     const ratio = cfg.splits === 1 ? '1회 진입' : `${cfg.splits}분할 ${weightsText(cfg)}`;
