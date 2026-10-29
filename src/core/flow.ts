@@ -2,7 +2,7 @@
  * 최근 15분 거래대금·상승률 순위 (우측 위 '15분 순위판').
  * 전 종목 1분봉(진행 중 + 마감)을 받아 종목마다 최근 몇 개만 들고 있다가,
  * 이번 1분 + 직전 14분(= 최근 15분) 안의 봉으로 거래대금 합과 등락률을 낸다.
- * 상승률은 전 종목이 아니라 그 15분 거래대금 상위 종목 중에서만 고른다 (거래가 붙은 상승만).
+ * 상승률 줄은 '돈이 많이 실린 상승' 순: 상승률 × 15분 거래대금 (얇은 종목이 몇 건 체결로 튄 건 거래대금이 작아 뒤로 밀림).
  */
 export interface FlowBar {
   /** 1분봉 시작 시각 (ms) */
@@ -30,8 +30,6 @@ export interface FlowRanking {
 
 const MIN = 60_000;
 export const FLOW_WINDOW_MIN = 15;
-/** 상승률을 고르는 범위: 15분 거래대금 상위 몇 종목 (그 밖의 얇은 종목이 몇 건 체결로 튄 건 빼려고) */
-export const FLOW_GAINER_POOL = 20;
 /** 상승률 순위에 넣는 최소 상승률 (%). 소수 둘째 자리로 '+0.00%'가 될 만큼 작은 오름은 뺀다 */
 export const FLOW_MIN_CHANGE_PCT = 0.005;
 
@@ -71,7 +69,7 @@ export class FlowBook {
     this.latestStart = 0;
   }
 
-  rank(now: number, top = 3, pool = FLOW_GAINER_POOL, windowMin = FLOW_WINDOW_MIN): FlowRanking {
+  rank(now: number, top = 3, windowMin = FLOW_WINDOW_MIN): FlowRanking {
     const ref = Math.max(now, this.latestStart);
     const from = Math.floor(ref / MIN) * MIN - (windowMin - 1) * MIN;
     const rows: FlowRow[] = [];
@@ -85,15 +83,19 @@ export class FlowBook {
     }
     const byVolume = rows.filter((r) => r.turnover > 0).sort((a, b) => b.turnover - a.turnover || a.symbol.localeCompare(b.symbol));
     const volume = byVolume.slice(0, top);
-    // 거래대금 상위 pool개 안에서만 상승률 순
+    // 돈이 많이 실린 상승: 상승률 × 거래대금 큰 순
     const gainers = byVolume
-      .slice(0, pool)
       .filter((r) => r.changePct >= FLOW_MIN_CHANGE_PCT)
-      .sort((a, b) => b.changePct - a.changePct || b.turnover - a.turnover)
+      .sort((a, b) => gainScore(b) - gainScore(a) || b.changePct - a.changePct)
       .slice(0, top);
     const coverageMin = this.earliestStart === Infinity ? 0 : Math.min(windowMin, Math.floor((Math.floor(ref / MIN) * MIN - this.earliestStart) / MIN) + 1);
     return { volume, gainers, coverageMin };
   }
+}
+
+/** 상승률 순위 점수 = 상승률(%) × 15분 거래대금 */
+export function gainScore(r: FlowRow): number {
+  return r.changePct * r.turnover;
 }
 
 /** 'BTCUSDT' → 'BTC' (순위판은 좁아서 코인 이름만) */

@@ -1,4 +1,4 @@
-import { baseName, FLOW_GAINER_POOL, FLOW_WINDOW_MIN, FlowBook, type FlowRow } from '../core/flow';
+import { baseName, FLOW_WINDOW_MIN, FlowBook, type FlowRow } from '../core/flow';
 import { formatTurnover } from '../core/symbolSearch';
 import type { MarketDataProvider } from '../data/provider';
 import { h, setText, show } from './dom';
@@ -24,7 +24,7 @@ const FLOW_GAP = 14;
 const FLOW_INSET = 8;
 
 /**
- * 우측 위 '15분 순위판': Bybit 전 종목의 최근 15분 거래대금 TOP3, 그리고 15분 거래대금 상위 20종목 중 상승률 TOP3.
+ * 우측 위 '15분 순위판': Bybit 전 종목의 최근 15분 거래대금 TOP3, 그리고 15분 상승률 × 거래대금(돈이 많이 실린 상승) TOP3.
  * 줄을 누르면 그 종목 차트로 바꾼다.
  *
  * 자리: 상단 바의 다른 칸 오른쪽에 판이 들어갈 빈 자리가 있으면 그 오른쪽 끝에 겹쳐 둔다(side).
@@ -69,7 +69,7 @@ export class FlowBoard {
         { class: 'flow-col' },
         h(
           'div',
-          { class: 'flow-col-head', title: `${FLOW_WINDOW_MIN}분 거래대금 상위 ${FLOW_GAINER_POOL}종목 중 많이 오른 순 (거래가 붙은 상승만)` },
+          { class: 'flow-col-head', title: `돈이 많이 실린 상승 순: ${FLOW_WINDOW_MIN}분 상승률 × ${FLOW_WINDOW_MIN}분 거래대금` },
           h('b', {}, `${FLOW_WINDOW_MIN}분 상승률`),
           this.coverage,
         ),

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { baseName, FLOW_GAINER_POOL, FLOW_WINDOW_MIN, FlowBook } from '../../src/core/flow';
+import { baseName, FLOW_WINDOW_MIN, FlowBook, gainScore } from '../../src/core/flow';
 
 const M = 60_000;
 const T0 = 1_760_000_000_000 - (1_760_000_000_000 % M); // 분 경계
@@ -34,24 +34,23 @@ describe('FlowBook (15-minute turnover; gainers among the top-turnover symbols)'
     expect(r.volume[0].turnover).toBe(15); // 최근 15분봉만
   });
 
-  it(`gainers come only from the top ${FLOW_GAINER_POOL} by 15-minute turnover; tiny rises are dropped; top N`, () => {
+  it('gainers rank by change × 15-minute turnover (money behind the rise); tiny rises are dropped; top N', () => {
     const f = new FlowBook();
-    // 거래대금 상위 20종목: V00(가장 큼) … V19, 그 중 일부만 오름
-    for (let i = 0; i < 20; i++) {
-      const up = i === 3 ? 4 : i === 10 ? 2 : i === 19 ? 6 : 0; // V03 +4%, V10 +2%, V19 +6% (20위, 아직 범위 안)
-      f.update(`V${String(i).padStart(2, '0')}USDT`, { start: T0, open: 100, close: 100 + up, turnover: 10_000_000 - i * 100_000 }, T0);
-    }
-    // 21위 밖의 얇은 종목은 +50%여도 상승률에 없다
+    // BIG: +1% × 2억 = 2억점, MID: +4% × 3천만 = 1.2억점, SMALL: +10% × 500만 = 5천만점
+    f.update('BIGUSDT', { start: T0, open: 100, close: 101, turnover: 200_000_000 }, T0);
+    f.update('MIDUSDT', { start: T0, open: 100, close: 104, turnover: 30_000_000 }, T0);
+    f.update('SMALLUSDT', { start: T0, open: 100, close: 110, turnover: 5_000_000 }, T0);
+    // 얇은 종목은 +50%여도 거래대금이 작아 뒤로 밀림 (50 × 1천 = 5만점)
     f.update('THINUSDT', { start: T0, open: 1, close: 1.5, turnover: 1_000 }, T0);
-    // +0.00%로 보일 만큼 작은 오름(0.004%)은 빠짐 — 거래대금 1위라도
-    f.update('FLATUSDT', { start: T0, open: 100_000, close: 100_004, turnover: 50_000_000 }, T0);
+    // 내린 종목·+0.00%로 보일 만큼 작은 오름(0.004%)은 빠짐 — 거래대금 1위라도
+    f.update('DOWNUSDT', { start: T0, open: 100, close: 95, turnover: 300_000_000 }, T0);
+    f.update('FLATUSDT', { start: T0, open: 100_000, close: 100_004, turnover: 500_000_000 }, T0);
     let r = f.rank(T0 + 1_000);
-    expect(r.volume.map((x) => x.symbol)).toEqual(['FLATUSDT', 'V00USDT', 'V01USDT']);
-    // FLAT가 1위로 들어와 V19는 21위로 밀림 → 범위 밖
-    expect(r.gainers.map((x) => x.symbol)).toEqual(['V03USDT', 'V10USDT']);
-    r = f.rank(T0 + 1_000, 3, 21);
-    expect(r.gainers.map((x) => x.symbol)).toEqual(['V19USDT', 'V03USDT', 'V10USDT']);
-    expect(r.gainers.map((x) => x.symbol)).not.toContain('THINUSDT');
+    expect(r.volume.map((x) => x.symbol)).toEqual(['FLATUSDT', 'DOWNUSDT', 'BIGUSDT']);
+    expect(r.gainers.map((x) => x.symbol)).toEqual(['BIGUSDT', 'MIDUSDT', 'SMALLUSDT']);
+    expect(gainScore(r.gainers[0])).toBeCloseTo(200_000_000, 0);
+    r = f.rank(T0 + 1_000, 5);
+    expect(r.gainers.map((x) => x.symbol)).toEqual(['BIGUSDT', 'MIDUSDT', 'SMALLUSDT', 'THINUSDT']);
   });
 
   it('coverage: minutes since the earliest bar received, up to 15; ignores bad bars; clear resets', () => {
