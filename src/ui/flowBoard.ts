@@ -1,4 +1,4 @@
-import { baseName, FLOW_WINDOW_MIN, FlowBook, type FlowRow } from '../core/flow';
+import { baseName, FLOW_SPIKE_MIN_TURNOVER, FLOW_SPIKE_RATIO, FLOW_WINDOW_MIN, FlowBook, type FlowRow } from '../core/flow';
 import { formatTurnover } from '../core/symbolSearch';
 import type { MarketDataProvider } from '../data/provider';
 import { h, setText, show } from './dom';
@@ -12,6 +12,8 @@ export const FLOW_MEDIA = '(min-width: 641px)';
  */
 export const FLOW_BACKFILL_SYMBOLS = 40;
 const FLOW_BACKFILL_PARALLEL = 4;
+/** 24시간 거래대금(평소 거래대금 기준)을 다시 받는 간격 (ms) */
+export const FLOW_USUAL_REFRESH_MS = 5 * 60_000;
 
 /** 상단 바 오른쪽 빈 자리에 둘 때 판 너비 (px): 이보다 자리가 좁으면 바 끝에 이어 붙인다 */
 export const FLOW_SIDE_MAX_W = 300;
@@ -24,7 +26,7 @@ const FLOW_GAP = 14;
 const FLOW_INSET = 8;
 
 /**
- * 우측 위 '15분 순위판': Bybit 전 종목의 최근 15분 거래대금 TOP3, 그리고 15분 상승률 × 거래대금(돈이 많이 실린 상승) TOP3.
+ * 우측 위 '15분 순위판': Bybit 전 종목의 최근 15분 거래대금 TOP3, 그리고 평소보다 거래대금이 2배 이상 붙은 종목 중 15분 상승률 TOP3.
  * 줄을 누르면 그 종목 차트로 바꾼다.
  *
  * 자리: 상단 바의 다른 칸 오른쪽에 판이 들어갈 빈 자리가 있으면 그 오른쪽 끝에 겹쳐 둔다(side).
@@ -40,6 +42,7 @@ export class FlowBoard {
   private readonly lists: { volume: HTMLOListElement; gainers: HTMLOListElement };
   private stop: (() => void) | null = null;
   private timer: number | null = null;
+  private usualTimer: number | null = null;
   private current = '';
   private source: { provider: MarketDataProvider; symbols: string[] } | null = null;
   private readonly media: MediaQueryList | null;
@@ -69,7 +72,7 @@ export class FlowBoard {
         { class: 'flow-col' },
         h(
           'div',
-          { class: 'flow-col-head', title: `돈이 많이 실린 상승 순: ${FLOW_WINDOW_MIN}분 상승률 × ${FLOW_WINDOW_MIN}분 거래대금` },
+          { class: 'flow-col-head', title: `거래가 터지면서 오르는 코인: ${FLOW_WINDOW_MIN}분 거래대금이 평소의 ${FLOW_SPIKE_RATIO}배 이상(그리고 ${formatTurnover(FLOW_SPIKE_MIN_TURNOVER)} USDT 이상)인 종목 중 많이 오른 순. 평소 = 24시간 거래대금의 같은 시간 평균` },
           h('b', {}, `${FLOW_WINDOW_MIN}분 상승률`),
           this.coverage,
         ),
@@ -107,6 +110,9 @@ export class FlowBoard {
       this.timer = window.setInterval(() => this.render(), 1_000);
       this.render();
       void this.backfill(src.provider, src.symbols, this.gen);
+      const provider = src.provider;
+      const gen = this.gen;
+      this.usualTimer = window.setInterval(() => void this.refreshUsual(provider, gen), FLOW_USUAL_REFRESH_MS);
     }
     this.watchLayout();
     this.place();
@@ -121,6 +127,7 @@ export class FlowBoard {
       return;
     }
     if (gen !== this.gen) return;
+    this.book.setUsual(tickers);
     const listed = new Set(symbols);
     const queue = tickers
       .filter((t) => listed.has(t.symbol))
@@ -146,6 +153,16 @@ export class FlowBoard {
     if (gen === this.gen) this.render();
   }
 
+  /** 평소 거래대금 기준(24시간 거래대금)을 새로 받는다 (실패하면 이전 값 그대로) */
+  private async refreshUsual(provider: MarketDataProvider, gen: number): Promise<void> {
+    try {
+      const tickers = await provider.fetchTickers();
+      if (gen === this.gen) this.book.setUsual(tickers);
+    } catch {
+      // 다음 번에 다시
+    }
+  }
+
   private halt(): void {
     // 진행 중인 미리 채우기도 멈춘다 (다른 공급원·화면 폭으로 다시 시작할 때 섞이지 않게)
     this.gen++;
@@ -153,6 +170,8 @@ export class FlowBoard {
     this.stop = null;
     if (this.timer !== null) window.clearInterval(this.timer);
     this.timer = null;
+    if (this.usualTimer !== null) window.clearInterval(this.usualTimer);
+    this.usualTimer = null;
   }
 
   /** 상단 바나 그 칸들의 크기가 바뀌면(창 크기, 글꼴, 연결 상태 문구 등) 자리를 다시 잰다 */
@@ -233,7 +252,7 @@ export class FlowBoard {
         {},
         h(
           'button',
-          { type: 'button', class: `flow-row${x.symbol === this.current ? ' current' : ''}`, 'data-symbol': x.symbol, 'data-testid': 'flow-row', title: `${x.symbol} 차트 보기` },
+          { type: 'button', class: `flow-row${x.symbol === this.current ? ' current' : ''}`, 'data-symbol': x.symbol, 'data-testid': 'flow-row', title: rowTitle(x) },
           h('span', { class: 'flow-rank' }, String(i + 1)),
           h('span', { class: 'flow-name' }, baseName(x.symbol)),
           h('span', { class: `flow-value num ${cls}` }, value(x)),
@@ -243,4 +262,11 @@ export class FlowBoard {
     if (!items.length) items.push(h('li', { class: 'flow-empty' }, '—'));
     ol.replaceChildren(...items);
   }
+}
+
+/** 줄에 마우스를 올리면: 15분 거래대금(평소의 몇 배)·상승률 */
+function rowTitle(x: FlowRow): string {
+  const spike = x.spike !== undefined ? ` (평소의 ${x.spike.toFixed(1)}배)` : '';
+  const change = `${x.changePct >= 0 ? '+' : ''}${x.changePct.toFixed(2)}%`;
+  return `${x.symbol} · ${FLOW_WINDOW_MIN}분 거래대금 ${formatTurnover(x.turnover)} USDT${spike} · ${change} — 눌러서 차트 보기`;
 }

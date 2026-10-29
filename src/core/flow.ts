@@ -2,7 +2,8 @@
  * 최근 15분 거래대금·상승률 순위 (우측 위 '15분 순위판').
  * 전 종목 1분봉(진행 중 + 마감)을 받아 종목마다 최근 몇 개만 들고 있다가,
  * 이번 1분 + 직전 14분(= 최근 15분) 안의 봉으로 거래대금 합과 등락률을 낸다.
- * 상승률 줄은 '돈이 많이 실린 상승' 순: 상승률 × 15분 거래대금 (얇은 종목이 몇 건 체결로 튄 건 거래대금이 작아 뒤로 밀림).
+ * 상승률 줄은 '거래가 터지면서 오르는 코인': 평소보다 거래대금이 2배 이상 붙은 종목 중 많이 오른 순.
+ * 평소 = 그 종목 24시간 거래대금을 같은 시간 길이로 나눈 평균 (예: 15분이면 24시간 거래대금 ÷ 96).
  */
 export interface FlowBar {
   /** 1분봉 시작 시각 (ms) */
@@ -19,6 +20,8 @@ export interface FlowRow {
   turnover: number;
   /** 최근 15분 등락률 (%) = (마지막 종가 − 가장 이른 봉의 시가) ÷ 시가 */
   changePct: number;
+  /** 평소의 몇 배 거래대금인지 = 15분 거래대금 ÷ (24시간 거래대금 ÷ 1440 × 모은 분). 24시간 값을 모르면 없음 */
+  spike?: number;
 }
 
 export interface FlowRanking {
@@ -32,6 +35,10 @@ const MIN = 60_000;
 export const FLOW_WINDOW_MIN = 15;
 /** 상승률 순위에 넣는 최소 상승률 (%). 소수 둘째 자리로 '+0.00%'가 될 만큼 작은 오름은 뺀다 */
 export const FLOW_MIN_CHANGE_PCT = 0.005;
+/** 상승률 순위에 넣는 거래 급증 기준: 평소의 몇 배 이상 */
+export const FLOW_SPIKE_RATIO = 2;
+/** 상승률 순위에 넣는 최소 15분 거래대금 (USDT): 평소 거래가 거의 없는 종목이 몇 건 체결로 '몇 배'가 되는 건 뺀다 */
+export const FLOW_SPIKE_MIN_TURNOVER = 100_000;
 
 export class FlowBook {
   private readonly bars = new Map<string, FlowBar[]>();
@@ -39,6 +46,8 @@ export class FlowBook {
   private earliestStart = Infinity;
   /** 받은 봉 중 가장 늦은 시작 시각 (브라우저 시계가 거래소보다 조금 늦어도 이번 1분을 놓치지 않게) */
   private latestStart = 0;
+  /** 종목별 24시간 거래대금 (USDT): 평소 거래대금의 기준 */
+  private readonly usual = new Map<string, number>();
 
   constructor(private readonly keep = FLOW_WINDOW_MIN + 1) {}
 
@@ -63,8 +72,17 @@ export class FlowBook {
     return this.bars.get(symbol)?.some((b) => b.start === start) ?? false;
   }
 
+  /** 24시간 거래대금을 넣는다 (시세를 새로 받을 때마다). 0 이하·모르는 값은 버린다 */
+  setUsual(list: { symbol: string; turnover24h: number }[]): void {
+    for (const t of list) {
+      if (t.turnover24h > 0 && Number.isFinite(t.turnover24h)) this.usual.set(t.symbol, t.turnover24h);
+      else this.usual.delete(t.symbol);
+    }
+  }
+
   clear(): void {
     this.bars.clear();
+    this.usual.clear();
     this.earliestStart = Infinity;
     this.latestStart = 0;
   }
@@ -79,23 +97,25 @@ export class FlowBook {
       const open = inWin[0].open;
       const close = inWin[inWin.length - 1].close;
       const turnover = inWin.reduce((s, b) => s + b.turnover, 0);
-      rows.push({ symbol, turnover, changePct: ((close - open) / open) * 100 });
+      const row: FlowRow = { symbol, turnover, changePct: ((close - open) / open) * 100 };
+      const day = this.usual.get(symbol);
+      if (day) {
+        // 모은 시간(분): 이 종목 첫 봉부터 지금까지 (연결 직후 몇 분치만 있으면 그만큼만 평소와 비교, 처음 1분은 1분으로)
+        const minutes = Math.min(windowMin, Math.max(1, (ref - inWin[0].start) / MIN));
+        row.spike = turnover / ((day / 1440) * minutes);
+      }
+      rows.push(row);
     }
     const byVolume = rows.filter((r) => r.turnover > 0).sort((a, b) => b.turnover - a.turnover || a.symbol.localeCompare(b.symbol));
     const volume = byVolume.slice(0, top);
-    // 돈이 많이 실린 상승: 상승률 × 거래대금 큰 순
+    // 거래가 터지면서 오르는 코인: 평소의 2배 이상 + 15분 10만 USDT 이상 중 많이 오른 순
     const gainers = byVolume
-      .filter((r) => r.changePct >= FLOW_MIN_CHANGE_PCT)
-      .sort((a, b) => gainScore(b) - gainScore(a) || b.changePct - a.changePct)
+      .filter((r) => r.changePct >= FLOW_MIN_CHANGE_PCT && (r.spike ?? 0) >= FLOW_SPIKE_RATIO && r.turnover >= FLOW_SPIKE_MIN_TURNOVER)
+      .sort((a, b) => b.changePct - a.changePct || (b.spike ?? 0) - (a.spike ?? 0))
       .slice(0, top);
     const coverageMin = this.earliestStart === Infinity ? 0 : Math.min(windowMin, Math.floor((Math.floor(ref / MIN) * MIN - this.earliestStart) / MIN) + 1);
     return { volume, gainers, coverageMin };
   }
-}
-
-/** 상승률 순위 점수 = 상승률(%) × 15분 거래대금 */
-export function gainScore(r: FlowRow): number {
-  return r.changePct * r.turnover;
 }
 
 /** 'BTCUSDT' → 'BTC' (순위판은 좁아서 코인 이름만) */
