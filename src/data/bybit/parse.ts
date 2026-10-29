@@ -13,6 +13,8 @@ export function parseKlineList(list: string[][], serverTime: number, tf: Timefra
         low: Number(row[3]),
         close: Number(row[4]),
         volume: Number(row[5]),
+        // 7번째 칸 = 거래대금(USDT). 순위판이 지난 봉을 미리 채울 때 쓴다
+        ...(row[6] !== undefined && Number.isFinite(Number(row[6])) ? { turnover: Number(row[6]) } : {}),
         confirmed: barEnd(tf, time) <= serverTime,
       };
     })

@@ -2514,7 +2514,7 @@ button.flow-row.current .flow-name {
 .flow[data-layout='wide'] .flow-col-head {
   flex: 0 0 auto;
   margin: 0;
-  width: 76px;
+  width: 84px;
 }
 
 /* 출처(Bybit)는 마우스를 올리면 보이는 설명에 있어서 두 줄형에서는 뺀다 */
@@ -2530,8 +2530,9 @@ button.flow-row.current .flow-name {
   gap: 2px;
 }
 
+/* 한 줄에 3칸 고정 폭: 상승률이 1~2개뿐이어도 거래대금 줄과 세로로 맞는다 */
 .flow[data-layout='wide'] .flow-list > li {
-  flex: 1 1 0;
+  flex: 0 0 calc((100% - 4px) / 3);
   min-width: 0;
 }
 

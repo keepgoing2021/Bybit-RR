@@ -1,10 +1,17 @@
-import { baseName, FLOW_WINDOW_MIN, FlowBook, type FlowRow } from '../core/flow';
+import { baseName, FLOW_GAINER_POOL, FLOW_WINDOW_MIN, FlowBook, type FlowRow } from '../core/flow';
 import { formatTurnover } from '../core/symbolSearch';
 import type { MarketDataProvider } from '../data/provider';
 import { h, setText, show } from './dom';
 
 /** 폰이 아닐 때만 보이고(styles.css의 641px 구간과 같은 기준), 그때만 전 종목 1분봉을 받는다 */
 export const FLOW_MEDIA = '(min-width: 641px)';
+
+/**
+ * 연결 직후 15분을 기다리지 않게: 24시간 거래대금 상위 몇 종목은 지난 1분봉을 REST로 미리 받아 채운다
+ * (웹소켓은 이번 1분 봉부터 보내 준다). 동시에 몇 개씩 받을지
+ */
+export const FLOW_BACKFILL_SYMBOLS = 40;
+const FLOW_BACKFILL_PARALLEL = 4;
 
 /** 상단 바 오른쪽 빈 자리에 둘 때 판 너비 (px): 이보다 자리가 좁으면 바 끝에 이어 붙인다 */
 export const FLOW_SIDE_MAX_W = 300;
@@ -17,7 +24,7 @@ const FLOW_GAP = 14;
 const FLOW_INSET = 8;
 
 /**
- * 우측 위 '5분 순위판': Bybit 전 종목의 최근 5분 거래대금 TOP3와 상승률 TOP3.
+ * 우측 위 '15분 순위판': Bybit 전 종목의 최근 15분 거래대금 TOP3, 그리고 15분 거래대금 상위 20종목 중 상승률 TOP3.
  * 줄을 누르면 그 종목 차트로 바꾼다.
  *
  * 자리: 상단 바의 다른 칸 오른쪽에 판이 들어갈 빈 자리가 있으면 그 오른쪽 끝에 겹쳐 둔다(side).
@@ -38,6 +45,8 @@ export class FlowBoard {
   private readonly media: MediaQueryList | null;
   private observer: ResizeObserver | null = null;
   private frame = 0;
+  /** 시작할 때마다 하나씩 올림: 늦게 도착한 미리 채우기 결과를 버리려고 */
+  private gen = 0;
 
   constructor(
     private readonly onPick: (symbol: string) => void,
@@ -48,14 +57,24 @@ export class FlowBoard {
     this.lists = { volume: list('flow-volume'), gainers: list('flow-gainers') };
     this.root = h(
       'div',
-      { class: 'flow', 'data-testid': 'flow', title: 'Bybit USDT 무기한 전 종목의 최근 5분 (1분봉 5개)' },
+      { class: 'flow', 'data-testid': 'flow', title: `Bybit USDT 무기한 전 종목의 최근 ${FLOW_WINDOW_MIN}분 (1분봉 ${FLOW_WINDOW_MIN}개)` },
       h(
         'div',
         { class: 'flow-col' },
-        h('div', { class: 'flow-col-head' }, h('b', {}, '5분 거래대금'), h('span', { class: 'flow-src' }, 'Bybit')),
+        h('div', { class: 'flow-col-head' }, h('b', {}, `${FLOW_WINDOW_MIN}분 거래대금`), h('span', { class: 'flow-src' }, 'Bybit')),
         this.lists.volume,
       ),
-      h('div', { class: 'flow-col' }, h('div', { class: 'flow-col-head' }, h('b', {}, '5분 상승률'), this.coverage), this.lists.gainers),
+      h(
+        'div',
+        { class: 'flow-col' },
+        h(
+          'div',
+          { class: 'flow-col-head', title: `${FLOW_WINDOW_MIN}분 거래대금 상위 ${FLOW_GAINER_POOL}종목 중 많이 오른 순 (거래가 붙은 상승만)` },
+          h('b', {}, `${FLOW_WINDOW_MIN}분 상승률`),
+          this.coverage,
+        ),
+        this.lists.gainers,
+      ),
     );
     this.root.addEventListener('click', (e) => {
       const row = (e.target as HTMLElement).closest('button[data-symbol]') as HTMLButtonElement | null;
@@ -87,12 +106,49 @@ export class FlowBoard {
       this.stop = src.provider.watchFlow(src.symbols, (s, b, at) => this.book.update(s, b, at));
       this.timer = window.setInterval(() => this.render(), 1_000);
       this.render();
+      void this.backfill(src.provider, src.symbols, this.gen);
     }
     this.watchLayout();
     this.place();
   }
 
+  /** 24시간 거래대금 상위 종목의 지난 1분봉을 미리 채운다 (실패하면 그냥 웹소켓으로 차오르길 기다린다) */
+  private async backfill(provider: MarketDataProvider, symbols: string[], gen: number): Promise<void> {
+    let tickers;
+    try {
+      tickers = await provider.fetchTickers();
+    } catch {
+      return;
+    }
+    if (gen !== this.gen) return;
+    const listed = new Set(symbols);
+    const queue = tickers
+      .filter((t) => listed.has(t.symbol))
+      .sort((a, b) => b.turnover24h - a.turnover24h)
+      .slice(0, FLOW_BACKFILL_SYMBOLS)
+      .map((t) => t.symbol);
+    const worker = async () => {
+      while (queue.length && gen === this.gen) {
+        const symbol = queue.shift()!;
+        try {
+          const { candles } = await provider.fetchCandles(symbol, '1', FLOW_WINDOW_MIN + 1);
+          if (gen !== this.gen) return;
+          // 웹소켓으로 이미 받은 봉(같은 시작 시각)은 덮지 않는다 — 더 최신이다
+          for (const c of candles) {
+            if (!this.book.has(symbol, c.time)) this.book.update(symbol, { start: c.time, open: c.open, close: c.close, turnover: c.turnover ?? 0 });
+          }
+        } catch {
+          // 한 종목 실패는 무시
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: FLOW_BACKFILL_PARALLEL }, worker));
+    if (gen === this.gen) this.render();
+  }
+
   private halt(): void {
+    // 진행 중인 미리 채우기도 멈춘다 (다른 공급원·화면 폭으로 다시 시작할 때 섞이지 않게)
+    this.gen++;
     this.stop?.();
     this.stop = null;
     if (this.timer !== null) window.clearInterval(this.timer);
@@ -165,7 +221,7 @@ export class FlowBoard {
     const r = this.book.rank(this.now());
     const partial = r.coverageMin < FLOW_WINDOW_MIN;
     setText(this.coverage, r.coverageMin === 0 ? '받는 중' : partial ? `${r.coverageMin}/${FLOW_WINDOW_MIN}분` : '');
-    this.coverage.title = partial ? `연결 직후라 아직 ${r.coverageMin}분치만 모였습니다 (5분이 차면 사라집니다)` : '';
+    this.coverage.title = partial ? `연결 직후라 아직 ${r.coverageMin}분치만 모였습니다 (${FLOW_WINDOW_MIN}분이 차면 사라집니다)` : '';
     this.fill(this.lists.volume, r.volume, (x) => formatTurnover(x.turnover), '');
     this.fill(this.lists.gainers, r.gainers, (x) => `+${x.changePct.toFixed(2)}%`, 'up');
   }

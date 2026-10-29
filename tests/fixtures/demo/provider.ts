@@ -58,8 +58,8 @@ export class DemoProvider implements MarketDataProvider {
       for (const sym of symbols) {
         const info = demoSymbolInfo(sym);
         if (!info) continue;
-        // 지난 4분 + 이번 1분
-        for (let k = 4; k >= 0; k--) {
+        // 지난 14분 + 이번 1분 (15분 순위판)
+        for (let k = 14; k >= 0; k--) {
           const start = barStart('1', now) - k * 60_000;
           const c = demoCandleAt(info.seed, info.base, '1', start, now, info.tickSize);
           const frac = k === 0 ? (now - start) / 60_000 : 1;

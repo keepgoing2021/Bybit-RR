@@ -19,6 +19,9 @@ describe('parseKlineList', () => {
     const c = parseKlineList(REST_LIST, 1670608800000 + 30 * 60_000, '60');
     expect(c.map((x) => x.time)).toEqual([1670601600000, 1670605200000, 1670608800000]);
     expect(c[2]).toMatchObject({ open: 17071, high: 17073, low: 17027, close: 17055.5, volume: 268611 });
+    // 7번째 칸(거래대금)도 읽는다 — 순위판이 지난 1분봉을 미리 채울 때 씀. 없으면 비워 둠
+    expect(c[2].turnover).toBeCloseTo(15.74462667, 8);
+    expect(parseKlineList([REST_LIST[0].slice(0, 6)], 1670608800000, '60')[0].turnover).toBeUndefined();
   });
 
   it('marks candles confirmed only when their period ended by the server time', () => {
