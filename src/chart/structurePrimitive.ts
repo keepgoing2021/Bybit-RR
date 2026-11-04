@@ -7,7 +7,7 @@ type DrawTarget = Parameters<IPrimitivePaneRenderer['draw']>[0];
 
 /**
  * 다우 이론 시장 구조 표시 (2026-11-04). 손익비 박스·작도보다 아래에 깐다.
- * - 스윙 이름 HH·HL·LH·LL: 작고 흐리게 (차트를 가리지 않게)
+ * - 스윙 이름 HH·HL·LH·LL은 표시하지 않는다(추세전환의 재료일 뿐, 사용자 요청)
  * - BOS(추세 계속): 깨진 스윙 → 깬 봉까지 흐린 점선
  * - CHoCH(추세 전환): 같은 자리 실선, 상승 전환 초록·하락 전환 빨강, 굵은 이름표 「추세전환 ▲/▼」(사용자 요청, 영어 약어 대신)
  */
@@ -74,18 +74,8 @@ export class StructurePrimitive implements ISeriesPrimitive<Time> {
         ctx.fillText(text, (x1 + x2) / 2, b.dir === 'up' ? y - 3 : y + 3);
       }
 
-      ctx.globalAlpha = 0.75;
-      ctx.font = `500 10px ${THEME.font}`;
-      for (const p of s.points) {
-        if (!p.label) continue;
-        const x = m.toX(p.time);
-        const y = m.toY(p.price);
-        if (x === null || y === null || x < -20 || x > m.width + 20) continue;
-        // 더 높은 고점·더 높은 저점은 초록 기운, 더 낮은 쪽은 빨강 기운 — 글자는 작게
-        ctx.fillStyle = p.label === 'HH' || p.label === 'HL' ? THEME.profit : THEME.loss;
-        ctx.textBaseline = p.kind === 'high' ? 'bottom' : 'top';
-        ctx.fillText(p.label, x, p.kind === 'high' ? y - 6 : y + 6);
-      }
+      // 스윙 이름(HH·HL·LH·LL)은 그리지 않는다 — 추세전환·BOS가 그 결과라 겹치는 정보(2026-11-04 사용자 요청).
+      // 계산(points)은 그대로 둔다
       ctx.restore();
     });
   }
