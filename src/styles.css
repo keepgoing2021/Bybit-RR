@@ -2539,3 +2539,43 @@ button.flow-row.current .flow-name {
 .flow[data-layout='wide'] button.flow-row {
   gap: 4px;
 }
+
+/* 다우 이론 구조 켜기/끄기: 차트 범례 아래 작은 칩 (범례는 마우스를 통과시키므로 이 버튼만 받는다) */
+.struct-toggle {
+  pointer-events: auto;
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+  min-height: 24px;
+  padding: 2px 9px;
+  font-size: 11.5px;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--bg) 80%, transparent);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.struct-toggle .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  border: 1px solid var(--muted);
+}
+
+.struct-toggle.on {
+  color: var(--text);
+}
+
+.struct-toggle.on .dot {
+  background: var(--profit);
+  border-color: var(--profit);
+}
+
+@media (max-width: 640px) {
+  .struct-toggle {
+    min-height: 30px;
+  }
+}

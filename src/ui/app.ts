@@ -139,6 +139,10 @@ function bigAmount(dd: HTMLElement, main: string, subs: string[]): void {
 export const TOUR_KEY = 'rrtool.v1.tourDone';
 
 const DRAW_TOOLS_KEY = 'rrtool.v1.drawtools';
+/** 다우 이론 구조 표시 (HH·HL·LH·LL, BOS·CHoCH) 켜짐 여부. 기본 켜짐, 끄면 'off' */
+export const STRUCTURE_KEY = 'rrtool.v1.structure';
+/** 구조는 SL용 스윙(기본 2봉)보다 크게 본다 — 2봉이면 15분봉에서 CHoCH가 수십 개라 읽을 수 없다(2026-11-04 시안) */
+export const STRUCTURE_BARS = 5;
 const DRAW_COLOR_KEY = 'rrtool.v1.drawcolor';
 
 /** 작도 도구 아이콘 (20×20 선화) */
@@ -161,6 +165,7 @@ export class App {
   private provider!: MarketDataProvider;
   private ui!: UiSelection;
   private settings: AnalysisSettings = DEFAULT_SETTINGS;
+  private structureOn = true;
   private sizing: SizingSettings = DEFAULT_SIZING;
   /** 종목별 작도 */
   private drawingsBySymbol: Record<string, Drawing[]> = {};
@@ -252,6 +257,9 @@ export class App {
       formatTime: (ms) => formatTime(ms),
     });
     this.chart.setDefaultDrawColor(this.loadDrawColor());
+    this.chart.addLegendControl(this.el.structBtn);
+    this.structureOn = this.loadStructureOn();
+    this.applyStructure();
     this.setTheme(this.themeMode, false); // 버튼 글자 (차트는 이미 이 테마 색으로 만들어짐)
     PHONE.addEventListener?.('change', () => this.renderTopbar());
     window.setInterval(() => {
@@ -739,6 +747,14 @@ export class App {
     // 다크/라이트 전환 (누르면 반대 테마로). 폰에서는 아이콘만
     const themeBtn = h('button', { type: 'button', class: 'theme-toggle', 'data-testid': 'theme-toggle' });
     themeBtn.addEventListener('click', () => this.switchTheme(themeBtn));
+    // 다우 이론 구조 켜기/끄기 — 차트 범례(이동평균 아래)에 붙인다. 차트 표시라 차트 위에 있는 게 맞다
+    const structBtn = h(
+      'button',
+      { type: 'button', class: 'struct-toggle', 'data-testid': 'structure-toggle', title: '다우 이론: 고점·저점 이름(HH·HL·LH·LL), 추세 계속(BOS)·추세전환 · 스윙 5봉' },
+      h('span', { class: 'dot', 'aria-hidden': 'true' }),
+      '다우 구조',
+    );
+    structBtn.addEventListener('click', () => this.toggleStructure());
     // 사용 안내 다시 보기 (처음 한 번은 저절로 뜬다)
     const tourBtn = h(
       'button',
@@ -1053,7 +1069,7 @@ export class App {
     });
 
     return {
-      picker, tf, sltf, long, short, status, statusReason, themeBtn,
+      picker, tf, sltf, long, short, status, statusReason, themeBtn, structBtn,
       loadError, chart, empty, card, sideChip, title, entry, times, rr, rrInput, rrLabel, rrChips, rrTp, rrProfitNote, reasons, bufferInput, bufferChips, bufferNote,
       sl, tp, slWhy, sizing, restore, del, settingsInputs, settingRows, modeHelp, settingsSummaryEl, toast, undo, tools, tour, flow,
     };
@@ -1653,7 +1669,37 @@ export class App {
     setText(e.loadError, this.loadError ?? '');
   }
 
+  private loadStructureOn(): boolean {
+    try {
+      return this.d.storage.getItem(STRUCTURE_KEY) !== 'off';
+    } catch {
+      return true;
+    }
+  }
+
+  private toggleStructure(): void {
+    this.structureOn = !this.structureOn;
+    try {
+      this.d.storage.setItem(STRUCTURE_KEY, this.structureOn ? 'on' : 'off');
+    } catch {
+      // 저장 못 해도 이번 화면에는 적용
+    }
+    this.applyStructure();
+  }
+
+  /** 차트에 구조 표시 반영 + 버튼 눌림 상태. 스윙 봉 수가 바뀌면 다시 계산 */
+  private applyStructure(): void {
+    this.chart?.setStructure(this.structureOn ? STRUCTURE_BARS : null);
+    const btn = this.el?.structBtn;
+    if (btn) {
+      btn.setAttribute('aria-pressed', String(this.structureOn));
+      btn.classList.toggle('on', this.structureOn);
+      btn.setAttribute('aria-label', `다우 이론 구조 ${this.structureOn ? '끄기' : '켜기'}`);
+    }
+  }
+
   private renderSettings(): void {
+    this.applyStructure();
     const e = this.el;
     // 바닥 크기: 저장된 값이 세 단계 밖이면(예: 5) 그 값을 고를 수 있게 한 칸 더 (안 보이면 다른 설정을 바꿀 때 1로 바뀌어 버림)
     const swingSel = e.settingsInputs.get('swingBars');

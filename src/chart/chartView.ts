@@ -26,6 +26,8 @@ import { BoxMoveController, DragController, type DragTarget } from './drag';
 import type { PresetLevel } from '../core/presets';
 import { hitTestPreset, type AvgLine, type BoxGeometry, type SplitLine } from './geometry';
 import { RRBoxPrimitive, type OverlayModel } from './rrPrimitive';
+import { StructurePrimitive } from './structurePrimitive';
+import { marketStructure, type MarketStructure } from '../core/structure';
 import { THEME } from './theme';
 
 export interface OverlayInput {
@@ -103,6 +105,9 @@ export class ChartView {
   private selected = false;
   // 작도
   private readonly drawPrim: DrawingsPrimitive;
+  // 다우 이론 구조 (HH·HL·LH·LL, BOS·CHoCH). null이면 끔, 숫자면 스윙 좌우 봉 수
+  private readonly structPrim: StructurePrimitive;
+  private structureBars: number | null = null;
   private drawings: Drawing[] = [];
   private tool: DrawingKind | null = null;
   private draft: Anchor[] = [];
@@ -155,6 +160,8 @@ export class ChartView {
       () => this.drawMapper(),
       (p) => p.toFixed(decimalsOf(this.tickSize)),
     );
+    this.structPrim = new StructurePrimitive(() => this.drawMapper());
+    this.series.attachPrimitive(this.structPrim);
     this.series.attachPrimitive(this.drawPrim);
     this.series.attachPrimitive(this.prim);
     this.series.attachPrimitive(this.countdown);
@@ -234,6 +241,7 @@ export class ChartView {
     this.tfMs = tfMs;
     this.series.setData(candles.map(toBar));
     this.setMaData();
+    this.rebuildStructure();
     if (resetView) this.resetView();
     this.rebuildOverlay();
   }
@@ -260,7 +268,36 @@ export class ChartView {
       this.series.update(toBar(c), kind === 'update');
       this.updateMaFrom(c.time);
     }
-    if (kind !== 'update') this.rebuildOverlay();
+    if (kind !== 'update') {
+      this.rebuildStructure();
+      this.rebuildOverlay();
+    }
+  }
+
+  /** 다우 이론 구조 표시 켜기(스윙 좌우 봉 수) / 끄기(null) */
+  setStructure(bars: number | null): void {
+    this.structureBars = bars;
+    this.rebuildStructure();
+  }
+
+  /** 차트 왼쪽 위 범례(시고저종·이동평균) 아래에 버튼 같은 조작을 붙인다 */
+  addLegendControl(el: HTMLElement): void {
+    this.legendBox.append(el);
+  }
+
+  getStructure(): MarketStructure | null {
+    return this.structPrim.get();
+  }
+
+  /** 마감된 봉만 쓴다 — 진행 중인 봉 종가로 돌파를 미리 잡으면 표시가 생겼다 사라진다 */
+  private rebuildStructure(): void {
+    if (this.structureBars === null || !this.candles.length) {
+      this.structPrim.set(null);
+      return;
+    }
+    const last = this.candles[this.candles.length - 1];
+    const closed = last.confirmed ? this.candles : this.candles.slice(0, -1);
+    this.structPrim.set(marketStructure(closed, this.structureBars));
   }
 
   private setMaData(): void {
