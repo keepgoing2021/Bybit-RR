@@ -9,10 +9,12 @@ import type { Candle } from './types';
  * - 꼬리만 찌르고 종가가 안쪽이면 돌파가 아니다(가짜 돌파 거르기)
  * - 스윙은 오른쪽 bars개가 마감돼 확정된 다음 봉부터만 돌파를 센다 → 지나고 나서 표시가 바뀌지 않는다
  * - 추세전환(CHoCH)은 **강하게 깬 것만** 인정한다(ICT의 MSS, 2026-11-04 사용자 요청):
- *   깬 다리(반대쪽 끝 → 깬 봉) 안에 깬 방향 몸통이 다리 시작 전 평균 몸통의 DISPLACEMENT_BODY배 이상인 봉이 있을 때.
+ *   깬 다리(반대쪽 끝 → 깬 봉) 안에 깬 방향 몸통이 다리 시작 전 평균 몸통의 DISPLACEMENT_BODY배 이상이고
+ *   거래량도 평균의 DISPLACEMENT_VOLUME배 이상인 봉이 있을 때(다우 이론: 거래량이 추세를 확인해야 한다, 사용자 제안).
  *   약하게 깬 역방향 돌파는 표시하지 않고 추세도 바꾸지 않는다(그 레벨은 깨진 것으로 치워 둔다).
  *   추세 방향 돌파(BOS)는 세기와 상관없이 표시한다
- *   기준 고른 근거(BTC·ETH·SOL 15분·1시간 1000봉 실측, 추세전환 개수): 필터 없음 21~25 → 이 규칙 10~17.
+ *   기준 고른 근거(BTC·ETH·SOL 15분·1시간 1000봉 실측, 추세전환 개수): 필터 없음 21~25 → 몸통만 10~17 →
+ *   몸통+거래량 1.5배 7~15. 거래량 2배까지 올리면 4~15로 1시간봉 진짜 전환까지 지나치게 빠졌다
  *   - FVG도 강함으로 치면 거의 모든 다리에 FVG가 있어 걸러지지 않았다
  *   - 깬 봉 근처(3봉)만 보면 더 줄지만(8~14), 큰 장대봉으로 바닥에서 튀어 오른 뒤 천천히 고점을 깬
  *     진짜 전환(11/4 BTC 15분 15시)을 놓쳤다 — MSS는 '깬 움직임 전체'에 강한 봉이 있어야 한다는 뜻
@@ -20,19 +22,27 @@ import type { Candle } from './types';
  * 입력은 **마감된 캔들만**이어야 한다(진행 중인 봉을 넣으면 그 봉 종가로 미리 돌파가 잡힌다).
  */
 export const DISPLACEMENT_BODY = 2.5;
+export const DISPLACEMENT_VOLUME = 1.5;
 /** 평균 몸통을 잴 직전 봉 수 */
 export const DISPLACEMENT_LOOKBACK = 20;
 
-/** j번 봉이 dir 방향으로 '강하게' 움직였나: 깬 방향 몸통이 baseEnd 직전 DISPLACEMENT_LOOKBACK봉 평균 몸통의 DISPLACEMENT_BODY배 이상 */
+/** j번 봉이 dir 방향으로 '강하게' 움직였나: baseEnd 직전 DISPLACEMENT_LOOKBACK봉 평균보다 깬 방향 몸통 DISPLACEMENT_BODY배·거래량 DISPLACEMENT_VOLUME배 이상 */
 export function isDisplacement(candles: readonly Candle[], j: number, dir: 'up' | 'down', baseEnd = j): boolean {
   const c = candles[j];
   const move = dir === 'up' ? c.close - c.open : c.open - c.close;
   const from = Math.max(0, baseEnd - DISPLACEMENT_LOOKBACK);
   if (baseEnd - from < 5 || move <= 0) return false;
   let sum = 0;
-  for (let k = from; k < baseEnd; k++) sum += Math.abs(candles[k].close - candles[k].open);
+  let vol = 0;
+  for (let k = from; k < baseEnd; k++) {
+    sum += Math.abs(candles[k].close - candles[k].open);
+    vol += candles[k].volume;
+  }
   const avg = sum / (baseEnd - from);
-  return avg > 0 && move >= DISPLACEMENT_BODY * avg;
+  const avgVol = vol / (baseEnd - from);
+  // 거래량 정보가 없으면(전부 0) 몸통만 본다
+  const volOk = avgVol <= 0 || c.volume >= DISPLACEMENT_VOLUME * avgVol;
+  return avg > 0 && move >= DISPLACEMENT_BODY * avg && volOk;
 }
 
 /** 깨진 스윙(levelIndex) 이후 반대쪽 끝(위로 깨면 최저점, 아래로 깨면 최고점)부터 깬 봉 i까지에 강한 봉이 있나 */

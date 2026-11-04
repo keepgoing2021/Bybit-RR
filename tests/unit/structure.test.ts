@@ -2,12 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { isDisplacement, marketStructure } from '../../src/core/structure';
 import type { Candle } from '../../src/core/types';
 
-// 종가 경로로 캔들을 만든다 — 몸통만 있는 캔들(꼬리 없음)이라 고가·저가·종가 관계가 단순하다
+// 종가 경로로 캔들을 만든다 — 몸통만 있는 캔들(꼬리 없음)이라 고가·저가·종가 관계가 단순하다.
+// 거래량은 몸통 크기만큼(최소 1) — 큰 봉에 거래량이 붙는 보통 경우
 const MIN = 60_000;
 function path(closes: number[], wicks: Record<number, { high?: number; low?: number }> = {}): Candle[] {
   return closes.map((c, i) => {
     const open = i === 0 ? c : closes[i - 1];
-    return { time: i * MIN, open, close: c, high: Math.max(open, c, wicks[i]?.high ?? -Infinity), low: Math.min(open, c, wicks[i]?.low ?? Infinity), volume: 1, confirmed: true };
+    return { time: i * MIN, open, close: c, high: Math.max(open, c, wicks[i]?.high ?? -Infinity), low: Math.min(open, c, wicks[i]?.low ?? Infinity), volume: Math.max(1, Math.abs(c - open)), confirmed: true };
   });
 }
 
@@ -71,7 +72,7 @@ describe('marketStructure — 다우 이론 HH·HL·LH·LL과 BOS·CHoCH', () =>
     const c = path([10, 12, 14, 12, 11, 13, 16, 14, 13, 15, 18, 16, 15, 14, 13.05, 12.9, 13.6]).map((k, i) =>
       i >= 11 ? { ...k, high: Math.max(k.open, k.close) + 1, low: Math.min(k.open, k.close) - (i === 15 ? 0 : 1) } : k,
     );
-    c[14] = { ...c[14], open: 18, close: 13.05, high: 18.2, low: 13 };
+    c[14] = { ...c[14], open: 18, close: 13.05, high: 18.2, low: 13, volume: 5 };
     const { breaks, trend } = marketStructure(c, 1);
     expect(breaks.at(-1)).toMatchObject({ type: 'CHoCH', dir: 'down', index: 15 });
     expect(trend).toBe('down');
@@ -81,5 +82,12 @@ describe('marketStructure — 다우 이론 HH·HL·LH·LL과 BOS·CHoCH', () =>
     expect(isDisplacement(path([10, 11, 12, 13, 14, 15, 16, 18.6]), 7, 'up')).toBe(true);
     expect(isDisplacement(path([10, 11, 12, 13, 14, 15, 16, 18]), 7, 'up')).toBe(false);
     expect(isDisplacement(path([10, 11, 12, 13, 14, 15, 16, 18.6]), 7, 'down')).toBe(false);
+  });
+
+  it('몸통이 커도 거래량이 평소 수준이면 강하지 않다(거래량이 추세를 확인해야 한다)', () => {
+    const c = path([10, 11, 12, 13, 14, 15, 16, 18.6]);
+    expect(isDisplacement(c, 7, 'up')).toBe(true);
+    c[7] = { ...c[7], volume: 1.2 }; // 평균 1의 1.2배
+    expect(isDisplacement(c, 7, 'up')).toBe(false);
   });
 });
