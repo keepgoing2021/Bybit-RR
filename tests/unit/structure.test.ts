@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { marketStructure } from '../../src/core/structure';
+import { isDisplacement, marketStructure } from '../../src/core/structure';
 import type { Candle } from '../../src/core/types';
 
 // 종가 경로로 캔들을 만든다 — 몸통만 있는 캔들(꼬리 없음)이라 고가·저가·종가 관계가 단순하다
@@ -12,8 +12,8 @@ function path(closes: number[], wicks: Record<number, { high?: number; low?: num
 }
 
 describe('marketStructure — 다우 이론 HH·HL·LH·LL과 BOS·CHoCH', () => {
-  // 상승: 고점 14 → 16 → 18, 저점 11 → 13 … 그다음 마지막 저점(13)을 종가로 깨며 하락 전환
-  const up = path([10, 12, 14, 12, 11, 13, 16, 14, 13, 15, 18, 16, 15, 12, 10]);
+  // 상승: 고점 14 → 16 → 18, 저점 11 → 13 … 그다음 마지막 저점(13)을 큰 음봉(15→10, 평균 몸통의 2.5배 이상)으로 깨며 하락 전환
+  const up = path([10, 12, 14, 12, 11, 13, 16, 14, 13, 15, 18, 16, 15, 10, 9]);
 
   it('고점은 HH/LH, 저점은 HL/LL로 이름 붙인다(첫 고점·저점은 비교할 게 없어 이름 없음)', () => {
     const { points } = marketStructure(up, 1);
@@ -41,7 +41,7 @@ describe('marketStructure — 다우 이론 HH·HL·LH·LL과 BOS·CHoCH', () =>
   });
 
   it('하락 추세(LH·LL) 중 마지막 고점을 종가로 넘으면 CHoCH 상승', () => {
-    const down = path([20, 18, 16, 18, 19, 17, 14, 16, 17, 15, 12, 14, 15, 18, 20]);
+    const down = path([20, 18, 16, 18, 19, 17, 14, 16, 17, 15, 12, 14, 15, 20, 21]);
     const { breaks, points } = marketStructure(down, 1);
     expect(points.filter((p) => p.kind === 'high').map((p) => p.label)).toEqual([null, 'LH']);
     expect(breaks.at(-1)).toMatchObject({ type: 'CHoCH', dir: 'up', price: 17 });
@@ -52,5 +52,34 @@ describe('marketStructure — 다우 이론 HH·HL·LH·LL과 BOS·CHoCH', () =>
     expect(up[b.fromIndex].low).toBe(13);
     expect(up[b.index].close).toBeLessThan(13);
     expect(b.index).toBeGreaterThan(b.fromIndex);
+  });
+
+  it('추세전환은 강하게 깬 것만 — 몸통이 평소보다 작게 깨면 표시도 없고 추세도 그대로 (MSS)', () => {
+    // 상승 추세(BOS 위로 두 번) 뒤, 마지막 저점 13을 몸통 0.6짜리 작은 봉으로 깸 (평균 몸통 ~2).
+    // 다음 봉이 13.6까지 올라와 빈 구간(FVG)도 없다
+    // 실제 캔들처럼 꼬리를 붙인다(꼬리 없는 계단식 봉은 봉마다 빈 구간이 생겨 전부 '강함'이 된다)
+    const c = path([10, 12, 14, 12, 11, 13, 16, 14, 13, 15, 18, 16, 15, 14, 13.5, 12.9, 13.6]).map((k, i) =>
+      i >= 11 ? { ...k, high: Math.max(k.open, k.close) + 1, low: Math.min(k.open, k.close) - (i === 15 ? 0 : 1) } : k,
+    );
+    const { breaks, trend } = marketStructure(c, 1);
+    expect(breaks.some((b) => b.type === 'CHoCH')).toBe(false);
+    expect(trend).toBe('up');
+  });
+
+  it('깨는 움직임 안에 큰 봉이 있으면(급하게 떨어진 뒤 작은 봉으로 깸) 강하게 깬 것으로 본다', () => {
+    // 꼬리 붙인 약한 경우와 같지만, 깨기 직전 봉(14번)을 큰 음봉으로
+    const c = path([10, 12, 14, 12, 11, 13, 16, 14, 13, 15, 18, 16, 15, 14, 13.05, 12.9, 13.6]).map((k, i) =>
+      i >= 11 ? { ...k, high: Math.max(k.open, k.close) + 1, low: Math.min(k.open, k.close) - (i === 15 ? 0 : 1) } : k,
+    );
+    c[14] = { ...c[14], open: 18, close: 13.05, high: 18.2, low: 13 };
+    const { breaks, trend } = marketStructure(c, 1);
+    expect(breaks.at(-1)).toMatchObject({ type: 'CHoCH', dir: 'down', index: 15 });
+    expect(trend).toBe('down');
+  });
+
+  it('isDisplacement: 깬 방향 몸통이 평균의 2.5배 이상이면 강함, 반대 방향 봉은 아님', () => {
+    expect(isDisplacement(path([10, 11, 12, 13, 14, 15, 16, 18.6]), 7, 'up')).toBe(true);
+    expect(isDisplacement(path([10, 11, 12, 13, 14, 15, 16, 18]), 7, 'up')).toBe(false);
+    expect(isDisplacement(path([10, 11, 12, 13, 14, 15, 16, 18.6]), 7, 'down')).toBe(false);
   });
 });

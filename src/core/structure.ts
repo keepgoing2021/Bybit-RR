@@ -8,8 +8,43 @@ import type { Candle } from './types';
  *   (상승 중 마지막 저점이 깨지면 CHoCH 하락, 하락 중 마지막 고점이 깨지면 CHoCH 상승)
  * - 꼬리만 찌르고 종가가 안쪽이면 돌파가 아니다(가짜 돌파 거르기)
  * - 스윙은 오른쪽 bars개가 마감돼 확정된 다음 봉부터만 돌파를 센다 → 지나고 나서 표시가 바뀌지 않는다
+ * - 추세전환(CHoCH)은 **강하게 깬 것만** 인정한다(ICT의 MSS, 2026-11-04 사용자 요청):
+ *   깬 다리(반대쪽 끝 → 깬 봉) 안에 깬 방향 몸통이 다리 시작 전 평균 몸통의 DISPLACEMENT_BODY배 이상인 봉이 있을 때.
+ *   약하게 깬 역방향 돌파는 표시하지 않고 추세도 바꾸지 않는다(그 레벨은 깨진 것으로 치워 둔다).
+ *   추세 방향 돌파(BOS)는 세기와 상관없이 표시한다
+ *   기준 고른 근거(BTC·ETH·SOL 15분·1시간 1000봉 실측, 추세전환 개수): 필터 없음 21~25 → 이 규칙 10~17.
+ *   - FVG도 강함으로 치면 거의 모든 다리에 FVG가 있어 걸러지지 않았다
+ *   - 깬 봉 근처(3봉)만 보면 더 줄지만(8~14), 큰 장대봉으로 바닥에서 튀어 오른 뒤 천천히 고점을 깬
+ *     진짜 전환(11/4 BTC 15분 15시)을 놓쳤다 — MSS는 '깬 움직임 전체'에 강한 봉이 있어야 한다는 뜻
+ *   - 평균은 다리 시작 전 봉으로 잰다: 다리 안의 큰 봉이 평균을 키워 스스로를 가리지 않게
  * 입력은 **마감된 캔들만**이어야 한다(진행 중인 봉을 넣으면 그 봉 종가로 미리 돌파가 잡힌다).
  */
+export const DISPLACEMENT_BODY = 2.5;
+/** 평균 몸통을 잴 직전 봉 수 */
+export const DISPLACEMENT_LOOKBACK = 20;
+
+/** j번 봉이 dir 방향으로 '강하게' 움직였나: 깬 방향 몸통이 baseEnd 직전 DISPLACEMENT_LOOKBACK봉 평균 몸통의 DISPLACEMENT_BODY배 이상 */
+export function isDisplacement(candles: readonly Candle[], j: number, dir: 'up' | 'down', baseEnd = j): boolean {
+  const c = candles[j];
+  const move = dir === 'up' ? c.close - c.open : c.open - c.close;
+  const from = Math.max(0, baseEnd - DISPLACEMENT_LOOKBACK);
+  if (baseEnd - from < 5 || move <= 0) return false;
+  let sum = 0;
+  for (let k = from; k < baseEnd; k++) sum += Math.abs(candles[k].close - candles[k].open);
+  const avg = sum / (baseEnd - from);
+  return avg > 0 && move >= DISPLACEMENT_BODY * avg;
+}
+
+/** 깨진 스윙(levelIndex) 이후 반대쪽 끝(위로 깨면 최저점, 아래로 깨면 최고점)부터 깬 봉 i까지에 강한 봉이 있나 */
+function breakIsStrong(candles: readonly Candle[], levelIndex: number, i: number, dir: 'up' | 'down'): boolean {
+  let start = levelIndex;
+  for (let j = levelIndex + 1; j <= i; j++) {
+    if (dir === 'up' ? candles[j].low < candles[start].low : candles[j].high > candles[start].high) start = j;
+  }
+  for (let j = start; j <= i; j++) if (isDisplacement(candles, j, dir, start)) return true;
+  return false;
+}
+
 export type StructLabel = 'HH' | 'LH' | 'HL' | 'LL';
 export type Trend = 'up' | 'down';
 
@@ -71,13 +106,19 @@ export function marketStructure(candles: readonly Candle[], bars: number): Marke
     const c = candles[i];
     // 확정 봉 자체는 아직 돌파 판단에 쓰지 않는다 — 확정된 다음 봉부터
     if (activeHigh && c.close > activeHigh.price) {
-      breaks.push({ type: trend === 'down' ? 'CHoCH' : 'BOS', dir: 'up', price: activeHigh.price, fromIndex: activeHigh.index, fromTime: activeHigh.time, index: i, time: c.time });
-      trend = 'up';
+      const against = trend === 'down';
+      if (!against || breakIsStrong(candles, activeHigh.index, i, 'up')) {
+        breaks.push({ type: against ? 'CHoCH' : 'BOS', dir: 'up', price: activeHigh.price, fromIndex: activeHigh.index, fromTime: activeHigh.time, index: i, time: c.time });
+        trend = 'up';
+      }
       activeHigh = null;
     }
     if (activeLow && c.close < activeLow.price) {
-      breaks.push({ type: trend === 'up' ? 'CHoCH' : 'BOS', dir: 'down', price: activeLow.price, fromIndex: activeLow.index, fromTime: activeLow.time, index: i, time: c.time });
-      trend = 'down';
+      const against = trend === 'up';
+      if (!against || breakIsStrong(candles, activeLow.index, i, 'down')) {
+        breaks.push({ type: against ? 'CHoCH' : 'BOS', dir: 'down', price: activeLow.price, fromIndex: activeLow.index, fromTime: activeLow.time, index: i, time: c.time });
+        trend = 'down';
+      }
       activeLow = null;
     }
     while (next < byConfirm.length && byConfirm[next].confirmIndex <= i) {
