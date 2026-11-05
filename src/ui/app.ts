@@ -46,6 +46,7 @@ import { h, setText, show } from './dom';
 import { compactUsdt, formatClock, formatPct, formatTime, settingsSummary, SL_MODE_HELP, SL_MODE_NAMES, slRationale, SWING_LEVELS, swingLevelName, tfName, tpRationale } from './format';
 import { HUNT_FAR_PCT, HUNT_NEAR_PCT, huntTip, huntZone, inHuntZone } from '../core/huntZone';
 import { FlowBoard } from './flowBoard';
+import { WatchList } from './watchList';
 import { icon, type IconName } from './icons';
 import { SymbolPicker } from './symbolPicker';
 import { Tour, type TourStep } from './tour';
@@ -106,6 +107,8 @@ function slBandLabel(a: AutoSL, side: Side, chartTf: Timeframe): string {
 }
 
 /** 폰 화면 (styles.css의 640px 구간과 같은 기준) */
+/** 종목 리스트가 화면을 덮는 폭 (styles.css @media 900px와 같게) */
+const NARROW = typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(max-width: 900px)') : ({ matches: false } as MediaQueryList);
 const PHONE = typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(max-width: 640px)') : ({ matches: false } as MediaQueryList);
 
 /** 화면 테마 (다크 = 기본, 검정 바탕). index.html의 첫 스크립트도 같은 키를 읽어 깜빡임 없이 연다 */
@@ -141,6 +144,8 @@ export const TOUR_KEY = 'rrtool.v1.tourDone';
 const DRAW_TOOLS_KEY = 'rrtool.v1.drawtools';
 /** 다우 이론 구조 표시 (HH·HL·LH·LL, BOS·CHoCH) 켜짐 여부. 기본 켜짐, 끄면 'off' */
 export const STRUCTURE_KEY = 'rrtool.v1.structure';
+/** 종목 리스트 열림 여부 ('open'/'closed'). 없으면 넓은 화면(1500px+)에서만 연다 */
+export const WATCH_KEY = 'rrtool.v1.watch';
 /** 구조는 SL용 스윙(기본 2봉)보다 크게 본다 — 2봉이면 15분봉에서 CHoCH가 수십 개라 읽을 수 없다(2026-11-04 시안) */
 export const STRUCTURE_BARS = 5;
 const DRAW_COLOR_KEY = 'rrtool.v1.drawcolor';
@@ -165,6 +170,7 @@ export class App {
   private provider!: MarketDataProvider;
   private ui!: UiSelection;
   private settings: AnalysisSettings = DEFAULT_SETTINGS;
+  private watchOpen = false;
   private structureOn = true;
   private sizing: SizingSettings = DEFAULT_SIZING;
   /** 종목별 작도 */
@@ -258,6 +264,7 @@ export class App {
     });
     this.chart.setDefaultDrawColor(this.loadDrawColor());
     this.chart.addLegendControl(this.el.structBtn);
+    this.setWatchOpen(this.loadWatchOpen(), false);
     this.structureOn = this.loadStructureOn();
     this.applyStructure();
     this.setTheme(this.themeMode, false); // 버튼 글자 (차트는 이미 이 테마 색으로 만들어짐)
@@ -336,6 +343,7 @@ export class App {
     if (!this.symbols.some((s) => s.symbol === this.ui.symbol)) this.ui.symbol = this.symbols[0]?.symbol ?? '';
     this.el.picker.setSymbols(this.symbols);
     this.el.flow.start(this.provider, this.symbols.map((s) => s.symbol));
+    this.el.watch.setSymbols(this.symbols);
     await this.loadMarket();
   }
 
@@ -777,6 +785,20 @@ export class App {
       this.ui.symbol = symbol;
       void this.loadMarket();
     });
+    // 종목 리스트: 줄을 누르면 그 종목으로. 폰에서는 화면을 덮는 목록이라 고르면 닫는다
+    const watch = new WatchList(this.d.storage, () => this.provider.fetchTickers(), (symbol) => {
+      if (NARROW.matches) this.setWatchOpen(false);
+      if (symbol === this.ui.symbol) return;
+      this.ui.symbol = symbol;
+      void this.loadMarket();
+    }, () => this.setWatchOpen(false));
+    const watchBtn = h(
+      'button',
+      { type: 'button', class: 'theme-toggle watch-toggle', 'data-testid': 'watch-toggle', title: '종목 리스트 열기·닫기' },
+      h('span', { class: 'icon', 'aria-hidden': 'true' }, '☰'),
+      h('span', { class: 'label' }, '종목'),
+    );
+    watchBtn.addEventListener('click', () => this.setWatchOpen(!this.watchOpen));
     const field = (label: string, control: HTMLElement) => h('label', { class: 'field' }, h('span', {}, label), control);
     const sizing = this.buildSizing(field);
     const topbar = h(
@@ -793,7 +815,7 @@ export class App {
       field('차트', tf),
       field('SL 기준', sltf),
       h('div', { class: 'sides' }, long, short),
-      h('div', { class: 'status' }, status, statusReason, tourBtn, themeBtn),
+      h('div', { class: 'status' }, status, statusReason, watchBtn, tourBtn, themeBtn),
       sizing.fold,
       sizing.bar,
       flow.root,
@@ -994,7 +1016,7 @@ export class App {
       }
       if (!open) this.chart.setTool(null);
     });
-    const layout = h('main', { class: 'layout' }, chartWrap, panel);
+    const layout = h('main', { class: 'layout' }, chartWrap, watch.root, panel);
 
     const toast = h('div', { class: 'toast', 'data-testid': 'toast', role: 'status', hidden: true });
     // 되돌리기 알림: 문구 + 되돌리기 버튼 + 5초 줄어드는 막대
@@ -1071,7 +1093,7 @@ export class App {
     return {
       picker, tf, sltf, long, short, status, statusReason, themeBtn, structBtn,
       loadError, chart, empty, card, sideChip, title, entry, times, rr, rrInput, rrLabel, rrChips, rrTp, rrProfitNote, reasons, bufferInput, bufferChips, bufferNote,
-      sl, tp, slWhy, sizing, restore, del, settingsInputs, settingRows, modeHelp, settingsSummaryEl, toast, undo, tools, tour, flow,
+      sl, tp, slWhy, sizing, restore, del, settingsInputs, settingRows, modeHelp, settingsSummaryEl, toast, undo, tools, tour, flow, watch, watchBtn, layout,
     };
   }
 
@@ -1655,6 +1677,7 @@ export class App {
     const e = this.el;
     e.picker.setValue(this.ui.symbol);
     e.flow.setCurrent(this.ui.symbol);
+    e.watch.setCurrent(this.ui.symbol);
     e.tf.value = this.ui.timeframe;
     // SL 기준: 모든 SL 방식에서 고를 수 있다. 차트와 같은 시간봉에는 '(차트)' 표시
     // 폰은 칸이 좁아 차트와 같은 시간봉을 '차트와 같음'으로 짧게 (옆 칸이 차트 시간봉)
@@ -1667,6 +1690,34 @@ export class App {
     this.renderSizingControls(false);
     show(e.loadError, this.loadError !== null);
     setText(e.loadError, this.loadError ?? '');
+  }
+
+  private loadWatchOpen(): boolean {
+    let v: string | null = null;
+    try {
+      v = this.d.storage.getItem(WATCH_KEY);
+    } catch {
+      // 기본값
+    }
+    if (NARROW.matches) return false;
+    if (v === 'open' || v === 'closed') return v === 'open';
+    return window.innerWidth >= 1500;
+  }
+
+  /** 종목 리스트 열기·닫기. 넓은 화면은 차트와 계산기 사이 칸, 폰은 화면을 덮는 목록 */
+  private setWatchOpen(open: boolean, persist = true): void {
+    this.watchOpen = open;
+    this.el.watch.setOpen(open);
+    this.el.layout.dataset.watch = open ? 'open' : 'closed';
+    this.el.watchBtn.setAttribute('aria-pressed', String(open));
+    this.el.watchBtn.classList.toggle('on', open);
+    if (persist && !NARROW.matches) {
+      try {
+        this.d.storage.setItem(WATCH_KEY, open ? 'open' : 'closed');
+      } catch {
+        // 저장 못 해도 이번 화면에는 적용
+      }
+    }
   }
 
   private loadStructureOn(): boolean {
