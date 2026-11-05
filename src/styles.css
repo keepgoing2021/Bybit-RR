@@ -2904,3 +2904,55 @@ button.flow-row.current .flow-name {
     display: block;
   }
 }
+
+/* 종목 리스트 손잡이: 차트 오른쪽 끝 위쪽에 붙은 작은 탭 */
+.watch-handle {
+  position: absolute;
+  top: 44px;
+  right: 0;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 3px;
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-right: 0;
+  border-radius: 6px 0 0 6px;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  opacity: 0.85;
+}
+
+.watch-handle:hover {
+  color: var(--text);
+  opacity: 1;
+}
+
+.watch-handle-arrow::before {
+  content: '‹';
+  font-size: 15px;
+  line-height: 1;
+}
+
+.watch-handle[aria-expanded='true'] .watch-handle-arrow::before {
+  content: '›';
+}
+
+.watch-handle-label {
+  writing-mode: vertical-rl;
+  letter-spacing: 1px;
+}
+
+.watch-handle[aria-expanded='true'] .watch-handle-label {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .watch-handle {
+    display: none;
+  }
+}

@@ -1017,6 +1017,15 @@ export class App {
       }
       if (!open) this.chart.setTool(null);
     });
+    // 종목 리스트 접기·펼치기 손잡이: 차트 오른쪽 가장자리 (열림 ›, 닫힘 ‹ 종목). 좁은 화면은 위쪽 「☰ 종목」 버튼만
+    const watchHandle = h(
+      'button',
+      { type: 'button', class: 'watch-handle', 'data-testid': 'watch-handle' },
+      h('span', { class: 'watch-handle-arrow', 'aria-hidden': 'true' }),
+      h('span', { class: 'watch-handle-label' }, '종목'),
+    );
+    watchHandle.addEventListener('click', () => this.setWatchOpen(!this.watchOpen));
+    chartWrap.append(watchHandle);
     const layout = h('main', { class: 'layout' }, chartWrap, watch.root, panel);
 
     const toast = h('div', { class: 'toast', 'data-testid': 'toast', role: 'status', hidden: true });
@@ -1094,7 +1103,7 @@ export class App {
     return {
       picker, tf, sltf, long, short, status, statusReason, themeBtn, structBtn,
       loadError, chart, empty, card, sideChip, title, entry, times, rr, rrInput, rrLabel, rrChips, rrTp, rrProfitNote, reasons, bufferInput, bufferChips, bufferNote,
-      sl, tp, slWhy, sizing, restore, del, settingsInputs, settingRows, modeHelp, settingsSummaryEl, toast, undo, tools, tour, flow, watch, watchBtn, layout,
+      sl, tp, slWhy, sizing, restore, del, settingsInputs, settingRows, modeHelp, settingsSummaryEl, toast, undo, tools, tour, flow, watch, watchBtn, watchHandle, layout,
     };
   }
 
@@ -1712,6 +1721,9 @@ export class App {
     this.el.layout.dataset.watch = open ? 'open' : 'closed';
     this.el.watchBtn.setAttribute('aria-pressed', String(open));
     this.el.watchBtn.classList.toggle('on', open);
+    this.el.watchHandle.setAttribute('aria-expanded', String(open));
+    this.el.watchHandle.title = open ? '종목 리스트 접기' : '종목 리스트 펼치기';
+    this.el.watchHandle.setAttribute('aria-label', this.el.watchHandle.title);
     if (persist && !NARROW.matches) {
       try {
         this.d.storage.setItem(WATCH_KEY, open ? 'open' : 'closed');
