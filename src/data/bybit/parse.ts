@@ -44,6 +44,9 @@ export function parseInstruments(list: unknown[]): SymbolInfo[] {
     if (qtyStep !== undefined) info.qtyStep = qtyStep;
     if (minQty !== undefined) info.minQty = minQty;
     if (minNotional !== undefined) info.minNotional = minNotional;
+    // 무기한은 평소 deliveryTime이 '0'. 종료가 공지되면 그 시각이 들어온다
+    const delist = pos(r.deliveryTime);
+    if (delist !== undefined) info.delistAt = delist;
     out.push(info);
   }
   return out;

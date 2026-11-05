@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildGroups, nextSort, parseFavorites, parseSort, sortRows, tickDirection, toggleFavorite, type WatchRow } from '../../src/core/watchlist';
+import { buildGroups, chosung, matchKorean, nextSort, parseFavorites, parseSort, sortRows, tickDirection, toggleFavorite, type WatchRow } from '../../src/core/watchlist';
 import type { SymbolInfo, TickerStat } from '../../src/core/types';
 
 const sym = (symbol: string) => ({ symbol, tickSize: 0.01 }) as SymbolInfo;
@@ -56,5 +56,19 @@ describe('종목 리스트', () => {
     expect(toggleFavorite(['A1', 'B2'], 'A1')).toEqual(['B2']);
     expect(parseSort('{"key":"change","desc":false}')).toEqual({ key: 'change', desc: false });
     expect(parseSort('{"key":"x","desc":1}')).toEqual({ key: 'turnover', desc: true });
+  });
+
+  it('한글·초성 검색과 김프 정렬', () => {
+    expect(chosung('비트코인')).toBe('ㅂㅌㅋㅇ');
+    expect(matchKorean('비트코인', 'ㅂㅌ')).toBe(true);
+    expect(matchKorean('비트코인', '코인')).toBe(true);
+    expect(matchKorean('이더리움', 'ㅂㅌ')).toBe(false);
+    expect(matchKorean(undefined, 'ㅂ')).toBe(false);
+    const symbols = ['BTCUSDT', 'ETHUSDT', 'ETCUSDT'].map(sym);
+    const ko: Record<string, string> = { BTCUSDT: '비트코인', ETHUSDT: '이더리움', ETCUSDT: '이더리움클래식' };
+    const prem: Record<string, number> = { BTCUSDT: 0.5, ETHUSDT: 1.2 };
+    const g = buildGroups(symbols, new Map(), [], 'ㅇㄷ', { key: 'premium', desc: true }, (s) => ko[s], (s) => prem[s] ?? null);
+    expect(g.rest.map((r) => r.symbol)).toEqual(['ETHUSDT', 'ETCUSDT']); // 김프 없는 ETC는 뒤
+    expect(parseSort('{"key":"premium","desc":true}')).toEqual({ key: 'premium', desc: true });
   });
 });

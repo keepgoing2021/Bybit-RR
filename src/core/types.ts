@@ -36,6 +36,8 @@ export interface SymbolInfo {
   minQty?: number;
   /** 최소 주문 금액 USDT (lotSizeFilter.minNotionalValue) */
   minNotional?: number;
+  /** Bybit가 정한 거래 종료(상장폐지) 시각 ms. 정해지지 않았으면 없음 (instruments-info deliveryTime) */
+  delistAt?: number;
 }
 
 export interface PriceTick {

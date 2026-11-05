@@ -2582,7 +2582,7 @@ button.flow-row.current .flow-name {
 
 /* 종목 리스트 (2026-11-05): 넓은 화면은 차트와 계산기 사이 칸, 폰은 화면을 덮는 목록 */
 .layout[data-watch='open'] {
-  grid-template-columns: minmax(0, 1fr) 300px clamp(360px, 28vw, 400px);
+  grid-template-columns: minmax(0, 1fr) 360px clamp(360px, 28vw, 400px);
 }
 
 .watch {
@@ -2626,7 +2626,7 @@ button.flow-row.current .flow-name {
 
 .watch-grid {
   display: grid;
-  grid-template-columns: 20px minmax(0, 1.1fr) minmax(0, 1fr) 60px 56px;
+  grid-template-columns: 18px minmax(0, 1.25fr) minmax(0, 0.9fr) 54px 44px 50px;
   align-items: center;
   column-gap: 6px;
 }
@@ -2741,9 +2741,100 @@ button.flow-row.current .flow-name {
   white-space: nowrap;
 }
 
-.watch-name small {
+.watch-name {
+  gap: 6px;
+  align-items: center;
+}
+
+.watch-icon {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--ink-10);
   color: var(--muted);
-  font-size: 10px;
+  font-size: 9px;
+  font-weight: 700;
+  overflow: hidden;
+}
+
+.watch-icon img {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+
+.watch-label {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.15;
+}
+
+.watch-line {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.watch-line b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.watch-ko {
+  color: var(--muted);
+  font-size: 10.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.watch-ko:empty {
+  display: none;
+}
+
+.watch-tags {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.watch-tag {
+  padding: 0 4px;
+  border-radius: 3px;
+  font-size: 9.5px;
+  font-weight: 600;
+  line-height: 15px;
+  white-space: nowrap;
+}
+
+.watch-tag.warn,
+.watch-tag.delist {
+  color: #fff;
+  background: var(--loss);
+}
+
+.watch-tag.caution {
+  color: var(--warning);
+  border: 1px solid var(--warning);
+}
+
+.watch-premium {
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.watch-premium[data-sign='up'] {
+  color: var(--profit);
+}
+
+.watch-premium[data-sign='down'] {
+  color: var(--loss);
 }
 
 .watch-price,

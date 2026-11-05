@@ -47,6 +47,7 @@ import { compactUsdt, formatClock, formatPct, formatTime, settingsSummary, SL_MO
 import { HUNT_FAR_PCT, HUNT_NEAR_PCT, huntTip, huntZone, inHuntZone } from '../core/huntZone';
 import { FlowBoard } from './flowBoard';
 import { WatchList } from './watchList';
+import { loadCoinMeta, loadUpbitPrices } from '../data/coinMeta';
 import { icon, type IconName } from './icons';
 import { SymbolPicker } from './symbolPicker';
 import { Tour, type TourStep } from './tour';
@@ -791,7 +792,7 @@ export class App {
       if (symbol === this.ui.symbol) return;
       this.ui.symbol = symbol;
       void this.loadMarket();
-    }, () => this.setWatchOpen(false));
+    }, () => this.setWatchOpen(false), () => loadCoinMeta(this.d.storage), () => loadUpbitPrices());
     const watchBtn = h(
       'button',
       { type: 'button', class: 'theme-toggle watch-toggle', 'data-testid': 'watch-toggle', title: '종목 리스트 열기·닫기' },

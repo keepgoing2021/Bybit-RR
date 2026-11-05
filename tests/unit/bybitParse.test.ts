@@ -55,6 +55,16 @@ describe('parseInstruments', () => {
       { symbol: 'PEPEUSDT', tickSize: 0.0000001 },
     ]);
   });
+  it('reads a scheduled delisting time (deliveryTime) — perpetuals normally have \'0\'', () => {
+    const list = [
+      { symbol: 'BTCUSDT', contractType: 'LinearPerpetual', status: 'Trading', quoteCoin: 'USDT', priceFilter: { tickSize: '0.1' }, deliveryTime: '0' },
+      { symbol: 'BYEUSDT', contractType: 'LinearPerpetual', status: 'Trading', quoteCoin: 'USDT', priceFilter: { tickSize: '0.1' }, deliveryTime: '1794000000000' },
+    ];
+    expect(parseInstruments(list)).toEqual([
+      { symbol: 'BTCUSDT', tickSize: 0.1 },
+      { symbol: 'BYEUSDT', tickSize: 0.1, delistAt: 1794000000000 },
+    ]);
+  });
 });
 
 describe('parseWsMessage', () => {

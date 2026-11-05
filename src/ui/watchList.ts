@@ -1,6 +1,7 @@
 import { formatPrice } from '../core/price';
 import { formatTurnover } from '../core/symbolSearch';
 import type { SymbolInfo, TickerStat } from '../core/types';
+import { bybitBase, kimchiPremium, type CoinMeta } from '../core/coinMeta';
 import { buildGroups, nextSort, parseFavorites, parseSort, tickDirection, toggleFavorite, type WatchRow, type WatchSort, type WatchSortKey } from '../core/watchlist';
 import type { StorageLike } from '../core/persistence';
 import { h, setText, show } from './dom';
@@ -15,6 +16,7 @@ const COLS: [WatchSortKey, string][] = [
   ['symbol', '종목'],
   ['price', '현재가'],
   ['change', '변동%'],
+  ['premium', '김프'],
   ['turnover', '거래대금'],
 ];
 
@@ -23,7 +25,12 @@ interface RowEls {
   star: HTMLButtonElement;
   price: HTMLSpanElement;
   change: HTMLSpanElement;
+  premium: HTMLSpanElement;
   turnover: HTMLSpanElement;
+  icon: HTMLSpanElement;
+  ko: HTMLElement;
+  tags: HTMLSpanElement;
+  metaKey?: string;
   last?: number;
   flashTimer?: number;
 }
@@ -41,7 +48,11 @@ export class WatchList {
   private readonly rows = new Map<string, RowEls>();
   private symbols: SymbolInfo[] = [];
   private ticks = new Map<string, number>();
+  private infos = new Map<string, SymbolInfo>();
   private stats = new Map<string, TickerStat>();
+  private meta = new Map<string, CoinMeta>();
+  private krw = new Map<string, number>();
+  private metaLoaded = false;
   private favorites: string[];
   private sort: WatchSort;
   private folded: Set<string>;
@@ -55,11 +66,15 @@ export class WatchList {
     private readonly loadStats: () => Promise<TickerStat[]>,
     private readonly onPick: (symbol: string) => void,
     private readonly onClose: () => void = () => {},
+    /** 업비트 한글 이름·유의·주의 + 코인게코 아이콘 (한 번만) */
+    private readonly loadMeta: () => Promise<Map<string, CoinMeta>> = async () => new Map(),
+    /** 업비트 원화 가격 (김프) — 실패해도 Bybit 시세는 그대로 */
+    private readonly loadKrw: () => Promise<Map<string, number>> = async () => new Map(),
   ) {
     this.favorites = parseFavorites(read(storage, FAV_KEY));
     this.sort = parseSort(read(storage, SORT_KEY));
     this.folded = new Set((read(storage, FOLD_KEY) ?? '').split(',').filter(Boolean));
-    this.search = h('input', { type: 'search', class: 'watch-search', placeholder: '종목 찾기', 'aria-label': '종목 리스트에서 찾기', autocomplete: 'off', spellcheck: 'false', 'data-testid': 'watch-search' });
+    this.search = h('input', { type: 'search', class: 'watch-search', placeholder: '종목 찾기 · 한글·초성', 'aria-label': '종목 리스트에서 찾기', autocomplete: 'off', spellcheck: 'false', 'data-testid': 'watch-search' });
     this.search.addEventListener('input', () => this.render());
     this.status = h('span', { class: 'watch-status', 'data-testid': 'watch-status' });
     const cols = h('div', { class: 'watch-cols watch-grid' }, h('span', { 'aria-hidden': 'true' }));
@@ -124,6 +139,7 @@ export class WatchList {
   setSymbols(list: SymbolInfo[]): void {
     this.symbols = list;
     this.ticks = new Map(list.map((s) => [s.symbol, s.tickSize]));
+    this.infos = new Map(list.map((s) => [s.symbol, s]));
     this.render();
     this.schedule();
   }
@@ -158,8 +174,18 @@ export class WatchList {
     if (this.loading) return;
     this.loading = true;
     try {
-      const list = await this.loadStats();
+      if (!this.metaLoaded) {
+        this.metaLoaded = true;
+        void this.loadMeta()
+          .then((m) => {
+            this.meta = m;
+            this.render();
+          })
+          .catch(() => (this.metaLoaded = false));
+      }
+      const [list, krw] = await Promise.all([this.loadStats(), this.loadKrw().catch(() => null)]);
       this.stats = new Map(list.map((s) => [s.symbol, s]));
+      if (krw) this.krw = krw;
       setText(this.status, '');
       this.render();
     } catch {
@@ -176,7 +202,7 @@ export class WatchList {
       b.dataset.dir = on ? (this.sort.desc ? 'desc' : 'asc') : '';
       b.setAttribute('aria-sort', on ? (this.sort.desc ? 'descending' : 'ascending') : 'none');
     }
-    const g = buildGroups(this.symbols, this.stats, this.favorites, this.search.value, this.sort);
+    const g = buildGroups(this.symbols, this.stats, this.favorites, this.search.value, this.sort, (sym) => this.metaOf(sym)?.ko, (sym) => this.premiumOf(sym));
     for (const id of ['favorites', 'rest'] as const) {
       const sec = this.sections[id];
       const list = g[id];
@@ -194,6 +220,36 @@ export class WatchList {
     }
   }
 
+  private metaOf(symbol: string): CoinMeta | undefined {
+    return this.meta.get(bybitBase(symbol).base);
+  }
+
+  private premiumOf(symbol: string): number | null {
+    const { base, mult } = bybitBase(symbol);
+    const s = this.stats.get(symbol);
+    return s ? kimchiPremium(this.krw.get(base), s.lastPrice, mult, this.krw.get('USDT')) : null;
+  }
+
+  /** 아이콘·한글 이름·딱지 (바뀔 때만 다시 그림) */
+  private paintMeta(el: RowEls, symbol: string): void {
+    const m = this.metaOf(symbol);
+    const info = this.infos.get(symbol);
+    const key = `${m?.img ?? ''}|${m?.ko ?? ''}|${m?.warn ? 1 : 0}${m?.caution ? 1 : 0}|${info?.delistAt ?? ''}`;
+    if (el.metaKey === key) return;
+    el.metaKey = key;
+    if (m?.img && !el.icon.querySelector('img')) {
+      const img = h('img', { src: m.img, alt: '', width: '16', height: '16', loading: 'lazy', decoding: 'async', referrerpolicy: 'no-referrer' });
+      img.addEventListener('error', () => img.remove());
+      el.icon.replaceChildren(img);
+    }
+    setText(el.ko, m?.ko ?? '');
+    const tags: HTMLElement[] = [];
+    if (info?.delistAt) tags.push(h('span', { class: 'watch-tag delist', title: `Bybit 거래 종료 예정: ${new Date(info.delistAt).toLocaleString('ko-KR')}` }, '폐지 예정'));
+    if (m?.warn) tags.push(h('span', { class: 'watch-tag warn', title: '업비트 유의 종목' }, '유의'));
+    else if (m?.caution) tags.push(h('span', { class: 'watch-tag caution', title: '업비트 투자 주의 (가격 급변·거래량 급증 등)' }, '주의'));
+    el.tags.replaceChildren(...tags);
+  }
+
   private rowFor(r: WatchRow): HTMLDivElement {
     let el = this.rows.get(r.symbol);
     if (!el) {
@@ -201,24 +257,34 @@ export class WatchList {
       const star = h('button', { type: 'button', class: 'watch-star', 'aria-label': `${base} 즐겨찾기` }, '★');
       const price = h('span', { class: 'watch-price num' });
       const change = h('span', { class: 'watch-change num' });
+      const premium = h('span', { class: 'watch-premium num' });
       const turnover = h('span', { class: 'watch-turnover num' });
+      const icon = h('span', { class: 'watch-icon', 'aria-hidden': 'true' }, base.replace(/^\d+/, '').slice(0, 1));
+      const ko = h('small', { class: 'watch-ko' });
+      const tags = h('span', { class: 'watch-tags' });
       const row = h(
         'div',
         { class: 'watch-row watch-grid', role: 'listitem', tabindex: '0', 'data-symbol': r.symbol, 'data-testid': `watch-row-${r.symbol}` },
         star,
         // 전부 USDT 무기한이라 USDT는 뺀다 (이름이 잘리지 않게)
-        h('span', { class: 'watch-name', title: r.symbol }, h('b', {}, base)),
+        h('span', { class: 'watch-name', title: r.symbol }, icon, h('span', { class: 'watch-label' }, h('span', { class: 'watch-line' }, h('b', {}, base), tags), ko)),
         price,
         change,
+        premium,
         turnover,
       );
-      el = { row, star, price, change, turnover };
+      el = { row, star, price, change, premium, turnover, icon, ko, tags };
       this.rows.set(r.symbol, el);
     }
     const fav = this.favorites.includes(r.symbol);
     el.star.classList.toggle('on', fav);
     el.star.setAttribute('aria-pressed', String(fav));
     el.row.classList.toggle('current', r.symbol === this.current);
+    this.paintMeta(el, r.symbol);
+    // 소수 첫째 자리로 반올림해 0이면 부호·색 없이 (+0.0%·-0.0% 안 보이게)
+    const p = r.premium == null ? null : Math.round(r.premium * 10) / 10 || 0;
+    setText(el.premium, p === null ? '' : `${p > 0 ? '+' : ''}${p.toFixed(1)}%`);
+    el.premium.dataset.sign = p === null ? '' : p > 0 ? 'up' : p < 0 ? 'down' : '';
     const s = r.stat;
     if (s) {
       setText(el.price, formatPrice(s.lastPrice, this.ticks.get(r.symbol) ?? 0.0001));

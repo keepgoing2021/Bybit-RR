@@ -15,11 +15,17 @@ describe('site security headers (public/_headers)', () => {
     for (const h of ['X-Content-Type-Options: nosniff', 'X-Frame-Options: DENY', 'Strict-Transport-Security: max-age=']) expect(headers).toContain(h);
   });
 
-  it('allows exactly the outside hosts the app talks to (Bybit REST + websocket); fonts come from this site only', () => {
+  it('allows exactly the outside hosts the app talks to (Bybit REST + websocket, Upbit, CoinGecko); fonts come from this site only', () => {
     const config = readFileSync('src/config.ts', 'utf8');
     const rest = config.match(/'(https:\/\/api\.bybit\.com)'/)![1];
     const wsHost = new URL(config.match(/'(wss:\/\/[^']+)'/)![1].replace('wss:', 'https:')).host;
-    expect(directive('connect-src').split(' ').slice(1).sort()).toEqual(["'self'", rest, `wss://${wsHost}`].sort());
+    // 종목 리스트의 업비트(한글 이름·김프)·코인게코(아이콘) 공개 API (src/data/coinMeta.ts, 2026-11-05)
+    const meta = readFileSync('src/data/coinMeta.ts', 'utf8');
+    const metaHosts = [...meta.matchAll(/'(https:\/\/api\.[a-z]+\.com)\/(?:v1|api\/v3)'/g)].map((m) => m[1]);
+    expect(metaHosts.sort()).toEqual(['https://api.coingecko.com', 'https://api.upbit.com']);
+    expect(directive('connect-src').split(' ').slice(1).sort()).toEqual(["'self'", rest, `wss://${wsHost}`, ...metaHosts].sort());
+    // 바깥 그림은 코인게코 아이콘 서버 하나만 (src/core/coinMeta.ts에서 주소 모양도 확인)
+    expect(directive('img-src')).toBe("img-src 'self' data: blob: https://coin-images.coingecko.com");
     // 글꼴(Pretendard)은 npm 패키지를 빌드에 넣어 이 사이트에서 내보낸다 — 바깥 글꼴 서버 없음
     const css = readFileSync('src/styles.css', 'utf8');
     expect(css).toContain("@import 'pretendard/");

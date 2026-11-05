@@ -5,7 +5,7 @@ import type { SymbolInfo, TickerStat } from './types';
  * 종목 리스트(와치리스트, 2026-11-05): 즐겨찾기 묶음 + 나머지 전체.
  * 칸 이름을 누르면 그 칸으로 정렬(한 번 더 누르면 반대). 검색어가 있으면 두 묶음 모두 거른다.
  */
-export type WatchSortKey = 'symbol' | 'price' | 'change' | 'turnover';
+export type WatchSortKey = 'symbol' | 'price' | 'change' | 'premium' | 'turnover';
 export interface WatchSort {
   key: WatchSortKey;
   /** 내림차순(큰 값 먼저) */
@@ -17,12 +17,15 @@ export const DEFAULT_FAVORITES = ['BTCUSDT', 'ETHUSDT'];
 export interface WatchRow {
   symbol: string;
   stat: TickerStat | null;
+  /** 김프 % (업비트에 없는 종목은 null) */
+  premium?: number | null;
 }
 
 /** 시세가 없는 종목은 정렬 방향과 상관없이 맨 뒤 */
 export function sortRows(rows: WatchRow[], sort: WatchSort): WatchRow[] {
   const val = (r: WatchRow): number | string | null => {
     if (sort.key === 'symbol') return r.symbol;
+    if (sort.key === 'premium') return r.premium ?? null;
     if (!r.stat) return null;
     return sort.key === 'price' ? r.stat.lastPrice : sort.key === 'change' ? r.stat.changePct : r.stat.turnover24h;
   };
@@ -47,10 +50,22 @@ export interface WatchGroups {
 }
 
 /** 즐겨찾기(목록에 있는 종목만)와 나머지로 나누고, 검색어로 거른 뒤 정렬 */
-export function buildGroups(symbols: SymbolInfo[], stats: Map<string, TickerStat>, favorites: string[], query: string, sort: WatchSort): WatchGroups {
+export function buildGroups(
+  symbols: SymbolInfo[],
+  stats: Map<string, TickerStat>,
+  favorites: string[],
+  query: string,
+  sort: WatchSort,
+  /** 종목 → 한글 이름 (한글·초성으로도 찾게) */
+  koName: (symbol: string) => string | undefined = () => undefined,
+  premium: (symbol: string) => number | null = () => null,
+): WatchGroups {
   const fav = new Set(favorites);
-  const matched = query.trim() ? searchSymbols(query, symbols) : symbols;
-  const rows = matched.map((s) => ({ symbol: s.symbol, stat: stats.get(s.symbol) ?? null }));
+  const q = query.trim();
+  let matched = symbols;
+  if (q && /[ㄱ-ㅎ가-힣]/.test(q)) matched = symbols.filter((s) => matchKorean(koName(s.symbol), q));
+  else if (q) matched = searchSymbols(q, symbols);
+  const rows = matched.map((s) => ({ symbol: s.symbol, stat: stats.get(s.symbol) ?? null, premium: premium(s.symbol) }));
   return {
     favorites: sortRows(rows.filter((r) => fav.has(r.symbol)), sort),
     rest: sortRows(rows.filter((r) => !fav.has(r.symbol)), sort),
@@ -82,9 +97,30 @@ export function toggleFavorite(list: string[], symbol: string): string[] {
 export function parseSort(raw: string | null): WatchSort {
   try {
     const v = raw ? JSON.parse(raw) : null;
-    if (v && ['symbol', 'price', 'change', 'turnover'].includes(v.key) && typeof v.desc === 'boolean') return { key: v.key, desc: v.desc };
+    if (v && ['symbol', 'price', 'change', 'premium', 'turnover'].includes(v.key) && typeof v.desc === 'boolean') return { key: v.key, desc: v.desc };
   } catch {
     // 기본값
   }
   return { ...DEFAULT_SORT };
+}
+
+const CHO = 'ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ';
+
+/** 한글 이름의 초성만: '비트코인' → 'ㅂㅌㅋㅇ' (한글이 아닌 글자는 그대로) */
+export function chosung(text: string): string {
+  let out = '';
+  for (const ch of text) {
+    const c = ch.charCodeAt(0) - 0xac00;
+    out += c >= 0 && c < 11172 ? CHO[Math.floor(c / 588)] : ch;
+  }
+  return out;
+}
+
+/** 한글 검색: 이름에 그대로 들어 있거나, 초성만 친 경우 초성이 이어서 맞으면 */
+export function matchKorean(name: string | undefined, query: string): boolean {
+  if (!name) return false;
+  const q = query.replace(/\s+/g, '');
+  const n = name.replace(/\s+/g, '');
+  if (n.includes(q)) return true;
+  return /^[ㄱ-ㅎ]+$/.test(q) && chosung(n).includes(q);
 }
