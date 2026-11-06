@@ -167,3 +167,21 @@ describe('box shift persistence', () => {
     expect(loadState(st)?.scenario).toBeNull();
   });
 });
+
+describe('멀티차트 칸별 계산 맡겨 두기 (stash)', () => {
+  it('종목별로 저장·복원, 종목 이름이 안 맞거나 깨진 값은 버린다', async () => {
+    const { loadStash, saveStash } = await import('../../src/core/persistence');
+    const st = memoryStorage();
+    const btc = setLevel(makeScenario(), 'sl', 97);
+    saveStash(st, new Map([[btc.symbol, btc]]));
+    const back = loadStash(st);
+    expect([...back.keys()]).toEqual([btc.symbol]);
+    expect(back.get(btc.symbol)?.applied.sl).toBe(97);
+    st.setItem('rrtool.v1.stash', JSON.stringify({ WRONGUSDT: btc, X: { junk: 1 } }));
+    expect(loadStash(st).size).toBe(0);
+    st.setItem('rrtool.v1.stash', '{bad');
+    expect(loadStash(st).size).toBe(0);
+    expect(loadStash(throwing).size).toBe(0);
+    expect(() => saveStash(throwing, new Map())).not.toThrow();
+  });
+});

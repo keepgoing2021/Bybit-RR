@@ -3158,3 +3158,35 @@ button.flow-row.current .flow-name {
   color: var(--muted);
   font-size: 11.5px;
 }
+
+.pane-badge {
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.pane-badge[data-side='LONG'] {
+  color: var(--profit);
+  border: 1px solid var(--profit);
+}
+
+.pane-badge[data-side='SHORT'] {
+  color: var(--loss);
+  border: 1px solid var(--loss);
+}
+
+.pane-hint {
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.view-pane .pane-chart {
+  cursor: pointer;
+}
+
+.view-pane:hover {
+  box-shadow: inset 0 0 0 1px var(--line-hover);
+}

@@ -10,6 +10,8 @@ import { parseRR, rrLevels, tpForRR } from '../core/presets';
 import { computeMetrics, formatRR, type Metrics } from '../core/metrics';
 import {
   loadDrawings, loadSettings, loadSizing, loadState, saveDrawings, saveSettings, saveSizing, saveState, type StorageLike, type UiSelection,
+  loadStash,
+  saveStash,
 } from '../core/persistence';
 import { DRAW_PALETTE, DRAWING_KINDS, DRAWING_NAMES, isColor, placingHint, type Drawing, type DrawingKind } from '../core/drawings';
 import { decimalsOf, formatPrice, snapToTick } from '../core/price';
@@ -178,6 +180,8 @@ export class App {
   private watchOpen = false;
   private split: SplitState = { n: 1, panes: [] };
   private viewPanes: ViewPane[] = [];
+  /** 멀티차트: 계산기 칸이 아닌 칸에 맡겨 둔 계산 (종목별) */
+  private stash = new Map<string, Scenario>();
   private structureOn = true;
   private sizing: SizingSettings = DEFAULT_SIZING;
   /** 종목별 작도 */
@@ -218,6 +222,7 @@ export class App {
     this.sizing = loadSizing(this.d.storage);
     this.feeTier = this.loadFeeTier();
     this.drawingsBySymbol = loadDrawings(this.d.storage);
+    this.stash = loadStash(this.d.storage);
     const saved = loadState(this.d.storage);
     // 계산기라 '종료된 시나리오'는 없다 (이전 버전에서 종료한 것은 버린다)
     this.scenario = saved?.scenario?.status === 'active' ? saved.scenario : null;
@@ -1721,7 +1726,8 @@ export class App {
     e.picker.setValue(this.ui.symbol);
     e.flow.setCurrent(this.ui.symbol);
     e.watch.setCurrent(this.ui.symbol);
-    setText(e.mainLabel, this.split.n > 1 && !PHONE.matches ? `노란 테두리 = 계산기 칸 · ${this.ui.symbol} ${tfName(this.ui.timeframe)}` : '');
+    setText(e.mainLabel, this.split.n > 1 && !PHONE.matches ? `노란 테두리 = 계산기 칸 · ${this.ui.symbol} ${tfName(this.ui.timeframe)} · 다른 칸은 차트를 클릭하면 계산기 칸이 돼요` : '');
+    this.renderPaneBadges();
     e.tf.value = this.ui.timeframe;
     // SL 기준: 모든 SL 방식에서 고를 수 있다. 차트와 같은 시간봉에는 '(차트)' 표시
     // 폰은 칸이 좁아 차트와 같은 시간봉을 '차트와 같음'으로 짧게 (옆 칸이 차트 시간봉)
@@ -1760,7 +1766,7 @@ export class App {
         {
           createProvider: () => this.d.createProvider(),
           formatTime: (ms) => formatTime(ms),
-          onSend: (sel) => this.sendToCalculator(sel),
+          onActivate: () => this.activatePane(pane),
           onChange: (sel) => {
             this.split.panes[i] = sel;
             this.saveSplit();
@@ -1785,15 +1791,50 @@ export class App {
     }
   }
 
-  /** 보기 칸의 「계산기로」: 그 종목·시간봉을 계산기 칸으로 */
-  private sendToCalculator(sel: PaneSel): void {
-    if (sel.symbol === this.ui.symbol && sel.tf === this.ui.timeframe) return;
-    this.ui.symbol = sel.symbol;
-    if (sel.tf !== this.ui.timeframe) {
-      this.ui.timeframe = sel.tf;
+  /**
+   * 멀티차트 칸 클릭 → 그 칸이 계산기 칸이 된다 (2026-11-06 사용자 요청: 칸마다 손익비 세팅).
+   * 계산기 칸과 클릭한 칸의 자리·종목·시간봉을 맞바꾼다. 지금 계산은 그 종목 이름으로 맡겨 두고,
+   * 클릭한 칸 종목에 맡겨 둔 계산이 있으면 꺼낸다 → 칸마다 따로 세팅한 손익비가 유지된다
+   */
+  private activatePane(pane: ViewPane): void {
+    const i = this.viewPanes.indexOf(pane);
+    if (i < 0) return;
+    const target = pane.selection;
+    const cur: PaneSel = { symbol: this.ui.symbol, tf: this.ui.timeframe };
+    if (this.scenario) this.stash.set(this.scenario.symbol, this.scenario);
+    else this.stash.delete(cur.symbol);
+    // 자리 맞바꾸기: 노란 테두리 칸이 클릭한 자리로 온다
+    const wrap = this.el.chart.parentElement!;
+    const mark = document.createComment('swap');
+    wrap.replaceWith(mark);
+    pane.root.replaceWith(wrap);
+    mark.replaceWith(pane.root);
+    this.split.panes[i] = cur;
+    this.saveSplit();
+    void pane.load(cur);
+    this.ui.symbol = target.symbol;
+    if (target.tf !== this.ui.timeframe) {
+      this.ui.timeframe = target.tf;
       if (this.ui.slBasis === this.defaultSlBasis()) this.ui.slBasis = undefined;
     }
+    this.scenario = this.stash.get(target.symbol) ?? null;
+    this.stash.delete(target.symbol);
+    saveStash(this.d.storage, this.stash);
     void this.loadMarket();
+    this.renderPaneBadges();
+  }
+
+  /** 계산기 칸이 아닌 칸 위에 그 종목에 맡겨 둔 계산 딱지 */
+  private renderPaneBadges(): void {
+    for (const p of this.viewPanes) {
+      const s = this.stash.get(p.selection.symbol);
+      if (!s || p.selection.symbol === this.ui.symbol) {
+        p.setBadge(null);
+        continue;
+      }
+      const rr = this.metricsFor(s).rr;
+      p.setBadge(`${s.side}${rr !== null ? ` ${formatRR(rr)}` : ''}`, s.side);
+    }
   }
 
   private loadWatchOpen(): boolean {

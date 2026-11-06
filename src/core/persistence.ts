@@ -191,3 +191,34 @@ function isScenario(v: unknown): boolean {
     (v.boxShiftBars === undefined || (isNum(v.boxShiftBars) && v.boxShiftBars >= 0))
   );
 }
+
+/**
+ * 멀티차트 칸마다 따로 세팅한 계산 (2026-11-06): 종목 → 계산. 계산기 칸을 다른 칸으로 옮길 때 지금 계산을 맡겨 두고,
+ * 돌아오면 꺼낸다. 진행 중(active)인 것만, 많아도 20개까지
+ */
+const STASH_KEY = 'rrtool.v1.stash';
+const STASH_MAX = 20;
+
+export function loadStash(storage: StorageLike): Map<string, Scenario> {
+  try {
+    const raw = storage.getItem(STASH_KEY);
+    const parsed: unknown = raw === null ? null : JSON.parse(raw);
+    if (!isObject(parsed)) return new Map();
+    const out = new Map<string, Scenario>();
+    for (const [k, v] of Object.entries(parsed)) {
+      if (isScenario(v) && (v as Scenario).status === 'active' && (v as Scenario).symbol === k) out.set(k, v as Scenario);
+    }
+    return out;
+  } catch {
+    return new Map();
+  }
+}
+
+export function saveStash(storage: StorageLike, stash: Map<string, Scenario>): void {
+  try {
+    const entries = [...stash.entries()].slice(-STASH_MAX);
+    storage.setItem(STASH_KEY, JSON.stringify(Object.fromEntries(entries)));
+  } catch {
+    // 무시
+  }
+}

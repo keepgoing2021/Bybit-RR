@@ -15,8 +15,8 @@ const PANE_HISTORY = 500;
 export interface ViewPaneDeps {
   createProvider: () => MarketDataProvider;
   formatTime: (ms: number) => string;
-  /** 「계산기로」: 이 칸의 종목·시간봉을 첫 칸(계산기 칸)으로 */
-  onSend: (sel: PaneSel) => void;
+  /** 차트를 클릭: 이 칸을 계산기 칸으로 (끌어서 움직인 건 클릭이 아님) */
+  onActivate: () => void;
   /** 종목·시간봉을 바꿨을 때 (저장용) */
   onChange: (sel: PaneSel) => void;
 }
@@ -33,6 +33,7 @@ export class ViewPane {
   private readonly symbolInput: HTMLInputElement;
   private readonly tfSelect: HTMLSelectElement;
   private readonly note: HTMLSpanElement;
+  private readonly badge: HTMLSpanElement;
   private stopWatch: (() => void) | null = null;
   private timer: number;
   private seq = 0;
@@ -55,11 +56,21 @@ export class ViewPane {
     this.tfSelect.append(...TIMEFRAMES.map((t) => h('option', { value: t }, tfName(t))));
     this.tfSelect.value = sel.tf;
     this.tfSelect.addEventListener('change', () => this.load({ ...this.sel, tf: this.tfSelect.value as Timeframe }));
-    const send = h('button', { type: 'button', class: 'pane-send', title: '이 종목·시간봉으로 계산기 칸 바꾸기' }, '계산기로');
-    send.addEventListener('click', () => this.deps.onSend({ ...this.sel }));
+    this.badge = h('span', { class: 'pane-badge', 'data-testid': 'pane-badge', hidden: true });
     this.note = h('span', { class: 'pane-note' });
-    const body = h('div', { class: 'pane-chart' });
-    this.root = h('div', { class: 'pane view-pane', 'data-testid': 'view-pane' }, h('div', { class: 'pane-head' }, this.symbolInput, this.tfSelect, this.note, send), body);
+    const hint = h('span', { class: 'pane-hint' }, '차트 클릭 → 계산기');
+    const body = h('div', { class: 'pane-chart', title: '클릭하면 이 칸에서 손익비 계산' });
+    this.root = h('div', { class: 'pane view-pane', 'data-testid': 'view-pane' }, h('div', { class: 'pane-head' }, this.symbolInput, this.tfSelect, this.badge, this.note, hint), body);
+    // 클릭(거의 안 움직이고 짧게 누름)만 계산기 칸 바꾸기로. 끌어서 차트를 움직이는 건 그대로
+    let down: { x: number; y: number; t: number } | null = null;
+    body.addEventListener('pointerdown', (e) => {
+      down = e.button === 0 ? { x: e.clientX, y: e.clientY, t: Date.now() } : null;
+    });
+    body.addEventListener('pointerup', (e) => {
+      const d = down;
+      down = null;
+      if (d && Math.hypot(e.clientX - d.x, e.clientY - d.y) < 6 && Date.now() - d.t < 600) this.deps.onActivate();
+    });
     const noop = () => {};
     this.chart = new ChartView(body, {
       onDrag: noop,
@@ -76,6 +87,13 @@ export class ViewPane {
 
   get selection(): PaneSel {
     return { ...this.sel };
+  }
+
+  /** 이 칸 종목에 맡겨 둔 계산 표시 (예: 'LONG 1:2.1'). null이면 숨김 */
+  setBadge(text: string | null, side?: 'LONG' | 'SHORT'): void {
+    this.badge.hidden = !text;
+    setText(this.badge, text ?? '');
+    this.badge.dataset.side = side ?? '';
   }
 
   setSymbols(list: SymbolInfo[]): void {
