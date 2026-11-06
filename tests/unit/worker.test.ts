@@ -136,3 +136,40 @@ describe('트레이딩뷰 공유 목록 중계 (/tv-watchlist)', async () => {
     expect((await tvWatchlist(req('/tv-watchlist/1'), async () => new Response('<html/>', { status: 200 }))).status).toBe(422);
   });
 });
+
+describe('미국 주식 현재가 중계 (/stock-quote, Finnhub)', async () => {
+  const { stockQuote, MAX_SYMBOLS } = await import('../../worker/stocks.js');
+  const req = (q: string, headers: Record<string, string> = {}) => new Request(`https://1rc.app/stock-quote${q}`, { headers });
+  const env = { FINNHUB_KEY: 'secret-key' };
+
+  it('종목마다 Finnhub에 묻고 현재가·등락%만 돌려준다, 키는 응답에 없다', async () => {
+    const calls: string[] = [];
+    const up = async (u: string) => {
+      calls.push(u);
+      const sym = new URL(u).searchParams.get('symbol');
+      return new Response(JSON.stringify(sym === 'NOPE' ? { c: 0, t: 0 } : { c: 100.5, dp: -1.2, t: 1_700_000_000 }));
+    };
+    const r = await stockQuote(req('?s=sbux,YUM,NOPE,<bad>,brk.b'), env, up);
+    const text = await r.text();
+    expect(r.status).toBe(200);
+    expect(JSON.parse(text)).toEqual({ quotes: { SBUX: { c: 100.5, dp: -1.2, t: 1_700_000_000_000 }, YUM: { c: 100.5, dp: -1.2, t: 1_700_000_000_000 }, 'BRK.B': { c: 100.5, dp: -1.2, t: 1_700_000_000_000 } } });
+    expect(text).not.toContain('secret-key');
+    expect(calls).toHaveLength(4);
+    expect(calls.every((u) => u.startsWith('https://finnhub.io/api/v1/quote?symbol='))).toBe(true);
+  });
+
+  it('키가 없으면 503, 다른 사이트에서 부르면 403, 종목이 없으면 400, 30개까지만', async () => {
+    const up = async () => new Response('{"c":1,"t":1}');
+    expect((await stockQuote(req('?s=SBUX'), {}, up)).status).toBe(503);
+    expect((await stockQuote(req('?s=SBUX', { 'Sec-Fetch-Site': 'cross-site' }), env, up)).status).toBe(403);
+    expect((await stockQuote(req('?s=<x>'), env, up)).status).toBe(400);
+    let n = 0;
+    await stockQuote(req(`?s=${Array.from({ length: 50 }, (_, i) => `A${i}`).join(',')}`), env, async () => (n++, new Response('{"c":1,"t":1}')));
+    expect(n).toBe(MAX_SYMBOLS);
+  });
+
+  it('Finnhub가 실패한 종목만 빠진다', async () => {
+    const r = await stockQuote(req('?s=AAA,BBB'), env, async (u: string) => (u.includes('AAA') ? new Response('x', { status: 429 }) : new Response('{"c":2,"dp":1,"t":5}')));
+    expect(await r.json()).toEqual({ quotes: { BBB: { c: 2, dp: 1, t: 5000 } } });
+  });
+});

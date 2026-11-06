@@ -10,6 +10,9 @@ import { h, setText, show } from './dom';
 
 /** 시세를 다시 받는 간격. 목록이 보이고 탭이 앞에 있을 때만 받는다 (Bybit 전 종목 시세 한 번 = 요청 하나) */
 const REFRESH_MS = 3_000;
+/** 미국 주식 현재가 (Finnhub 무료 1분 60번이라 1분에 한 번, 30개씩) */
+const STOCK_REFRESH_MS = 60_000;
+const US_EXCHANGES = ['NYSE', 'NASDAQ', 'AMEX', 'BATS', 'NYSEARCA'];
 const FAV_KEY = 'rrtool.v1.favorites';
 const SORT_KEY = 'rrtool.v1.watchsort';
 const FOLD_KEY = 'rrtool.v1.watchfold';
@@ -54,7 +57,12 @@ export class WatchList {
   private readonly importBox: HTMLDivElement;
   private readonly importInput: HTMLInputElement;
   private readonly importMsg: HTMLSpanElement;
-  private readonly noData = new Map<string, HTMLDivElement>();
+  private readonly noData = new Map<string, { row: HTMLAnchorElement; price: HTMLSpanElement; change: HTMLSpanElement; last?: number }>();
+  /** Bybit에 없는 미국 주식·ETF 현재가 (Finnhub, 1분마다 30개씩 돌아가며) */
+  private stockQuotes = new Map<string, { c: number; dp: number | null; t: number }>();
+  private stockTimer: number | null = null;
+  private stockOffset = 0;
+  private stockOff = false;
   private groups: MyGroup[];
   private symbols: SymbolInfo[] = [];
   private ticks = new Map<string, number>();
@@ -194,12 +202,16 @@ export class WatchList {
     const want = this.open && this.symbols.length > 0 && document.visibilityState !== 'hidden';
     if (!want) {
       if (this.timer !== null) window.clearInterval(this.timer);
+      if (this.stockTimer !== null) window.clearInterval(this.stockTimer);
       this.timer = null;
+      this.stockTimer = null;
       return;
     }
     if (this.timer !== null) return;
     void this.refresh();
     this.timer = window.setInterval(() => void this.refresh(), REFRESH_MS);
+    void this.refreshStocks();
+    this.stockTimer = window.setInterval(() => void this.refreshStocks(), STOCK_REFRESH_MS);
   }
 
   private async refresh(): Promise<void> {
@@ -270,6 +282,7 @@ export class WatchList {
           else this.folded.add(key);
           write(this.storage, FOLD_KEY, [...this.folded].join(','));
           this.render();
+          if (!this.folded.has(key)) void this.refreshStocks(); // 펼치면 그 묶음 시세부터
         });
         const body = h('div', { class: 'watch-body', role: 'list' });
         sec = { box: h('div', { class: 'watch-section watch-group' }, h('div', { class: 'watch-group-head-row' }, head, del), body), head, count, body };
@@ -298,23 +311,82 @@ export class WatchList {
     this.groupsBox.replaceChildren(...sections);
   }
 
-  /** Bybit에 없는 종목: 이름만 (시세는 다음 단계에서 주식 시세 연결) */
-  private noDataRow(tv: string): HTMLDivElement {
-    let row = this.noData.get(tv);
-    if (!row) {
+  /**
+   * Bybit에 없는 종목: 미국 주식·ETF는 Finnhub 현재가·등락%, 그 밖은 「시세 없음」.
+   * 무료 시세엔 캔들이 없어 누르면 트레이딩뷰 차트를 새 탭으로 연다
+   */
+  private noDataRow(tv: string): HTMLAnchorElement {
+    let el = this.noData.get(tv);
+    if (!el) {
       const ex = tv.includes(':') ? tv.split(':')[0] : '';
-      row = h(
-        'div',
-        { class: 'watch-row watch-grid watch-nodata', role: 'listitem', title: `${tv} — Bybit에 없는 종목이라 아직 시세가 없어요` },
-        h('span', { 'aria-hidden': 'true' }),
+      const price = h('span', { class: 'watch-price num' });
+      const change = h('span', { class: 'watch-change num' });
+      const row = h(
+        'a',
+        {
+          class: 'watch-row watch-grid watch-nodata',
+          role: 'listitem',
+          href: `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(tv)}`,
+          target: '_blank',
+          rel: 'noopener noreferrer',
+          title: `${tv} — Bybit에 없는 종목이라 누르면 트레이딩뷰 차트가 새 탭으로 열려요`,
+          'data-testid': 'watch-nodata',
+        },
+        h('span', { class: 'watch-ext', 'aria-hidden': 'true' }, '↗'),
         h('span', { class: 'watch-name' }, h('span', { class: 'watch-icon', 'aria-hidden': 'true' }, tvTicker(tv).replace(/^[^A-Za-z0-9]+/, '').slice(0, 1)), h('span', { class: 'watch-label' }, h('b', {}, tvTicker(tv)), h('small', { class: 'watch-ko' }, ex))),
-        h('span', { class: 'watch-price muted' }, '시세 없음'),
-        h('span', {}),
+        price,
+        change,
         h('span', {}),
       );
-      this.noData.set(tv, row);
+      el = { row, price, change };
+      this.noData.set(tv, el);
     }
-    return row;
+    const [ex, t] = tv.split(':');
+    const q = t && US_EXCHANGES.includes(ex) ? this.stockQuotes.get(t) : undefined;
+    el.row.classList.toggle('has-quote', !!q);
+    if (q) {
+      setText(el.price, q.c.toFixed(q.c >= 1 ? 2 : 4));
+      setText(el.change, q.dp === null ? '' : `${q.dp > 0 ? '+' : ''}${q.dp.toFixed(2)}%`);
+      el.change.dataset.sign = q.dp === null ? '' : q.dp > 0 ? 'up' : q.dp < 0 ? 'down' : '';
+      const dir = tickDirection(el.last, q.c);
+      el.last = q.c;
+      if (dir) el.price.dataset.flash = dir;
+      else delete el.price.dataset.flash;
+    } else {
+      setText(el.price, '시세 없음');
+      setText(el.change, '');
+    }
+    return el.row;
+  }
+
+  /** 펼쳐 둔 묶음의 Bybit에 없는 미국 종목 → /stock-quote (한 번에 30개, 다음엔 그다음 30개) */
+  private async refreshStocks(): Promise<void> {
+    if (this.stockOff) return;
+    const tickers: string[] = [];
+    for (const g of this.groups) {
+      if (this.folded.has(`g:${g.name}`)) continue;
+      for (const tv of g.items) {
+        const [ex, t] = tv.split(':');
+        if (t && US_EXCHANGES.includes(ex) && !mapTvToBybit(tv, this.symbols) && !tickers.includes(t)) tickers.push(t);
+      }
+    }
+    if (!tickers.length) return;
+    if (this.stockOffset >= tickers.length) this.stockOffset = 0;
+    const batch = tickers.slice(this.stockOffset, this.stockOffset + 30);
+    this.stockOffset += 30;
+    try {
+      const r = await fetch(`/stock-quote?s=${encodeURIComponent(batch.join(','))}`, { headers: { Accept: 'application/json' } });
+      if (r.status === 503) {
+        this.stockOff = true; // 키가 없는 곳(개발 서버 등)
+        return;
+      }
+      if (!r.ok) return;
+      const body = (await r.json()) as { quotes?: Record<string, { c: number; dp: number | null; t: number }> };
+      for (const [k, v] of Object.entries(body.quotes ?? {})) this.stockQuotes.set(k, v);
+      this.render();
+    } catch {
+      // 다음 차례에 다시
+    }
   }
 
   private async doImport(): Promise<void> {
@@ -345,6 +417,8 @@ export class WatchList {
     setText(this.importMsg, `✓ 묶음 ${groups.length}개 · 종목 ${items.length}개 가져옴 (Bybit 시세 연결 ${linked}개)`);
     this.importInput.value = '';
     this.render();
+    this.stockOffset = 0;
+    void this.refreshStocks();
   }
 
   /** ✕ 두 번 누르면 지우기 (한 번 = 「정말?」) */

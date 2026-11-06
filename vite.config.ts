@@ -50,6 +50,21 @@ export default defineConfig(() => {
             if (req.url === '/journal' || req.url?.startsWith('/journal?')) req.url = req.url.replace('/journal', '/journal.html');
             next();
           });
+          // /stock-quote는 Finnhub 키(Cloudflare 비밀값)가 있어야 해서 개발 서버에선 503 — 화면 확인용으로 MOCK_STOCKS=1이면 가짜 값
+          server.middlewares.use((req, res, next) => {
+            if (!req.url?.startsWith('/stock-quote')) return next();
+            const out = res as { statusCode: number; setHeader: (k: string, v: string) => void; end: (b: string) => void };
+            out.setHeader('Content-Type', 'application/json; charset=utf-8');
+            if (!process.env.MOCK_STOCKS) {
+              out.statusCode = 503;
+              out.end('{"error":"stock quotes not configured"}');
+              return;
+            }
+            const syms = new URL(req.url, 'http://x').searchParams.get('s')?.split(',') ?? [];
+            const quotes = Object.fromEntries(syms.map((t, i) => [t, { c: 50 + i * 3.21, dp: ((i % 5) - 2) * 0.73, t: Date.now() }]));
+            out.statusCode = 200;
+            out.end(JSON.stringify({ quotes }));
+          });
           server.middlewares.use(async (req, res, next) => {
             if (!req.url?.startsWith('/tv-watchlist/')) return next();
             const { tvWatchlist } = await import('./worker/tv.js');

@@ -3500,13 +3500,23 @@ a.journal-link:hover {
   background: var(--loss);
 }
 
-.watch-nodata {
-  cursor: default;
+a.watch-nodata {
+  color: inherit;
+  text-decoration: none;
   opacity: 0.6;
 }
 
-.watch-nodata .watch-price {
-  grid-column: span 3;
+a.watch-nodata.has-quote {
+  opacity: 1;
+}
+
+a.watch-nodata:not(.has-quote) .watch-price {
   text-align: left;
   font-size: 11px;
+}
+
+.watch-ext {
+  color: var(--muted);
+  font-size: 11px;
+  text-align: center;
 }
