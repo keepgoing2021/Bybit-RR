@@ -213,10 +213,13 @@ export function hitTestPreset(g: BoxGeometry, x: number, y: number, tol = 4): (P
   return best;
 }
 
-/** SL·TP 선(박스 가로 범위 안) 또는 핸들 위인지. 둘 다 가까우면 더 가까운 쪽. */
-export function hitTest(g: BoxGeometry, x: number, y: number, tol = 6): 'sl' | 'tp' | null {
-  let best: { which: 'sl' | 'tp'; dist: number } | null = null;
-  const consider = (which: 'sl' | 'tp', ly: number | null, h: Rect | null) => {
+/**
+ * SL·TP·진입 선(박스 가로 범위 안) 또는 핸들 위인지. 여럿이 가까우면 더 가까운 쪽.
+ * 진입 선은 같은 거리면 SL·TP에 양보한다 (손익비가 아주 작아 선이 겹칠 때 SL·TP를 먼저 잡게)
+ */
+export function hitTest(g: BoxGeometry, x: number, y: number, tol = 6): 'sl' | 'tp' | 'entry' | null {
+  let best: { which: 'sl' | 'tp' | 'entry'; dist: number } | null = null;
+  const consider = (which: 'sl' | 'tp' | 'entry', ly: number | null, h: Rect | null) => {
     if (ly === null) return;
     let dist = Infinity;
     if (h && x >= h.x - 2 && x <= h.x + h.w + 2 && y >= h.y - 2 && y <= h.y + h.h + 2) dist = Math.abs(y - ly);
@@ -225,5 +228,8 @@ export function hitTest(g: BoxGeometry, x: number, y: number, tol = 6): 'sl' | '
   };
   consider('sl', g.ySl, g.handles.sl);
   consider('tp', g.yTp, g.handles.tp);
-  return best === null ? null : (best as { which: 'sl' | 'tp' }).which;
+  const slTp = best as { which: 'sl' | 'tp' | 'entry'; dist: number } | null;
+  consider('entry', g.yEntry, null);
+  if (slTp && best && (best as { which: string }).which === 'entry' && (best as { dist: number }).dist >= slTp.dist) best = slTp;
+  return best === null ? null : (best as { which: 'sl' | 'tp' | 'entry' }).which;
 }

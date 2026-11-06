@@ -1,6 +1,7 @@
 import { hitTest, type BoxGeometry } from './geometry';
 
-export type DragTarget = 'sl' | 'tp';
+/** 끌 수 있는 선: 손절·목표, 그리고 진입가(노란 선, 2026-11-06 사용자 요청) */
+export type DragTarget = 'sl' | 'tp' | 'entry';
 
 export interface DragDeps {
   getGeometry(): BoxGeometry | null;
@@ -15,7 +16,7 @@ export interface DragDeps {
 }
 
 /**
- * SL·TP 선 드래그. 차트 라이브러리와 무관한 순수 로직이라 단위 테스트한다.
+ * SL·TP·진입 선 드래그. 차트 라이브러리와 무관한 순수 로직이라 단위 테스트한다.
  * 잡은 선 하나만 바꾸고 반대쪽 선은 건드리지 않는다.
  */
 export class DragController {

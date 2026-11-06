@@ -49,7 +49,18 @@ describe('hitTest', () => {
   it('misses outside the tolerance or the box span', () => {
     expect(hitTest(g, 150, 127)).toBeNull();
     expect(hitTest(g, 250, 120)).toBeNull();
-    expect(hitTest(g, 150, 100)).toBeNull(); // 엔트리선은 드래그 대상 아님
+  });
+
+  it('the entry (yellow) line is draggable too (2026-11-06)', () => {
+    expect(hitTest(g, 150, 100)).toBe('entry');
+    expect(hitTest(g, 150, 105)).toBe('entry');
+    expect(hitTest(g, 250, 100)).toBeNull();
+  });
+
+  it('when entry and SL lines are equally close, SL wins (lines overlap at tiny R)', () => {
+    const tight = computeBoxGeometry({ ...longBox, sl: 99.2 }, mapper)!; // entry y100, sl y108
+    expect(hitTest(tight, 150, 104)).toBe('sl');
+    expect(hitTest(tight, 150, 102)).toBe('entry');
   });
 
   it('hits the handle square', () => {

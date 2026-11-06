@@ -24,7 +24,7 @@ function harness(initial: Scenario = makeScenario()) {
     snap: (p) => snapToTick(p, scenario.tickSize),
     onDrag: (which, price) => {
       drags.push([which, price]);
-      scenario = setLevel(scenario, which, price);
+      scenario = which === 'entry' ? scenario : setLevel(scenario, which, price);
       rrDuringDrag.push(
         computeMetrics({ side: scenario.side, entry: scenario.entry, sl: scenario.applied.sl, tp: scenario.applied.tp, current: null, tickSize: scenario.tickSize }).rr,
       );

@@ -252,7 +252,8 @@ export class App {
       onDrag: (which, price) => {
         this.dragging = true;
         if (!this.scenario) return;
-        this.scenario = setLevel(this.scenario, which, price);
+        // 진입 선(노란 선)을 끌면 지정가 진입으로 (SL·TP는 그 자리 그대로, 손익비가 바뀐다)
+        this.scenario = which === 'entry' ? setEntry(this.scenario, price) : setLevel(this.scenario, which, price);
         this.renderNow();
       },
       onDragEnd: () => {
@@ -267,7 +268,7 @@ export class App {
         if (done) this.persist();
       },
       onPreset: (which, price) => {
-        if (!this.scenario) return;
+        if (!this.scenario || which === 'entry') return; // 점선(1:2 등)은 SL·TP 자리만
         this.scenario = setLevel(this.scenario, which, price);
         this.persist();
         this.renderNow(true);

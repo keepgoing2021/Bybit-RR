@@ -27,7 +27,7 @@ export interface OverlayModel {
   labels: { profit: string | null; loss: string | null; center: string; centerValid: boolean };
   /** SL 선정 캔들의 기간 [from, to) (논리 인덱스). labelY: 이름표 세로 위치 (왼쪽 위 범례 바로 아래) */
   highlight: { from: number; to: number; label: string; labelY: number } | null;
-  active: 'sl' | 'tp' | null;
+  active: 'sl' | 'tp' | 'entry' | null;
   /** 손익비 점선 */
   presets: PresetLevel[];
   /** 마우스가 올라간 점선 id */
@@ -214,7 +214,7 @@ export class RRBoxPrimitive implements ISeriesPrimitive<Time> {
         }
       }
 
-      hline(ctx, g.x1, g.x2, g.yEntry, THEME.entry, 1.5);
+      hline(ctx, g.x1, g.x2, g.yEntry, THEME.entry, m.active === 'entry' ? 2.5 : 1.5);
       if (g.yTp !== null) hline(ctx, g.x1, g.x2, g.yTp, THEME.profit, m.active === 'tp' ? 2.5 : 1.5);
       if (g.ySl !== null) hline(ctx, g.x1, g.x2, g.ySl, THEME.loss, m.active === 'sl' ? 2.5 : 1.5);
 
