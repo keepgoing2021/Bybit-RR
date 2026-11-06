@@ -62,6 +62,8 @@ export interface ChartViewCallbacks {
   onPreset(which: DragTarget, price: number): void;
   /** 박스를 좌우로 옮길 때 (봉 수, done: 손을 뗐을 때) */
   onBoxMove(shiftBars: number, done: boolean): void;
+  /** 자유 모드: 박스 통째로 위아래 — 누른 순간 대비 가격 차 (done: 손을 뗐을 때) */
+  onBoxPrice?(delta: number, done: boolean): void;
   onDragEnd(which: DragTarget): void;
   formatTime(ms: number): string;
   /** 작도 추가·수정·삭제 (끌기는 놓을 때 한 번) */
@@ -108,6 +110,9 @@ export class ChartView {
   // 다우 이론 구조 (HH·HL·LH·LL, BOS·CHoCH). null이면 끔, 숫자면 스윙 좌우 봉 수
   private readonly structPrim: StructurePrimitive;
   private structureBars: number | null = null;
+  private freeMode = false;
+  /** 자유 모드로 박스를 잡은 순간의 가격 (위아래 이동량 계산) */
+  private freeStartPrice: number | null = null;
   private drawings: Drawing[] = [];
   private tool: DrawingKind | null = null;
   private draft: Anchor[] = [];
@@ -208,6 +213,7 @@ export class ChartView {
       onDrag: (which, price) => this.cb.onDrag(which, price),
       onDragEnd: (which) => this.cb.onDragEnd(which),
       setChartInteraction: (on) => this.chart.applyOptions({ handleScroll: on, handleScale: on }),
+      allowEntry: () => this.freeMode,
     });
     this.mover = new BoxMoveController({
       getGeometry: () => (this.overlay ? this.prim.computeGeometry() : null),
@@ -225,8 +231,9 @@ export class ChartView {
         if (from === null || to === null) return null;
         return (this.overlay?.shiftBars ?? 0) + Math.floor(to - from);
       },
-      // 과거 쪽: 박스 왼쪽 끝이 첫 캔들까지
+      // 과거 쪽: 자유 모드면 박스 왼쪽 끝이 첫 캔들까지, 기본 모드면 진입 시점보다 왼쪽 금지
       minShiftBars: () => {
+        if (!this.freeMode) return 0;
         const start = this.overlay ? this.logicalForTime(this.overlay.startTime) : null;
         return start === null ? null : -start;
       },
@@ -280,6 +287,18 @@ export class ChartView {
   }
 
   /** 다우 이론 구조 표시 켜기(스윙 좌우 봉 수) / 끄기(null) */
+  /** 자유 모드: 박스를 통째로 위아래·과거까지, 노란 진입선도 끌기 (기본 모드는 진입선 잠금·오른쪽으로만) */
+  setFreeMode(on: boolean): void {
+    this.freeMode = on;
+  }
+
+  private moveFreePrice(y: number, done: boolean): void {
+    if (this.freeStartPrice === null) return;
+    const p = this.series.coordinateToPrice(y);
+    if (p !== null && Number.isFinite(p)) this.cb.onBoxPrice?.(p - this.freeStartPrice, done);
+    if (done) this.freeStartPrice = null;
+  }
+
   setStructure(bars: number | null): void {
     this.structureBars = bars;
     this.rebuildStructure();
@@ -822,8 +841,9 @@ export class ChartView {
           this.cb.onPreset(preset.target, preset.price);
           return;
         }
-        // 박스 몸통: 좌우로 옮기기
+        // 박스 몸통: 좌우로 옮기기 (자유 모드면 위아래도 — 진입·손절·목표가 같이)
         if (!this.mover.pointerDown(x, y)) return;
+        this.freeStartPrice = this.freeMode ? this.series.coordinateToPrice(y) : null;
         e.preventDefault();
         e.stopPropagation();
         el.setPointerCapture?.(e.pointerId);
@@ -874,6 +894,7 @@ export class ChartView {
         e.preventDefault();
         e.stopPropagation();
         this.mover.pointerMove(x, y);
+        this.moveFreePrice(y, false);
         return;
       }
       const h = this.drag.hover(x, y);
@@ -905,6 +926,7 @@ export class ChartView {
         el.releasePointerCapture?.(e.pointerId);
         el.style.cursor = 'grab';
         this.mover.pointerUp();
+        this.moveFreePrice(local(e).y, true);
         return;
       }
       if (this.mover.isMoving()) this.mover.pointerUp(); // 진입선 끌기: 좌우 이동도 같이 끝

@@ -13,6 +13,8 @@ export interface DragDeps {
   /** 드래그 동안 차트 이동·확대를 끄고, 놓으면 다시 켠다 */
   setChartInteraction(enabled: boolean): void;
   tolerance?: number;
+  /** 진입 선(노란 선)을 끌 수 있나 — 자유 모드에서만 (2026-11-06). 없으면 끌 수 있음 */
+  allowEntry?(): boolean;
 }
 
 /**
@@ -27,7 +29,7 @@ export class DragController {
   pointerDown(x: number, y: number): boolean {
     const g = this.d.getGeometry();
     if (!g) return false;
-    const hit = hitTest(g, x, y, this.d.tolerance);
+    const hit = this.hit(g, x, y);
     if (!hit) return false;
     this.target = hit;
     this.d.setChartInteraction(false);
@@ -55,7 +57,12 @@ export class DragController {
 
   hover(x: number, y: number): DragTarget | null {
     const g = this.d.getGeometry();
-    return g ? hitTest(g, x, y, this.d.tolerance) : null;
+    return g ? this.hit(g, x, y) : null;
+  }
+
+  private hit(g: BoxGeometry, x: number, y: number): DragTarget | null {
+    const h = hitTest(g, x, y, this.d.tolerance);
+    return h === 'entry' && this.d.allowEntry && !this.d.allowEntry() ? null : h;
   }
 }
 

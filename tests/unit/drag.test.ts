@@ -9,7 +9,7 @@ import { makeScenario } from './helpers/scenario';
 const mapper: CoordMapper = { priceToY: (p) => (110 - p) * 10, logicalToX: (l) => l * 10 };
 const yToPrice = (y: number) => 110 - y / 10;
 
-function harness(initial: Scenario = makeScenario()) {
+function harness(initial: Scenario = makeScenario(), allowEntry?: () => boolean) {
   let scenario = initial;
   const interaction: boolean[] = [];
   const drags: [string, number][] = [];
@@ -22,6 +22,7 @@ function harness(initial: Scenario = makeScenario()) {
       ),
     yToPrice,
     snap: (p) => snapToTick(p, scenario.tickSize),
+    ...(allowEntry ? { allowEntry } : {}),
     onDrag: (which, price) => {
       drags.push([which, price]);
       scenario = which === 'entry' ? scenario : setLevel(scenario, which, price);
@@ -50,6 +51,13 @@ describe('DragController', () => {
     h.ctl.pointerDown(150, 41);
     h.ctl.pointerMove(150, 29.996);
     expect(h.drags).toEqual([['tp', 107]]);
+  });
+
+  it('the yellow entry line is locked unless free mode allows it (2026-11-06)', () => {
+    const y = (110 - makeScenario().entry) * 10;
+    expect(harness(makeScenario(), () => false).ctl.pointerDown(150, y)).toBe(false);
+    expect(harness(makeScenario(), () => true).ctl.pointerDown(150, y)).toBe(true);
+    expect(harness(makeScenario(), () => false).ctl.hover(150, y)).toBeNull();
   });
 
   it('a press away from the lines leaves the chart alone', () => {
