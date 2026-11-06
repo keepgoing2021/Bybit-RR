@@ -1,7 +1,7 @@
 import { formatPrice } from '../core/price';
 import { formatTurnover } from '../core/symbolSearch';
 import type { SymbolInfo, TickerStat } from '../core/types';
-import { bybitBase, kimchiPremium, type CoinMeta } from '../core/coinMeta';
+import { bybitBase, type CoinMeta } from '../core/coinMeta';
 import { buildGroups, nextSort, parseFavorites, parseSort, tickDirection, toggleFavorite, type WatchRow, type WatchSort, type WatchSortKey } from '../core/watchlist';
 import type { StorageLike } from '../core/persistence';
 import { h, setText, show } from './dom';
@@ -16,7 +16,6 @@ const COLS: [WatchSortKey, string][] = [
   ['symbol', '종목'],
   ['price', '현재가'],
   ['change', '변동%'],
-  ['premium', '김프'],
   ['turnover', '거래대금'],
 ];
 
@@ -25,7 +24,6 @@ interface RowEls {
   star: HTMLButtonElement;
   price: HTMLSpanElement;
   change: HTMLSpanElement;
-  premium: HTMLSpanElement;
   turnover: HTMLSpanElement;
   icon: HTMLSpanElement;
   ko: HTMLElement;
@@ -51,7 +49,6 @@ export class WatchList {
   private infos = new Map<string, SymbolInfo>();
   private stats = new Map<string, TickerStat>();
   private meta = new Map<string, CoinMeta>();
-  private krw = new Map<string, number>();
   private metaLoaded = false;
   private favorites: string[];
   private sort: WatchSort;
@@ -68,8 +65,6 @@ export class WatchList {
     private readonly onClose: () => void = () => {},
     /** 업비트 한글 이름·유의·주의 + 코인게코 아이콘 (한 번만) */
     private readonly loadMeta: () => Promise<Map<string, CoinMeta>> = async () => new Map(),
-    /** 업비트 원화 가격 (김프) — 실패해도 Bybit 시세는 그대로 */
-    private readonly loadKrw: () => Promise<Map<string, number>> = async () => new Map(),
   ) {
     this.favorites = parseFavorites(read(storage, FAV_KEY));
     this.sort = parseSort(read(storage, SORT_KEY));
@@ -183,9 +178,8 @@ export class WatchList {
           })
           .catch(() => (this.metaLoaded = false));
       }
-      const [list, krw] = await Promise.all([this.loadStats(), this.loadKrw().catch(() => null)]);
+      const list = await this.loadStats();
       this.stats = new Map(list.map((s) => [s.symbol, s]));
-      if (krw) this.krw = krw;
       setText(this.status, '');
       this.render();
     } catch {
@@ -202,7 +196,7 @@ export class WatchList {
       b.dataset.dir = on ? (this.sort.desc ? 'desc' : 'asc') : '';
       b.setAttribute('aria-sort', on ? (this.sort.desc ? 'descending' : 'ascending') : 'none');
     }
-    const g = buildGroups(this.symbols, this.stats, this.favorites, this.search.value, this.sort, (sym) => this.metaOf(sym)?.ko, (sym) => this.premiumOf(sym));
+    const g = buildGroups(this.symbols, this.stats, this.favorites, this.search.value, this.sort, (sym) => this.metaOf(sym)?.ko);
     for (const id of ['favorites', 'rest'] as const) {
       const sec = this.sections[id];
       const list = g[id];
@@ -224,11 +218,6 @@ export class WatchList {
     return this.meta.get(bybitBase(symbol).base);
   }
 
-  private premiumOf(symbol: string): number | null {
-    const { base, mult } = bybitBase(symbol);
-    const s = this.stats.get(symbol);
-    return s ? kimchiPremium(this.krw.get(base), s.lastPrice, mult, this.krw.get('USDT')) : null;
-  }
 
   /** 아이콘·한글 이름·딱지 (바뀔 때만 다시 그림) */
   private paintMeta(el: RowEls, symbol: string): void {
@@ -257,7 +246,6 @@ export class WatchList {
       const star = h('button', { type: 'button', class: 'watch-star', 'aria-label': `${base} 즐겨찾기` }, '★');
       const price = h('span', { class: 'watch-price num' });
       const change = h('span', { class: 'watch-change num' });
-      const premium = h('span', { class: 'watch-premium num' });
       const turnover = h('span', { class: 'watch-turnover num' });
       const icon = h('span', { class: 'watch-icon', 'aria-hidden': 'true' }, base.replace(/^\d+/, '').slice(0, 1));
       const ko = h('small', { class: 'watch-ko' });
@@ -270,10 +258,9 @@ export class WatchList {
         h('span', { class: 'watch-name', title: r.symbol }, icon, h('span', { class: 'watch-label' }, h('span', { class: 'watch-line' }, h('b', {}, base), tags), ko)),
         price,
         change,
-        premium,
         turnover,
       );
-      el = { row, star, price, change, premium, turnover, icon, ko, tags };
+      el = { row, star, price, change, turnover, icon, ko, tags };
       this.rows.set(r.symbol, el);
     }
     const fav = this.favorites.includes(r.symbol);
@@ -281,10 +268,6 @@ export class WatchList {
     el.star.setAttribute('aria-pressed', String(fav));
     el.row.classList.toggle('current', r.symbol === this.current);
     this.paintMeta(el, r.symbol);
-    // 소수 첫째 자리로 반올림해 0이면 부호·색 없이 (+0.0%·-0.0% 안 보이게)
-    const p = r.premium == null ? null : Math.round(r.premium * 10) / 10 || 0;
-    setText(el.premium, p === null ? '' : `${p > 0 ? '+' : ''}${p.toFixed(1)}%`);
-    el.premium.dataset.sign = p === null ? '' : p > 0 ? 'up' : p < 0 ? 'down' : '';
     const s = r.stat;
     if (s) {
       setText(el.price, formatPrice(s.lastPrice, this.ticks.get(r.symbol) ?? 0.0001));

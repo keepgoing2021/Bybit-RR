@@ -53,7 +53,7 @@ import { JournalForm, loadJournal } from './journalForm';
 import { autoRiskPct, entryWarnings, JOURNAL_KEY } from '../core/journal';
 import { ViewPane } from './viewPane';
 import { fillPanes, parseSplit, SPLITS, type PaneSel, type SplitCount, type SplitState } from '../core/split';
-import { loadCoinMeta, loadUpbitPrices } from '../data/coinMeta';
+import { loadCoinMeta } from '../data/coinMeta';
 import { icon, type IconName } from './icons';
 import { SymbolPicker } from './symbolPicker';
 import { Tour, type TourStep } from './tour';
@@ -862,7 +862,7 @@ export class App {
       if (symbol === this.ui.symbol) return;
       this.ui.symbol = symbol;
       void this.loadMarket();
-    }, () => this.setWatchOpen(false), () => loadCoinMeta(this.d.storage), () => loadUpbitPrices());
+    }, () => this.setWatchOpen(false), () => loadCoinMeta(this.d.storage));
     const journalLink = h(
       'a',
       { href: '/journal', class: 'theme-toggle journal-link', 'data-testid': 'journal-link', title: '거래 저널 (기록·통계·규칙)' },

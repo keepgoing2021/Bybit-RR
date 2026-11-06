@@ -97,7 +97,7 @@ export function toggleFavorite(list: string[], symbol: string): string[] {
 export function parseSort(raw: string | null): WatchSort {
   try {
     const v = raw ? JSON.parse(raw) : null;
-    if (v && ['symbol', 'price', 'change', 'premium', 'turnover'].includes(v.key) && typeof v.desc === 'boolean') return { key: v.key, desc: v.desc };
+    if (v && ['symbol', 'price', 'change', 'turnover'].includes(v.key) && typeof v.desc === 'boolean') return { key: v.key, desc: v.desc };
   } catch {
     // 기본값
   }

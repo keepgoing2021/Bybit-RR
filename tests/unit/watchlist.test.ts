@@ -69,6 +69,7 @@ describe('종목 리스트', () => {
     const prem: Record<string, number> = { BTCUSDT: 0.5, ETHUSDT: 1.2 };
     const g = buildGroups(symbols, new Map(), [], 'ㅇㄷ', { key: 'premium', desc: true }, (s) => ko[s], (s) => prem[s] ?? null);
     expect(g.rest.map((r) => r.symbol)).toEqual(['ETHUSDT', 'ETCUSDT']); // 김프 없는 ETC는 뒤
-    expect(parseSort('{"key":"premium","desc":true}')).toEqual({ key: 'premium', desc: true });
+    // 김프 칸은 없앴다(2026-11-06): 예전에 김프로 정렬해 뒀으면 기본(거래대금)으로
+    expect(parseSort('{"key":"premium","desc":true}')).toEqual({ key: 'turnover', desc: true });
   });
 });

@@ -2582,7 +2582,7 @@ button.flow-row.current .flow-name {
 
 /* 종목 리스트 (2026-11-05): 넓은 화면은 차트와 계산기 사이 칸, 폰은 화면을 덮는 목록 */
 .layout[data-watch='open'] {
-  grid-template-columns: minmax(0, 1fr) 360px clamp(360px, 28vw, 400px);
+  grid-template-columns: minmax(0, 1fr) 320px clamp(360px, 28vw, 400px);
 }
 
 .watch {
@@ -2626,7 +2626,7 @@ button.flow-row.current .flow-name {
 
 .watch-grid {
   display: grid;
-  grid-template-columns: 18px minmax(0, 1.25fr) minmax(0, 0.9fr) 54px 44px 50px;
+  grid-template-columns: 18px minmax(0, 1.25fr) minmax(0, 0.9fr) 56px 54px;
   align-items: center;
   column-gap: 6px;
 }
