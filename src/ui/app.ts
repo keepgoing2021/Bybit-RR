@@ -1770,6 +1770,7 @@ export class App {
           onChange: (sel) => {
             this.split.panes[i] = sel;
             this.saveSplit();
+            this.renderPaneBadges();
           },
         },
         'pane-symbols',
@@ -1780,6 +1781,7 @@ export class App {
       this.viewPanes.push(pane);
       void pane.load(this.split.panes[i]);
     }
+    this.renderPaneBadges();
     if (persist) this.saveSplit();
   }
 
@@ -1824,7 +1826,7 @@ export class App {
     this.renderPaneBadges();
   }
 
-  /** 계산기 칸이 아닌 칸 위에 그 종목에 맡겨 둔 계산 딱지 */
+  /** 계산기 칸이 아닌 칸 위에 그 종목에 맡겨 둔 계산 딱지 + 차트에 박스 (보기만) */
   private renderPaneBadges(): void {
     for (const p of this.viewPanes) {
       const s = this.stash.get(p.selection.symbol);
@@ -1834,6 +1836,21 @@ export class App {
       }
       const rr = this.metricsFor(s).rr;
       p.setBadge(`${s.side}${rr !== null ? ` ${formatRR(rr)}` : ''}`, s.side);
+    }
+    this.renderPaneOverlays(false);
+  }
+
+  /**
+   * 다른 칸 차트의 손익비 박스: 계산기 칸과 같은 종목이면 지금 계산을, 아니면 맡겨 둔 계산을 보기만으로.
+   * onlyCurrent면 계산기 칸 종목과 같은 칸만 (계산이 바뀔 때마다 부르는 가벼운 경로)
+   */
+  private renderPaneOverlays(onlyCurrent: boolean): void {
+    for (const p of this.viewPanes) {
+      const { symbol, tf } = p.selection;
+      const same = symbol === this.ui.symbol;
+      if (onlyCurrent && !same) continue;
+      const s = same ? (this.scenario?.symbol === symbol ? this.scenario : null) : this.stash.get(symbol) ?? null;
+      p.setOverlay(s ? this.overlayFor(s, tf, false) : null);
     }
   }
 
@@ -1964,6 +1981,7 @@ export class App {
     show(e.card, !!s);
     if (!s) {
       this.chart.setOverlay(null);
+      this.renderPaneOverlays(true);
       return;
     }
 
@@ -2035,6 +2053,18 @@ export class App {
     const plan = this.renderSizing(s);
     this.rollChanged(s.id, rrNow);
 
+    this.chart.setOverlay(this.overlayFor(s, this.ui.timeframe, true, plan));
+    this.renderPaneOverlays(true);
+  }
+
+  /**
+   * 차트 위 손익비 박스 입력. 계산기 칸은 끌 수 있게(draggable), 멀티차트의 다른 칸은 보기만 (2026-11-06:
+   * 칸마다 세팅한 박스가 칸을 옮겨도 차트에 남아 있게)
+   */
+  private overlayFor(s: Scenario, chartTf: Timeframe, draggable: boolean, plan: SizingPlan | null = this.sizingPlan(s).plan): OverlayInput {
+    const m = this.metricsFor(s);
+    const tick = s.tickSize;
+    const fp = (p: number | null) => (p === null ? '—' : formatPrice(p, tick));
     // 운영 금액을 넣었으면 가격 %와 실제 금액을 같이 (전부 체결 기준): '손절 −3.21% · −96.39 USDT'
     const profit =
       m.rewardDist === null
@@ -2054,14 +2084,14 @@ export class App {
       startTime: s.priceTime,
       endTime: null,
       extendBars: this.settings.boxExtendBars,
-      draggable: true,
+      draggable,
       labels: { profit, loss, center, centerValid: m.valid },
       // SL 캔들보다 큰 시간봉 차트에서는 띠가 실제보다 넓어 보이므로 그리지 않는다
-      slCandle: s.auto.sl.candle && tfMs(s.auto.sl.timeframe) >= tfMs(this.ui.timeframe)
+      slCandle: s.auto.sl.candle && tfMs(s.auto.sl.timeframe) >= tfMs(chartTf)
         ? {
             time: s.auto.sl.candle.time,
             durationMs: barEnd(s.auto.sl.timeframe, s.auto.sl.candle.time) - s.auto.sl.candle.time,
-            label: slBandLabel(s.auto.sl, s.side, this.ui.timeframe),
+            label: slBandLabel(s.auto.sl, s.side, chartTf),
           }
         : null,
       presets: rrLevels(s.side, s.entry, s.applied.sl, s.tickSize),
@@ -2079,7 +2109,7 @@ export class App {
       shiftBars: boxShiftOf(s),
       huntZone: this.huntZoneFor(s),
     };
-    this.chart.setOverlay(overlay);
+    return overlay;
   }
 
   /** SL 기준 꼬리 끝(자동 SL을 고른 캔들의 저가·고가)에서 2~10% 바깥. 지금 SL이 그 안이면 이름표가 경고로 */

@@ -1,4 +1,4 @@
-import { ChartView } from '../chart/chartView';
+import { ChartView, type OverlayInput } from '../chart/chartView';
 import { barRemainingMs, formatCountdown } from '../core/countdown';
 import type { PaneSel } from '../core/split';
 import { TIMEFRAMES, tfMs } from '../core/timeframe';
@@ -94,6 +94,11 @@ export class ViewPane {
     this.badge.hidden = !text;
     setText(this.badge, text ?? '');
     this.badge.dataset.side = side ?? '';
+  }
+
+  /** 손익비 박스 (보기만). null이면 지움 */
+  setOverlay(o: OverlayInput | null): void {
+    this.chart.setOverlay(o);
   }
 
   setSymbols(list: SymbolInfo[]): void {
