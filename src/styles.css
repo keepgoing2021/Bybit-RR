@@ -3387,3 +3387,35 @@ a.journal-link:hover {
     min-width: 34px;
   }
 }
+
+/* 박스 끌기 안내 (처음 한 번, 2026-11-06) */
+.box-hint {
+  position: absolute;
+  top: 70px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: min(320px, calc(100% - 24px));
+  padding: 12px 14px;
+  border: 1px solid var(--entry);
+  border-radius: 10px;
+  background: var(--raised);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  font-size: 12.5px;
+}
+
+.box-hint b {
+  color: var(--entry);
+}
+
+.box-hint button {
+  align-self: flex-end;
+  margin-top: 6px;
+  border: 0;
+  background: var(--entry);
+  color: #111;
+  font-weight: 700;
+}

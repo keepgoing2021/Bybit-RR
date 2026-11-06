@@ -110,7 +110,8 @@ export class ChartView {
   // 다우 이론 구조 (HH·HL·LH·LL, BOS·CHoCH). null이면 끔, 숫자면 스윙 좌우 봉 수
   private readonly structPrim: StructurePrimitive;
   private structureBars: number | null = null;
-  private freeMode = false;
+  /** 박스 몸통을 잡으면 통째로 위아래·과거까지 (2026-11-06: 모드 없이 늘 — 트레이딩뷰 포지션 도구처럼) */
+  private freeMode = true;
   /** 자유 모드로 박스를 잡은 순간의 가격 (위아래 이동량 계산) */
   private freeStartPrice: number | null = null;
   private drawings: Drawing[] = [];
@@ -213,7 +214,8 @@ export class ChartView {
       onDrag: (which, price) => this.cb.onDrag(which, price),
       onDragEnd: (which) => this.cb.onDragEnd(which),
       setChartInteraction: (on) => this.chart.applyOptions({ handleScroll: on, handleScale: on }),
-      allowEntry: () => this.freeMode,
+      // 노란 진입선만 따로 잡으면 잠금 (박스를 통째로 옮길 때만 같이 움직인다)
+      allowEntry: () => false,
     });
     this.mover = new BoxMoveController({
       getGeometry: () => (this.overlay ? this.prim.computeGeometry() : null),

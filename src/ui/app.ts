@@ -153,8 +153,8 @@ const DRAW_TOOLS_KEY = 'rrtool.v1.drawtools';
 export const STRUCTURE_KEY = 'rrtool.v1.structure';
 /** 종목 리스트 열림 여부 ('open'/'closed'). 없으면 넓은 화면(1500px+)에서만 연다 */
 export const WATCH_KEY = 'rrtool.v1.watch';
-/** 손익비 박스 자유 모드 ('on'/'off', 기본 off) */
-export const FREE_KEY = 'rrtool.v1.freemode';
+/** 박스 끌기 안내 말풍선을 봤는지 ('1') */
+export const BOX_HINT_KEY = 'rrtool.v1.boxhint';
 /** 화면 분할 (칸 수 + 보기 칸 종목·시간봉) */
 export const SPLIT_KEY = 'rrtool.v1.split';
 /** 구조는 SL용 스윙(기본 2봉)보다 크게 본다 — 2봉이면 15분봉에서 CHoCH가 수십 개라 읽을 수 없다(2026-11-04 시안) */
@@ -186,7 +186,10 @@ export class App {
   private journalWarnings: string[] = [];
   /** 자유 모드: 박스를 잡은 순간의 계산 (위아래 이동 기준) */
   private freeBase: Scenario | null = null;
-  private freeMode = false;
+  /** 박스·선을 끌기 전 계산 (Ctrl+Z로 되돌리기, 최대 20개) */
+  private moveHistory: Scenario[] = [];
+  /** 지금 끄는 중이면 true (한 번 끄는 동안 기록은 한 번만) */
+  private gesture = false;
   private split: SplitState = { n: 1, panes: [] };
   private viewPanes: ViewPane[] = [];
   /** 멀티차트: 계산기 칸이 아닌 칸에 맡겨 둔 계산 (종목별) */
@@ -261,25 +264,32 @@ export class App {
       onDrag: (which, price) => {
         this.dragging = true;
         if (!this.scenario) return;
+        this.beginGesture();
         // 진입 선(노란 선)을 끌면 지정가 진입으로 (SL·TP는 그 자리 그대로, 손익비가 바뀐다)
         this.scenario = which === 'entry' ? setEntry(this.scenario, price) : setLevel(this.scenario, which, price);
         this.renderNow();
       },
       onDragEnd: () => {
         this.dragging = false;
+        this.gesture = false;
         this.persist();
         this.renderNow(); // 끄는 동안 멈춰 둔 숫자 굴림을 손을 뗀 자리에서 한 번
       },
       onBoxMove: (bars, done) => {
         if (!this.scenario) return;
+        if (!done) this.beginGesture();
         this.scenario = setBoxShift(this.scenario, bars);
         this.renderNow();
-        if (done) this.persist();
+        if (done) {
+          this.gesture = false;
+          this.persist();
+        }
       },
       // 자유 모드: 박스 통째로 위아래. 누른 순간의 진입·손절·목표에서 같은 만큼 옮긴다 (손익비 모양 그대로)
       onBoxPrice: (delta, done) => {
         const s0 = this.freeBase ?? this.scenario;
         if (!s0 || !this.scenario) return;
+        if (!done) this.beginGesture();
         this.freeBase = s0;
         const t = s0.tickSize;
         let next = setEntry(this.scenario, snapToTick(s0.entry + delta, t));
@@ -289,6 +299,7 @@ export class App {
         this.renderNow();
         if (done) {
           this.freeBase = null;
+          this.gesture = false;
           this.persist();
         }
       },
@@ -302,14 +313,7 @@ export class App {
     });
     this.chart.setDefaultDrawColor(this.loadDrawColor());
     this.chart.addLegendControl(this.el.structBtn);
-    this.chart.addLegendControl(this.el.freeBtn);
-    let freeSaved: string | null = null;
-    try {
-      freeSaved = this.d.storage.getItem(FREE_KEY);
-    } catch {
-      // 기본 꺼짐
-    }
-    this.setFreeMode(freeSaved === 'on', false);
+
     // 저널(다른 탭)에서 기록·청산·설정을 바꾸면 경고·리스크 조절을 바로 다시 / 날이 바뀌면 경고도 바뀌니 1분마다
     window.addEventListener('storage', (ev) => {
       if (ev.key === JOURNAL_KEY) this.renderJournal();
@@ -551,6 +555,8 @@ export class App {
     });
     // 박스는 진입 봉에서 몇 봉 오른쪽에서 시작해 최근 캔들을 가리지 않는다
     this.scenario = setBoxShift(created, settings.boxOffsetBars);
+    this.moveHistory = [];
+    this.showBoxHint();
     this.creating = false;
     this.persist();
     this.renderAll();
@@ -827,14 +833,7 @@ export class App {
       '다우 구조',
     );
     structBtn.addEventListener('click', () => this.toggleStructure());
-    // 손익비 박스 자유 모드 (2026-11-06): 켜면 박스를 통째로 위아래·과거까지, 노란 진입선도 끌기
-    const freeBtn = h(
-      'button',
-      { type: 'button', class: 'struct-toggle', 'data-testid': 'free-toggle', title: '자유 모드: 손익비 박스를 통째로 위아래·과거 시간대까지 옮기고, 노란 진입선도 끌 수 있어요 (끄면 진입선 잠금·박스는 오른쪽으로만)' },
-      h('span', { class: 'dot', 'aria-hidden': 'true' }),
-      '자유 모드',
-    );
-    freeBtn.addEventListener('click', () => this.setFreeMode(!this.freeMode, true));
+
     // 사용 안내 다시 보기 (처음 한 번은 저절로 뜬다)
     const tourBtn = h(
       'button',
@@ -1201,12 +1200,23 @@ export class App {
       this.clearCalc();
     });
     // 되돌리기 알림이 떠 있는 동안 Ctrl+Z (⌘Z). 입력칸에서는 글자 되돌리기를 그대로 둔다
+    // 알림이 없으면 박스·선 끌기를 하나씩 되돌린다 (2026-11-06)
     document.addEventListener('keydown', (e) => {
-      if (!this.undoAction || !(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || e.code !== 'KeyZ') return;
+      if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || e.code !== 'KeyZ') return;
       const t = e.target as HTMLElement | null;
       if (t && (t.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName))) return;
+      if (this.undoAction) {
+        e.preventDefault();
+        this.runUndo();
+        return;
+      }
+      const prev = this.moveHistory.pop();
+      if (!prev || !this.scenario || prev.id !== this.scenario.id) return;
       e.preventDefault();
-      this.runUndo();
+      this.scenario = prev;
+      this.persist();
+      this.renderNow(true);
+      this.toast('되돌렸어요 (Ctrl+Z)');
     });
     // TradingView처럼 Alt+R로 차트 보기 초기화. 한글 입력 상태에서도 되도록 e.code로 본다
     document.addEventListener('keydown', (e) => {
@@ -1218,7 +1228,7 @@ export class App {
     return {
       picker, tf, sltf, long, short, status, statusReason, themeBtn, structBtn,
       loadError, chart, empty, card, sideChip, title, entry, times, rr, rrInput, rrLabel, rrChips, rrTp, rrProfitNote, reasons, bufferInput, bufferChips, bufferNote,
-      sl, tp, slWhy, sizing, restore, del, settingsInputs, settingRows, modeHelp, settingsSummaryEl, toast, undo, tools, tour, flow, watch, freeBtn, watchBtn, watchHandle, layout, panes, splitBtns, symbolList, mainLabel, journalForm, journalWarn, journalLink,
+      sl, tp, slWhy, sizing, restore, del, settingsInputs, settingRows, modeHelp, settingsSummaryEl, toast, undo, tools, tour, flow, watch, watchBtn, watchHandle, layout, panes, splitBtns, symbolList, mainLabel, journalForm, journalWarn, journalLink,
     };
   }
 
@@ -1987,20 +1997,42 @@ export class App {
     }
   }
 
-  private setFreeMode(on: boolean, persist: boolean): void {
-    this.freeMode = on;
-    this.chart.setFreeMode(on);
-    const b = this.el.freeBtn;
-    b.classList.toggle('on', on);
-    b.setAttribute('aria-pressed', String(on));
-    if (persist) {
-      try {
-        this.d.storage.setItem(FREE_KEY, on ? 'on' : 'off');
-      } catch {
-        // 저장 못 해도 이번 화면에는 적용
-      }
-      this.toast(on ? '자유 모드: 박스를 통째로 위아래·과거까지 옮길 수 있어요 (노란 진입선도 끌기)' : '자유 모드 끔: 진입선 잠금, 박스는 오른쪽으로만');
+  /** 끌기 시작: 되돌릴 수 있게 지금 계산을 기록 (한 번 끄는 동안 한 번) */
+  private beginGesture(): void {
+    if (this.gesture || !this.scenario) return;
+    this.gesture = true;
+    this.moveHistory.push(this.scenario);
+    if (this.moveHistory.length > 20) this.moveHistory.shift();
+  }
+
+  /** 박스를 처음 만들었을 때 한 번만: 끄는 법 안내 */
+  private showBoxHint(): void {
+    try {
+      if (this.d.storage.getItem(BOX_HINT_KEY) === '1') return;
+    } catch {
+      return;
     }
+    const wrap = this.el.chart.parentElement;
+    if (!wrap || wrap.querySelector('.box-hint')) return;
+    const ok = h('button', { type: 'button', 'data-testid': 'box-hint-ok' }, '알겠어요');
+    const hint = h(
+      'div',
+      { class: 'box-hint', role: 'status', 'data-testid': 'box-hint' },
+      h('b', {}, '손익비 박스 옮기기'),
+      h('span', {}, '박스 빈 곳을 끌면 통째로 (위아래·과거까지)'),
+      h('span', {}, '손절선·목표선을 끌면 그 가격만'),
+      h('span', {}, '실수로 옮겼으면 Ctrl+Z'),
+      ok,
+    );
+    ok.addEventListener('click', () => {
+      try {
+        this.d.storage.setItem(BOX_HINT_KEY, '1');
+      } catch {
+        // 못 담으면 다음에 또 뜬다
+      }
+      hint.remove();
+    });
+    wrap.append(hint);
   }
 
   private loadStructureOn(): boolean {
