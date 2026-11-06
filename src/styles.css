@@ -3391,10 +3391,11 @@ a.journal-link:hover {
 /* 박스 끌기 안내 (처음 한 번, 2026-11-06) */
 .box-hint {
   position: absolute;
-  top: 70px;
-  left: 50%;
-  transform: translateX(-50%);
+  /* 박스(보통 오른쪽 최근 캔들 쪽)를 가리지 않게 왼쪽 아래, 글자 위에선 차트를 그대로 끌 수 있게 */
+  left: 12px;
+  bottom: 44px;
   z-index: 6;
+  pointer-events: none;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -3412,6 +3413,7 @@ a.journal-link:hover {
 }
 
 .box-hint button {
+  pointer-events: auto;
   align-self: flex-end;
   margin-top: 6px;
   border: 0;
