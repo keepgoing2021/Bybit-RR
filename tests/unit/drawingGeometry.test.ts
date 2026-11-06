@@ -75,3 +75,15 @@ describe('hitTestDrawing', () => {
     expect(hitTestDrawing(channel, m, 200, 121)).toEqual({ part: 'point', index: 2 }); // 셋째 점(200,120)
   });
 });
+
+describe('% 자 모양·눌림', () => {
+  it('박스 안을 누르면 몸통, 밖이면 없음', async () => {
+    const { shapeOf, hitTestDrawing } = await import('../../src/chart/drawingGeometry');
+    const m = { toX: (t: number) => t, toY: (p: number) => 200 - p, width: 400, tfMs: 10 };
+    const d = { id: 'm', kind: 'measure' as const, points: [{ time: 100, price: 50 }, { time: 200, price: 100 }] };
+    const s = shapeOf(d, m)!;
+    expect(s).toMatchObject({ kind: 'measure', diff: 50, pct: 100, bars: 10 });
+    expect(hitTestDrawing(d, m, 150, 125)).toEqual({ part: 'body' });
+    expect(hitTestDrawing(d, m, 300, 125)).toBeNull();
+  });
+});

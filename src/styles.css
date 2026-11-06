@@ -3147,9 +3147,32 @@ button.flow-row.current .flow-name {
   min-height: 0;
 }
 
+/* 차트 위 줄 오른쪽 끝: 안내·라이트 */
+.chart-head-tools {
+  display: flex;
+  gap: 4px;
+  margin-left: 10px;
+  padding-left: 10px;
+  border-left: 1px solid var(--line);
+}
+
+.chart-head-tools button {
+  min-height: 24px;
+  padding: 2px 8px;
+  font-size: 11.5px;
+}
+
+/* 폰: 화면 분할은 숨기고 안내·라이트만 */
 @media (max-width: 640px) {
-  .chart-head {
+  .chart-head .split-group,
+  .chart-head .chart-head-main {
     display: none;
+  }
+
+  .chart-head-tools {
+    margin-left: 0;
+    padding-left: 0;
+    border-left: 0;
   }
 }
 
@@ -3355,5 +3378,12 @@ a.journal-link:hover {
     font-size: 0;
     gap: 0;
     padding: 6px;
+  }
+}
+
+@media (max-width: 640px) {
+  .chart-head-tools button {
+    min-height: 32px;
+    min-width: 34px;
   }
 }

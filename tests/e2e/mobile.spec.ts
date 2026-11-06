@@ -91,7 +91,7 @@ test('phone: order settings fold into one summary line; tap to open, edits updat
   expect(toast.bottom).toBeLessThanOrEqual(barTop);
 });
 
-test('phone: theme switch is an icon button in the top bar and works by tap', async ({ page }) => {
+test('phone: theme switch is an icon button (chart head strip) and works by tap', async ({ page }) => {
   await open(page);
   const toggle = page.getByTestId('theme-toggle');
   const r = await rect(page, 'theme-toggle');

@@ -6,7 +6,7 @@ import type {
   SeriesAttachedParameter,
   Time,
 } from 'lightweight-charts';
-import { POINTS, type Anchor, type Drawing, type DrawingKind } from '../core/drawings';
+import { formatSpan, POINTS, type Anchor, type Drawing, type DrawingKind } from '../core/drawings';
 import { handlesOf, shapeOf, type DrawMapper, type Px, type Shape } from './drawingGeometry';
 import { THEME } from './theme';
 
@@ -155,6 +155,44 @@ function paint(ctx: Ctx, s: Shape, m: DrawMapper, format: (p: number) => string,
       line(ctx, s.a[0], s.a[1], c, w);
       line(ctx, s.b[0], s.b[1], c, w);
       line(ctx, s.mid[0], s.mid[1], c, w, [4, 4]);
+      break;
+    }
+    case 'measure': {
+      // 오르면 초록, 내리면 빨강 (색을 고르면 그 색). 박스 + 가운데 화살표 + 아래(위)에 이름표
+      const up = s.diff >= 0;
+      const mc = color ?? (up ? THEME.profit : THEME.loss);
+      const x1 = Math.min(s.a.x, s.b.x);
+      const x2 = Math.max(s.a.x, s.b.x);
+      const y1 = Math.min(s.a.y, s.b.y);
+      const y2 = Math.max(s.a.y, s.b.y);
+      ctx.fillStyle = withAlpha(mc.startsWith('#') ? mc : DRAW_COLOR, 0.14);
+      ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
+      const cx = (x1 + x2) / 2;
+      line(ctx, { x: cx, y: s.a.y }, { x: cx, y: s.b.y }, mc, w);
+      line(ctx, { x: s.a.x, y: (y1 + y2) / 2 }, { x: s.b.x, y: (y1 + y2) / 2 }, mc, w);
+      // 화살촉 (끝점 쪽)
+      const dir = s.b.y < s.a.y ? -1 : 1;
+      ctx.fillStyle = mc;
+      ctx.beginPath();
+      ctx.moveTo(cx, s.b.y);
+      ctx.lineTo(cx - 4, s.b.y - dir * 7);
+      ctx.lineTo(cx + 4, s.b.y - dir * 7);
+      ctx.closePath();
+      ctx.fill();
+      const sign = up ? '+' : '−';
+      const text = `${sign}${format(Math.abs(s.diff))} (${sign}${Math.abs(s.pct).toFixed(2)}%) · ${Math.abs(s.bars)}봉 · ${formatSpan(s.ms)}`;
+      ctx.font = `600 11.5px ${THEME.font}`;
+      const tw = ctx.measureText(text).width + 14;
+      const ly = up ? y1 - 26 : y2 + 6;
+      const lx = Math.max(2, Math.min(m.width - tw - 2, cx - tw / 2));
+      ctx.fillStyle = mc;
+      ctx.beginPath();
+      ctx.roundRect?.(lx, ly, tw, 20, 4);
+      ctx.fill();
+      ctx.fillStyle = THEME.chipText;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(text, lx + 7, ly + 10.5);
       break;
     }
     case 'fib': {

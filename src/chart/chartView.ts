@@ -504,6 +504,7 @@ export class ChartView {
       },
       toY: (p) => this.series.priceToCoordinate(p),
       width: ts.width(),
+      tfMs: this.tfMs,
     };
   }
 

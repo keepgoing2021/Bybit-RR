@@ -1,5 +1,5 @@
-/** 차트 작도 (추세선·수평선·평행 채널·피보나치 되돌림). 점은 시간·가격 좌표라 확대·스크롤·시간봉과 무관하다 */
-export type DrawingKind = 'trend' | 'hline' | 'channel' | 'fib';
+/** 차트 작도 (추세선·수평선·평행 채널·피보나치 되돌림·% 자). 점은 시간·가격 좌표라 확대·스크롤·시간봉과 무관하다 */
+export type DrawingKind = 'trend' | 'hline' | 'channel' | 'fib' | 'measure';
 
 export interface Anchor {
   /** ms. 마지막 캔들 뒤(미래)도 가능 */
@@ -20,16 +20,17 @@ export const DRAW_PALETTE = ['#26C6DA', '#FFFFFF', '#F2C46D', '#2EBD85', '#F0616
 
 export const isColor = (v: unknown): v is string => typeof v === 'string' && /^#[0-9a-fA-F]{6}$/.test(v);
 
-export const DRAWING_KINDS: DrawingKind[] = ['trend', 'hline', 'channel', 'fib'];
+export const DRAWING_KINDS: DrawingKind[] = ['trend', 'hline', 'channel', 'fib', 'measure'];
 
 /** 도구별로 찍는 점 수 */
-export const POINTS: Record<DrawingKind, number> = { trend: 2, hline: 1, channel: 3, fib: 2 };
+export const POINTS: Record<DrawingKind, number> = { trend: 2, hline: 1, channel: 3, fib: 2, measure: 2 };
 
 export const DRAWING_NAMES: Record<DrawingKind, string> = {
   trend: '추세선',
   hline: '수평선',
   channel: '평행 채널',
   fib: '피보나치 되돌림',
+  measure: '% 재는 자 (가격·시간 범위)',
 };
 
 /** 점을 찍을 때 안내 (n번째 점) */
@@ -39,6 +40,28 @@ export function placingHint(kind: DrawingKind, placed: number): string {
   if (kind === 'channel') return [`${name}: 시작점을 누르세요`, `${name}: 끝점을 누르세요`, `${name}: 폭을 정할 곳을 누르세요`][placed] ?? name;
   if (kind === 'fib') return placed === 0 ? `${name}: 시작점(1)을 누르세요` : `${name}: 끝점(0)을 누르세요`;
   return placed === 0 ? `${name}: 시작점을 누르세요` : `${name}: 끝점을 누르세요`;
+}
+
+/**
+ * % 자 (TradingView 「가격 범위」·「날짜와 가격 범위」, 2026-11-06): 두 점 사이 가격 차·변화율·봉 수·시간.
+ * 변화율 = (끝 − 시작) ÷ 시작
+ */
+export function measure(a: Anchor, b: Anchor, tfMs: number): { diff: number; pct: number; bars: number; ms: number } {
+  const diff = b.price - a.price;
+  const ms = b.time - a.time;
+  return { diff, pct: a.price !== 0 ? (diff / a.price) * 100 : 0, bars: tfMs > 0 ? Math.round(ms / tfMs) : 0, ms };
+}
+
+/** 기간 짧게: 45분, 3시간 15분, 2일 4시간 (음수면 앞에 −) */
+export function formatSpan(ms: number): string {
+  const neg = ms < 0;
+  let m = Math.round(Math.abs(ms) / 60_000);
+  const d = Math.floor(m / 1440);
+  m -= d * 1440;
+  const h = Math.floor(m / 60);
+  m -= h * 60;
+  const parts = d ? [`${d}일`, h ? `${h}시간` : ''] : h ? [`${h}시간`, m ? `${m}분` : ''] : [`${m}분`];
+  return (neg ? '−' : '') + parts.filter(Boolean).join(' ');
 }
 
 export const FIB_LEVELS = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];

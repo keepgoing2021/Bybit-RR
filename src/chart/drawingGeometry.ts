@@ -1,4 +1,4 @@
-import { channelOffset, fibLevels, POINTS, type Drawing } from '../core/drawings';
+import { channelOffset, fibLevels, measure, POINTS, type Drawing } from '../core/drawings';
 
 export interface Px {
   x: number;
@@ -11,13 +11,16 @@ export interface DrawMapper {
   toY(price: number): number | null;
   /** 차트 영역 폭 (수평선이 끝까지 간다) */
   width: number;
+  /** 지금 차트 시간봉 (ms). % 자의 봉 수 계산 */
+  tfMs?: number;
 }
 
 export type Shape =
   | { kind: 'trend'; a: Px; b: Px }
   | { kind: 'hline'; y: number; price: number }
   | { kind: 'channel'; a: [Px, Px]; b: [Px, Px]; mid: [Px, Px] }
-  | { kind: 'fib'; x1: number; x2: number; a: Px; b: Px; levels: { level: number; price: number; y: number }[] };
+  | { kind: 'fib'; x1: number; x2: number; a: Px; b: Px; levels: { level: number; price: number; y: number }[] }
+  | { kind: 'measure'; a: Px; b: Px; diff: number; pct: number; bars: number; ms: number };
 
 const HANDLE_TOL = 7;
 const LINE_TOL = 6;
@@ -40,6 +43,7 @@ export function shapeOf(d: Drawing, m: DrawMapper): Shape | null {
   const b = px(m, p2.time, p2.price);
   if (!a || !b) return null;
   if (d.kind === 'trend') return { kind: 'trend', a, b };
+  if (d.kind === 'measure') return { kind: 'measure', a, b, ...measure(p1, p2, m.tfMs ?? 0) };
   if (d.kind === 'fib') {
     const levels = fibLevels(p1, p2).flatMap((l) => {
       const y = m.toY(l.price);
@@ -103,6 +107,10 @@ export function hitTestDrawing(d: Drawing, m: DrawMapper, x: number, y: number):
       return near(s.a, s.b) ? { part: 'body' } : null;
     case 'hline':
       return Math.abs(y - s.y) <= LINE_TOL ? { part: 'body' } : null;
+    case 'measure': {
+      const inside = x >= Math.min(s.a.x, s.b.x) - LINE_TOL && x <= Math.max(s.a.x, s.b.x) + LINE_TOL && y >= Math.min(s.a.y, s.b.y) - LINE_TOL && y <= Math.max(s.a.y, s.b.y) + LINE_TOL;
+      return inside ? { part: 'body' } : null;
+    }
     case 'fib': {
       if (near(s.a, s.b)) return { part: 'body' };
       if (x < s.x1 - LINE_TOL || x > s.x2 + LINE_TOL) return null;

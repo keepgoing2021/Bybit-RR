@@ -34,7 +34,7 @@ describe('timeToLogical / logicalToTime', () => {
 
 describe('drawings', () => {
   it('points needed per tool', () => {
-    expect(POINTS).toEqual({ trend: 2, hline: 1, channel: 3, fib: 2 });
+    expect(POINTS).toEqual({ trend: 2, hline: 1, channel: 3, fib: 2, measure: 2 });
   });
 
   it('fib retracement like TradingView: 1 at the first point, 0 at the second', () => {
@@ -80,5 +80,28 @@ describe('drawings', () => {
     });
     expect(r).toEqual({ BTCUSDT: [good] });
     expect(sanitizeDrawings(null)).toEqual({});
+  });
+});
+
+describe('% 자 (가격·시간 범위)', async () => {
+  const { measure, formatSpan } = await import('../../src/core/drawings');
+  it('가격 차·변화율·봉 수·시간', () => {
+    const r = measure({ time: 0, price: 100 }, { time: 3 * 3600_000, price: 101.5 }, 15 * 60_000);
+    expect(r).toEqual({ diff: 1.5, pct: 1.5, bars: 12, ms: 3 * 3600_000 });
+    const down = measure({ time: 0, price: 200 }, { time: 15 * 60_000, price: 190 }, 15 * 60_000);
+    expect(down.pct).toBe(-5);
+    expect(down.bars).toBe(1);
+  });
+  it('기간 짧게', () => {
+    expect(formatSpan(45 * 60_000)).toBe('45분');
+    expect(formatSpan(195 * 60_000)).toBe('3시간 15분');
+    expect(formatSpan(3 * 3600_000)).toBe('3시간');
+    expect(formatSpan((2 * 24 + 4) * 3600_000)).toBe('2일 4시간');
+    expect(formatSpan(-30 * 60_000)).toBe('−30분');
+  });
+  it('저장·불러오기: 점 2개', async () => {
+    const { sanitizeDrawings } = await import('../../src/core/drawings');
+    const d = { id: 'm1', kind: 'measure', points: [{ time: 1, price: 1 }, { time: 2, price: 2 }] };
+    expect(sanitizeDrawings({ BTCUSDT: [d, { ...d, id: 'm2', points: [{ time: 1, price: 1 }] }] })).toEqual({ BTCUSDT: [d] });
   });
 });

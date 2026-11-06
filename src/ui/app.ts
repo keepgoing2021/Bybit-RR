@@ -167,6 +167,7 @@ const DRAW_ICONS: Record<DrawingKind | 'clear', string> = {
   hline: svg('<line x1="2" y1="10" x2="18" y2="10"/><circle cx="10" cy="10" r="1.8" fill="currentColor"/>'),
   channel: svg('<line x1="3" y1="12" x2="14" y2="4"/><line x1="6" y1="16" x2="17" y2="8"/><line x1="4.5" y1="14" x2="15.5" y2="6" stroke-dasharray="2 2" stroke-width="1"/>'),
   fib: svg('<line x1="3" y1="4" x2="17" y2="4"/><line x1="3" y1="8" x2="17" y2="8"/><line x1="3" y1="11" x2="17" y2="11"/><line x1="3" y1="16" x2="17" y2="16"/><line x1="4" y1="16" x2="16" y2="4" stroke-dasharray="2 2" stroke-width="1"/>'),
+  measure: svg('<rect x="3" y="4" width="14" height="12" rx="1" stroke-dasharray="2 2" stroke-width="1"/><line x1="10" y1="15" x2="10" y2="6"/><path d="M7.5 8.5L10 6l2.5 2.5"/>'),
   clear: svg('<path d="M5 6h10M8 6V4h4v2M6.5 6l.8 10h5.4l.8-10"/>'),
 };
 
@@ -855,7 +856,7 @@ export class App {
       field('차트', tf),
       field('SL 기준', sltf),
       h('div', { class: 'sides' }, long, short),
-      h('div', { class: 'status' }, status, statusReason, watchBtn, journalLink, tourBtn, themeBtn),
+      h('div', { class: 'status' }, status, statusReason, watchBtn, journalLink),
       sizing.fold,
       sizing.bar,
       flow.root,
@@ -1098,7 +1099,8 @@ export class App {
     }
     // 칸을 나누면 왼쪽에 「계산기 칸」이 어느 것인지 (노란 테두리 칸)
     const mainLabel = h('span', { class: 'chart-head-main', 'data-testid': 'split-main-label' });
-    const chartHead = h('div', { class: 'chart-head' }, mainLabel, splitGroup);
+    // 「안내」·「라이트」는 자주 안 누르니 차트 위 줄 오른쪽 끝으로 (2026-11-06: 위쪽 줄은 거래에 쓰는 것만)
+    const chartHead = h('div', { class: 'chart-head' }, mainLabel, splitGroup, h('div', { class: 'chart-head-tools' }, tourBtn, themeBtn));
     const symbolList = h('datalist', { id: 'pane-symbols' });
     const panes = h('div', { class: 'panes', 'data-split': '1' }, chartWrap);
     const chartArea = h('section', { class: 'chart-area' }, chartHead, panes, symbolList);
@@ -1193,7 +1195,7 @@ export class App {
     }
     const toggle = h(
       'button',
-      { type: 'button', class: 'draw-toggle', 'data-testid': 'draw-toggle', title: open ? '작도 도구 접기' : '작도 도구 열기 (추세선·수평선·평행 채널·피보나치)' },
+      { type: 'button', class: 'draw-toggle', 'data-testid': 'draw-toggle', title: open ? '작도 도구 접기' : '작도 도구 열기 (추세선·수평선·평행 채널·피보나치·% 자)' },
       open ? '‹' : '›',
     );
     const buttons = new Map<DrawingKind, HTMLButtonElement>();
