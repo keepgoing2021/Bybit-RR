@@ -44,6 +44,10 @@ export function parseInstruments(list: unknown[]): SymbolInfo[] {
     if (qtyStep !== undefined) info.qtyStep = qtyStep;
     if (minQty !== undefined) info.minQty = minQty;
     if (minNotional !== undefined) info.minNotional = minNotional;
+    // 주식·ETF·원자재·환율 무기한 (트레이딩뷰 목록의 NYSE:AAPL 같은 이름을 Bybit 종목으로 잇는 데 쓴다)
+    const kinds: Record<string, SymbolInfo['kind']> = { stock: 'stock', ETF: 'etf', commodity: 'commodity', forex: 'forex' };
+    const kind = typeof r.symbolType === 'string' ? kinds[r.symbolType] : undefined;
+    if (kind) info.kind = kind;
     // 무기한은 평소 deliveryTime이 '0'. 종료가 공지되면 그 시각이 들어온다
     const delist = pos(r.deliveryTime);
     if (delist !== undefined) info.delistAt = delist;

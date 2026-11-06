@@ -105,3 +105,34 @@ describe('Bybit relay (Cloudflare Worker): public market data only', () => {
     expect(Object.keys(mod)).toEqual(['default']);
   });
 });
+
+describe('트레이딩뷰 공유 목록 중계 (/tv-watchlist)', async () => {
+  const { extractTvSymbols, tvWatchlist } = await import('../../worker/tv.js');
+  const page = '<html><script>window.x={"id":1,"symbols":["###먹을텐데","NYSE:KO","NASDAQ:SBUX","<img onerror=1>"],"name":"해외주식"}</script></html>';
+  const req = (path: string, headers: Record<string, string> = {}) => new Request(`https://1rc.app${path}`, { headers });
+
+  it('페이지에서 종목 이름만 꺼낸다 (이상한 글자는 버림)', () => {
+    expect(extractTvSymbols(page)).toEqual(['###먹을텐데', 'NYSE:KO', 'NASDAQ:SBUX']);
+    expect(extractTvSymbols('<html></html>')).toBeNull();
+  });
+
+  it('트레이딩뷰 고정 주소만 부르고, 번호가 아니면 거절, 다른 사이트에서 부르면 거절', async () => {
+    const calls: string[] = [];
+    const up = async (u: string) => {
+      calls.push(u);
+      return new Response(page, { status: 200 });
+    };
+    const ok = await tvWatchlist(req('/tv-watchlist/16358394'), up);
+    expect(ok.status).toBe(200);
+    expect(await ok.json()).toEqual({ symbols: ['###먹을텐데', 'NYSE:KO', 'NASDAQ:SBUX'] });
+    expect(calls).toEqual(['https://www.tradingview.com/watchlists/16358394/']);
+    expect((await tvWatchlist(req('/tv-watchlist/abc'), up)).status).toBe(400);
+    expect((await tvWatchlist(req('/tv-watchlist/1', { 'Sec-Fetch-Site': 'cross-site' }), up)).status).toBe(403);
+    expect(calls).toHaveLength(1);
+  });
+
+  it('없는 목록 404, 못 읽으면 422', async () => {
+    expect((await tvWatchlist(req('/tv-watchlist/1'), async () => new Response('x', { status: 404 }))).status).toBe(404);
+    expect((await tvWatchlist(req('/tv-watchlist/1'), async () => new Response('<html/>', { status: 200 }))).status).toBe(422);
+  });
+});

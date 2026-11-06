@@ -50,6 +50,15 @@ export default defineConfig(() => {
             if (req.url === '/journal' || req.url?.startsWith('/journal?')) req.url = req.url.replace('/journal', '/journal.html');
             next();
           });
+          server.middlewares.use(async (req, res, next) => {
+            if (!req.url?.startsWith('/tv-watchlist/')) return next();
+            const { tvWatchlist } = await import('./worker/tv.js');
+            const r = await tvWatchlist(new Request(`http://localhost${req.url}`));
+            const out = res as { statusCode: number; setHeader: (k: string, v: string) => void; end: (b: string) => void };
+            out.statusCode = r.status;
+            out.setHeader('Content-Type', 'application/json; charset=utf-8');
+            out.end(await r.text());
+          });
         },
       },
     ],
