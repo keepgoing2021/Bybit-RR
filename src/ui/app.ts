@@ -49,6 +49,8 @@ import { compactUsdt, formatClock, formatPct, formatTime, settingsSummary, SL_MO
 import { HUNT_FAR_PCT, HUNT_NEAR_PCT, huntTip, huntZone, inHuntZone } from '../core/huntZone';
 import { FlowBoard } from './flowBoard';
 import { WatchList } from './watchList';
+import { JournalForm, loadJournal } from './journalForm';
+import { autoRiskPct, entryWarnings, JOURNAL_KEY } from '../core/journal';
 import { ViewPane } from './viewPane';
 import { fillPanes, parseSplit, SPLITS, type PaneSel, type SplitCount, type SplitState } from '../core/split';
 import { loadCoinMeta, loadUpbitPrices } from '../data/coinMeta';
@@ -178,6 +180,7 @@ export class App {
   private ui!: UiSelection;
   private settings: AnalysisSettings = DEFAULT_SETTINGS;
   private watchOpen = false;
+  private journalWarnings: string[] = [];
   private split: SplitState = { n: 1, panes: [] };
   private viewPanes: ViewPane[] = [];
   /** 멀티차트: 계산기 칸이 아닌 칸에 맡겨 둔 계산 (종목별) */
@@ -277,6 +280,11 @@ export class App {
     });
     this.chart.setDefaultDrawColor(this.loadDrawColor());
     this.chart.addLegendControl(this.el.structBtn);
+    // 저널(다른 탭)에서 기록·청산·설정을 바꾸면 경고·리스크 조절을 바로 다시 / 날이 바뀌면 경고도 바뀌니 1분마다
+    window.addEventListener('storage', (ev) => {
+      if (ev.key === JOURNAL_KEY) this.renderJournal();
+    });
+    window.setInterval(() => this.renderJournal(), 60_000);
     this.setWatchOpen(this.loadWatchOpen(), false);
     try {
       this.split = parseSplit(this.d.storage.getItem(SPLIT_KEY));
@@ -483,6 +491,8 @@ export class App {
   /** LONG/SHORT: 누를 때마다 그 순간 가격으로 새로 계산한다 (이전 계산은 대체) */
   private async onSide(side: Side): Promise<void> {
     if (this.creating) return;
+    // 내 규칙 경고는 막지 않고 알려만 준다 (판단은 사용자)
+    if (this.journalWarnings.length) this.toast(`⚠ ${this.journalWarnings.join(' · ')}`);
     // 클릭 순간의 최신 수신 가격을 가장 먼저 고정한다
     const cap = captureEntry(this.feed, this.d.now(), {
       staleAfterMs: this.settings.staleAfterSec * 1000,
@@ -816,6 +826,12 @@ export class App {
       this.ui.symbol = symbol;
       void this.loadMarket();
     }, () => this.setWatchOpen(false), () => loadCoinMeta(this.d.storage), () => loadUpbitPrices());
+    const journalLink = h(
+      'a',
+      { href: '/journal', class: 'theme-toggle journal-link', 'data-testid': 'journal-link', title: '거래 저널 (기록·통계·규칙)' },
+      h('span', { class: 'icon', 'aria-hidden': 'true' }, '📒'),
+      h('span', { class: 'label' }, '저널'),
+    );
     const watchBtn = h(
       'button',
       { type: 'button', class: 'theme-toggle watch-toggle', 'data-testid': 'watch-toggle', title: '종목 리스트 열기·닫기' },
@@ -839,7 +855,7 @@ export class App {
       field('차트', tf),
       field('SL 기준', sltf),
       h('div', { class: 'sides' }, long, short),
-      h('div', { class: 'status' }, status, statusReason, watchBtn, tourBtn, themeBtn),
+      h('div', { class: 'status' }, status, statusReason, watchBtn, journalLink, tourBtn, themeBtn),
       sizing.fold,
       sizing.bar,
       flow.root,
@@ -958,6 +974,25 @@ export class App {
     // 지금 목표가 (손익비 카드 머리의 초록 알약)
     const rrTp = h('span', { class: 'tag profit num', 'data-testid': 'rr-tp', title: '지금 목표가 (TP)' });
     const rrProfitNote = h('p', { class: 'rr-profit-note', 'data-testid': 'rr-profit-note', hidden: true }, '칩 아래 = 분할 전부 체결 후 그 자리 수익 (USDT)');
+    // 저널에 기록 (2026-11-06): 계산기 값 + 셋업·품질·근거 한 줄·지킨 규칙
+    const journalForm = new JournalForm(
+      this.d.storage,
+      () => {
+        const sc = this.scenario;
+        if (!sc) return null;
+        const plan = this.sizingPlan(sc).plan;
+        const cap = this.sizing.capital;
+        return {
+          scenario: sc,
+          qty: plan ? plan.totalQty : null,
+          riskUsdt: plan ? plan.lossAtSl : null,
+          riskPct: plan && cap ? (plan.lossAtSl / cap) * 100 : null,
+          feeRate: FEE_RATES[this.feeTier].taker,
+        };
+      },
+      () => this.renderJournal(),
+      (msg) => this.toast(msg),
+    );
     // 패널은 카드 묶음: 가격 / 손익비 / 분할 진입 / 리스크 / 근거
     const card = h(
       'div',
@@ -982,6 +1017,7 @@ export class App {
       reasons,
       sizing.box,
       sizing.riskCard,
+      journalForm.root,
       h('div', { class: 'actions' }, restore),
       h('p', { class: 'note' }, '가격 기준 계산입니다. 수수료·슬리피지·펀딩비는 반영하지 않았습니다. 주문은 Bybit에서 직접 넣습니다.'),
     );
@@ -1025,7 +1061,9 @@ export class App {
       resetSettings,
     );
 
-    const panel = h('aside', { class: 'panel' }, h('section', { class: 'scenario' }, empty, card), settings);
+    // 진입 전 경고 (저널의 하루 운영 규칙·손실 한도) — 들어가기 전에 보이게 패널 맨 위
+    const journalWarn = h('div', { class: 'journal-warn', role: 'status', 'data-testid': 'journal-warn', hidden: true });
+    const panel = h('aside', { class: 'panel' }, journalWarn, h('section', { class: 'scenario' }, empty, card), settings);
     const tools = this.buildDrawTools();
     const chartWrap = h('section', { class: 'chart-wrap', 'data-tools': tools.open ? 'open' : 'closed' }, tools.bar, chart, tools.hint, tools.edit.bar);
     tools.toggle.addEventListener('click', () => {
@@ -1141,7 +1179,7 @@ export class App {
     return {
       picker, tf, sltf, long, short, status, statusReason, themeBtn, structBtn,
       loadError, chart, empty, card, sideChip, title, entry, times, rr, rrInput, rrLabel, rrChips, rrTp, rrProfitNote, reasons, bufferInput, bufferChips, bufferNote,
-      sl, tp, slWhy, sizing, restore, del, settingsInputs, settingRows, modeHelp, settingsSummaryEl, toast, undo, tools, tour, flow, watch, watchBtn, watchHandle, layout, panes, splitBtns, symbolList, mainLabel,
+      sl, tp, slWhy, sizing, restore, del, settingsInputs, settingRows, modeHelp, settingsSummaryEl, toast, undo, tools, tour, flow, watch, watchBtn, watchHandle, layout, panes, splitBtns, symbolList, mainLabel, journalForm, journalWarn, journalLink,
     };
   }
 
@@ -1715,11 +1753,35 @@ export class App {
     });
   }
 
+  /**
+   * 저널 쪽 상태를 계산기에 반영: 진입 전 경고(하루 거래 수·연속 손절·하루 한도) + 리스크 자동 조절.
+   * 저널 페이지(다른 탭)에서 바꿔도 storage 이벤트로 바로 따라온다
+   */
+  private renderJournal(): void {
+    const e = this.el;
+    if (!e) return;
+    const j = loadJournal(this.d.storage);
+    const warns = entryWarnings(j, this.d.now());
+    this.journalWarnings = warns;
+    show(e.journalWarn, warns.length > 0);
+    e.journalWarn.replaceChildren(h('b', {}, '⚠ 내 규칙'), ...warns.map((w) => h('span', {}, w)), h('a', { href: '/journal' }, '저널 보기'));
+    const pct = autoRiskPct(j, this.sizing.capital);
+    if (pct !== null && pct !== this.sizing.riskPct) {
+      const before = this.sizing.riskPct;
+      this.sizing = { ...this.sizing, riskPct: pct };
+      saveSizing(this.d.storage, this.sizing);
+      this.renderSizingControls(true);
+      this.renderNow(true);
+      this.toast(`리스크 자동 조절: 손실 ${before}% → ${pct}% (저널 누적 수익 기준)`);
+    }
+  }
+
   private renderAll(): void {
     this.renderTopbar();
     this.renderSettings();
     this.renderStatus();
     this.renderNow(true);
+    this.renderJournal();
   }
 
   private renderTopbar(): void {
@@ -1964,6 +2026,7 @@ export class App {
     };
     const label = this.socketState === 'reconnecting' ? '재연결 중' : labels[f.status];
     setText(this.el.status, label);
+    this.el.status.title = label; // 폰에서는 점만 보이므로 누르거나 올리면 글자로
     this.el.status.dataset.state = f.status;
     setText(this.el.statusReason, f.canCreate ? '' : f.reason ?? '');
     const disabled = !f.canCreate || this.creating;
@@ -2053,6 +2116,7 @@ export class App {
     this.renderSlBuffer();
     const plan = this.renderSizing(s);
     this.rollChanged(s.id, rrNow);
+    e.journalForm.render(s);
 
     this.chart.setOverlay(this.overlayFor(s, this.ui.timeframe, true, plan));
     this.renderPaneOverlays(true);

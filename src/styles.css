@@ -3190,3 +3190,170 @@ button.flow-row.current .flow-name {
 .view-pane:hover {
   box-shadow: inset 0 0 0 1px var(--line-hover);
 }
+
+/* 저널: 계산기 패널의 「📒 저널에 기록」 카드 + 진입 전 경고 (2026-11-06) */
+.journal-card {
+  gap: 10px;
+}
+
+.journal-open {
+  height: 36px;
+  border-radius: 10px;
+  border: 1px dashed var(--line-hover);
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.journal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.journal-form[hidden],
+.journal-done[hidden],
+.journal-open[hidden],
+.journal-warn[hidden] {
+  display: none;
+}
+
+.journal-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.journal-setup-row {
+  display: flex;
+  gap: 6px;
+}
+
+.journal-setup-row select,
+.journal-setup-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+.journal-reason {
+  width: 100%;
+}
+
+.journal-quality {
+  display: flex;
+  gap: 4px;
+}
+
+.journal-quality button {
+  flex: 1;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.journal-quality button.on {
+  color: var(--text);
+  border-color: var(--entry);
+}
+
+.journal-quality button[data-q='break'].on {
+  border-color: var(--loss);
+  color: var(--loss);
+}
+
+.journal-rules {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.journal-rule {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  color: var(--text);
+}
+
+.journal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.journal-save {
+  height: 32px;
+  padding: 0 16px;
+  border-radius: 8px;
+  border: 0;
+  background: var(--entry);
+  color: #111;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.journal-done {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--profit);
+}
+
+.journal-done a {
+  color: var(--text);
+}
+
+.journal-warn {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--loss);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--loss) 12%, transparent);
+  font-size: 12.5px;
+}
+
+.journal-warn b {
+  color: var(--loss);
+}
+
+.journal-warn a {
+  margin-left: auto;
+  color: var(--text);
+}
+
+/* 「📒 저널」은 링크(a)지만 옆 버튼들과 같은 모양 */
+a.journal-link {
+  text-decoration: none;
+  border: 1px solid var(--line);
+  background: var(--raised);
+  border-radius: 6px;
+}
+
+a.journal-link:hover {
+  border-color: var(--line-hover);
+  color: var(--text);
+}
+
+/* 폰은 상단 줄이 좁아 링크를 숨긴다 — 기록 카드의 「저널에서 청산가 입력」·경고의 「저널 보기」로 들어간다 */
+@media (max-width: 640px) {
+  a.journal-link {
+    display: none;
+  }
+}
+
+/* 폰: 상단 둘째 줄이 좁아 「실시간」 글자가 옆 칸에 겹친다 → 점만 남김 (색으로 상태, 글자는 title·읽기 프로그램용으로 유지) */
+@media (max-width: 640px) {
+  .status .pill {
+    font-size: 0;
+    gap: 0;
+    padding: 6px;
+  }
+}

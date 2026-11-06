@@ -42,7 +42,19 @@ export default defineConfig(() => {
         name: 'site-url',
         transformIndexHtml: (html: string) => html.replaceAll('%SITE_URL%', siteUrl()).replaceAll('%BUILD_ID%', build),
       },
+      {
+        // 개발 서버에서도 /journal 주소가 저널 페이지로 (배포는 Cloudflare가 journal.html로 알아서)
+        name: 'journal-route',
+        configureServer(server: { middlewares: { use: (fn: (req: { url?: string }, res: unknown, next: () => void) => void) => void } }) {
+          server.middlewares.use((req, _res, next) => {
+            if (req.url === '/journal' || req.url?.startsWith('/journal?')) req.url = req.url.replace('/journal', '/journal.html');
+            next();
+          });
+        },
+      },
     ],
+    // 두 페이지: 계산기(/) + 거래 저널(/journal, 2026-11-06). Cloudflare 정적 파일은 /journal → journal.html
+    build: { rollupOptions: { input: { main: 'index.html', journal: 'journal.html' } } },
     server: { proxy: bybitProxy },
     preview: { proxy: bybitProxy },
     test: {

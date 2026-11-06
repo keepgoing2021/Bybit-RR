@@ -1,0 +1,372 @@
+/* 거래 저널 페이지 (1rc.app/journal, 2026-11-06). 색·글꼴은 계산기(styles.css)와 같은 변수 */
+body {
+  overflow-y: auto;
+}
+
+#app {
+  display: block;
+  min-height: 100vh;
+}
+
+.j-head {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+}
+
+.j-head h1 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.j-back {
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 13px;
+}
+
+.j-back:hover {
+  color: var(--text);
+}
+
+.j-local {
+  margin-right: auto;
+}
+
+.j-main {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 20px 20px 60px;
+}
+
+.j-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--card-line);
+  border-radius: 14px;
+  background: var(--card);
+}
+
+.j-section h2 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.j-stats {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.j-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--well);
+}
+
+.j-stat-label {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.j-stat-value {
+  font-size: 22px;
+}
+
+.j-stat[data-tone='up'] .j-stat-value,
+[data-sign='up'] {
+  color: var(--profit);
+}
+
+.j-stat[data-tone='down'] .j-stat-value,
+[data-sign='down'] {
+  color: var(--loss);
+}
+
+.j-stat-sub {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.j-limits {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.j-limit {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+}
+
+.j-limit b {
+  font-size: 20px;
+}
+
+.j-limit-badge {
+  align-self: flex-start;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.j-limit[data-state='ok'] .j-limit-badge {
+  color: #fff;
+  background: var(--profit);
+}
+
+.j-limit[data-state='over'] {
+  border-color: var(--loss);
+}
+
+.j-limit[data-state='over'] .j-limit-badge {
+  color: #fff;
+  background: var(--loss);
+}
+
+.j-limit[data-state='off'] .j-limit-badge {
+  color: var(--muted);
+  border: 1px solid var(--line);
+}
+
+.j-open {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.j-open-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.j-open-main {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: baseline;
+}
+
+[data-side='LONG'] {
+  color: var(--profit);
+}
+
+[data-side='SHORT'] {
+  color: var(--loss);
+}
+
+.j-open-prices {
+  font-size: 13px;
+}
+
+.j-reason {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.j-open-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.j-exit {
+  width: 130px;
+  height: 32px;
+}
+
+.j-close,
+.j-save,
+.j-csv {
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 8px;
+  border: 1px solid var(--entry);
+  background: var(--entry);
+  color: #111;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.j-csv {
+  background: none;
+  color: var(--text);
+  border-color: var(--line);
+  font-weight: 500;
+}
+
+.j-save {
+  align-self: flex-start;
+}
+
+.j-quick,
+.j-del {
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.j-del.armed {
+  color: #fff;
+  background: var(--loss);
+  border-color: var(--loss);
+}
+
+.j-table-wrap {
+  overflow-x: auto;
+}
+
+.j-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.j-table th {
+  text-align: left;
+  color: var(--muted);
+  font-weight: 500;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.j-table td {
+  padding: 7px 8px;
+  border-bottom: 1px solid var(--ink-04);
+  white-space: nowrap;
+}
+
+.j-table td[data-q='break'] {
+  color: var(--loss);
+}
+
+.j-reason-cell {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--muted);
+}
+
+.j-tabs {
+  display: flex;
+  gap: 4px;
+}
+
+.j-tabs button {
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.j-tabs button.on {
+  color: var(--text);
+  border-color: var(--entry);
+}
+
+.j-settings {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.j-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.j-field textarea {
+  min-height: 90px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--well);
+  color: var(--text);
+  font: inherit;
+  resize: vertical;
+}
+
+.j-field input[type='number'] {
+  width: 120px;
+}
+
+.j-field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.j-check {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 13px;
+}
+
+.j-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  z-index: 50;
+  padding: 10px 16px;
+  border-radius: 8px;
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--entry);
+}
+
+@media (max-width: 760px) {
+  .j-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .j-limits,
+  .j-settings {
+    grid-template-columns: 1fr;
+  }
+
+  .j-head {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+}
