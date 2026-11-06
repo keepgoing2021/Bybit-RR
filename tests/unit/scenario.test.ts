@@ -112,8 +112,9 @@ describe('setBoxShift', () => {
     expect(setBoxShift(makeScenario(), 2.6).boxShiftBars).toBe(3);
   });
 
-  it('never goes left of the entry bar', () => {
-    expect(setBoxShift(makeScenario(), -5).boxShiftBars).toBe(0);
+  it('can go left of the entry bar (into the past) since 2026-11-06 — the chart clamps it to the first candle', () => {
+    expect(setBoxShift(makeScenario(), -5).boxShiftBars).toBe(-5);
+    expect(setBoxShift(makeScenario(), -2.4).boxShiftBars).toBe(-2);
   });
 
   it('also works on a closed scenario', () => {

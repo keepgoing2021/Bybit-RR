@@ -163,7 +163,10 @@ describe('box shift persistence', () => {
     delete (legacy.scenario as { boxShiftMs?: number }).boxShiftMs;
     saveState(st, legacy);
     expect(loadState(st)?.scenario).not.toBeNull();
-    saveState(st, { ...state(), scenario: { ...state().scenario!, boxShiftBars: -1 } });
+    // 과거로 옮긴 박스(음수)도 읽는다 (2026-11-06), 숫자가 아니면 버린다
+    saveState(st, { ...state(), scenario: { ...state().scenario!, boxShiftBars: -3 } });
+    expect(loadState(st)?.scenario?.boxShiftBars).toBe(-3);
+    saveState(st, { ...state(), scenario: { ...state().scenario!, boxShiftBars: 'x' as unknown as number } });
     expect(loadState(st)?.scenario).toBeNull();
   });
 });

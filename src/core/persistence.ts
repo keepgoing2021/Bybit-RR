@@ -188,7 +188,7 @@ function isScenario(v: unknown): boolean {
     (v.status === 'active' || v.status === 'closed') &&
     (closed === null || (isObject(closed) && isNum(closed.price) && isNum(closed.time))) &&
     (v.boxShiftMs === undefined || (isNum(v.boxShiftMs) && v.boxShiftMs >= 0)) &&
-    (v.boxShiftBars === undefined || (isNum(v.boxShiftBars) && v.boxShiftBars >= 0))
+    (v.boxShiftBars === undefined || isNum(v.boxShiftBars))
   );
 }
 

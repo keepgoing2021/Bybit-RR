@@ -130,7 +130,8 @@ export function closeScenario(s: Scenario, at: { price: number; time: number }):
 /** 박스 그리는 위치만 옮긴다 (봉 단위, 진입 봉보다 왼쪽으로는 안 감). 종료된 시나리오도 가능 */
 export function setBoxShift(s: Scenario, bars: number): Scenario {
   const { boxShiftMs: _legacy, ...rest } = s;
-  return { ...rest, boxShiftBars: Math.max(0, Math.round(bars)) };
+  // 음수 = 진입 시점보다 과거로 (2026-11-06: 노란 선을 과거 시점까지 끌기)
+  return { ...rest, boxShiftBars: Math.round(bars) };
 }
 
 /** 박스 이동량 (봉). 이전 버전의 ms 값은 생성 시간봉으로 봉 수로 바꾼다 */

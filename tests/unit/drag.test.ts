@@ -92,7 +92,7 @@ describe('BoxMoveController', () => {
   const geometry = () =>
     computeBoxGeometry({ side: 'LONG', entry: 100, sl: 98, tp: 106, startLogical: 10, endLogical: 20 }, mapper);
 
-  function moveHarness(startShift = 0, maxShift: number | null = null) {
+  function moveHarness(startShift = 0, maxShift: number | null = null, minShift?: number | null) {
     let shift = startShift;
     const interaction: boolean[] = [];
     const ends: number[] = [];
@@ -104,6 +104,7 @@ describe('BoxMoveController', () => {
       onMoveEnd: (bars) => ends.push(bars),
       setChartInteraction: (on) => interaction.push(on),
       maxShiftBars: () => maxShift,
+      ...(minShift !== undefined ? { minShiftBars: () => minShift } : {}),
     });
     return { ctl, interaction, ends, shift: () => shift };
   }
@@ -131,6 +132,22 @@ describe('BoxMoveController', () => {
     h.ctl.pointerDown(150, 110);
     h.ctl.pointerMove(90, 110);
     expect(h.shift()).toBe(0);
+  });
+
+  it('with a past limit (minShiftBars) it moves into the past but not before the first candle', () => {
+    const h = moveHarness(0, null, -8);
+    h.ctl.pointerDown(150, 110);
+    h.ctl.pointerMove(100, 110); // −5봉
+    expect(h.shift()).toBe(-5);
+    h.ctl.pointerMove(0, 110); // −15봉 요청 → −8에서 멈춤
+    expect(h.shift()).toBe(-8);
+  });
+
+  it('beginAt starts a horizontal move without a body hit (yellow entry line drag)', () => {
+    const h = moveHarness(0, null, -20);
+    expect(h.ctl.beginAt(150)).toBe(true);
+    h.ctl.pointerMove(110, 0);
+    expect(h.shift()).toBe(-4);
   });
 
   it('stops before the box would leave the visible chart', () => {

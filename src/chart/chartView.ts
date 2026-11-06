@@ -225,6 +225,11 @@ export class ChartView {
         if (from === null || to === null) return null;
         return (this.overlay?.shiftBars ?? 0) + Math.floor(to - from);
       },
+      // 과거 쪽: 박스 왼쪽 끝이 첫 캔들까지
+      minShiftBars: () => {
+        const start = this.overlay ? this.logicalForTime(this.overlay.startTime) : null;
+        return start === null ? null : -start;
+      },
     });
     this.bindPointer();
   }
@@ -825,10 +830,12 @@ export class ChartView {
         return;
       }
       this.dragging = this.drag.hover(x, y);
+      // 노란 진입선: 위아래(가격)와 좌우(시점, 과거까지)를 한 번에
+      if (this.dragging === 'entry') this.mover.beginAt(x);
       e.preventDefault();
       e.stopPropagation();
       el.setPointerCapture?.(e.pointerId);
-      el.style.cursor = 'ns-resize';
+      el.style.cursor = this.dragging === 'entry' ? 'move' : 'ns-resize';
       this.rebuildOverlay();
     };
     const onMove = (e: PointerEvent) => {
@@ -859,6 +866,7 @@ export class ChartView {
         e.preventDefault();
         e.stopPropagation();
         this.drag.pointerMove(x, y);
+        if (this.mover.isMoving()) this.mover.pointerMove(x, y);
         return;
       }
       if (this.mover.isMoving()) {
@@ -891,13 +899,14 @@ export class ChartView {
         this.cb.onDrawingsChange(this.drawings);
         return;
       }
-      if (this.mover.isMoving()) {
+      if (this.mover.isMoving() && !this.drag.isDragging()) {
         e.stopPropagation();
         el.releasePointerCapture?.(e.pointerId);
         el.style.cursor = 'grab';
         this.mover.pointerUp();
         return;
       }
+      if (this.mover.isMoving()) this.mover.pointerUp(); // 진입선 끌기: 좌우 이동도 같이 끝
       if (!this.drag.isDragging()) return;
       e.stopPropagation();
       el.releasePointerCapture?.(e.pointerId);

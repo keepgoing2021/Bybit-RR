@@ -69,6 +69,8 @@ export interface BoxMoveDeps {
   setChartInteraction(enabled: boolean): void;
   /** 이 이상 옮기면 박스가 화면 밖으로 나간다 (없으면 제한 없음) */
   maxShiftBars?(): number | null;
+  /** 과거 쪽 한계 (첫 캔들보다 왼쪽으로 못 가게). 없으면 0 — 진입 시점보다 왼쪽 금지 */
+  minShiftBars?(): number | null;
 }
 
 /** 박스 몸통(수익·손실 영역)이 눌렸는지 */
@@ -81,10 +83,10 @@ export function insideBoxBody(g: BoxGeometry, x: number, y: number): boolean {
 
 /**
  * 박스 좌우 이동. 가격(엔트리·SL·TP)은 건드리지 않고 그리는 위치만 봉 단위로 옮긴다.
- * 엔트리 시점보다 왼쪽(음수)으로는 옮기지 않는다.
+ * 과거 쪽은 minShiftBars까지 (2026-11-06부터 진입 시점보다 과거로도 옮길 수 있다).
  */
 export class BoxMoveController {
-  private start: { logical: number; shift: number; max: number } | null = null;
+  private start: { logical: number; shift: number; max: number; min: number } | null = null;
   private last = 0;
 
   constructor(private readonly d: BoxMoveDeps) {}
@@ -92,10 +94,20 @@ export class BoxMoveController {
   pointerDown(x: number, y: number): boolean {
     const g = this.d.getGeometry();
     if (!g || !insideBoxBody(g, x, y)) return false;
+    return this.beginAt(x);
+  }
+
+  /** 몸통 확인 없이 x에서 좌우 이동 시작 (노란 진입선을 잡았을 때 위아래·좌우를 같이) */
+  beginAt(x: number): boolean {
     const logical = this.d.xToLogical(x);
     if (logical === null) return false;
     const shift = this.d.getShiftBars();
-    this.start = { logical, shift, max: Math.max(shift, this.d.maxShiftBars?.() ?? Infinity) };
+    this.start = {
+      logical,
+      shift,
+      max: Math.max(shift, this.d.maxShiftBars?.() ?? Infinity),
+      min: Math.min(shift, this.d.minShiftBars?.() ?? 0),
+    };
     this.last = this.start.shift;
     this.d.setChartInteraction(false);
     return true;
@@ -105,7 +117,7 @@ export class BoxMoveController {
     if (!this.start) return;
     const logical = this.d.xToLogical(x);
     if (logical === null) return;
-    const next = Math.min(this.start.max, Math.max(0, this.start.shift + Math.round(logical - this.start.logical)));
+    const next = Math.min(this.start.max, Math.max(this.start.min, this.start.shift + Math.round(logical - this.start.logical)));
     if (next === this.last) return;
     this.last = next;
     this.d.onMove(next);
