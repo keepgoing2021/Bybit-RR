@@ -782,7 +782,7 @@ export class App {
     // 다우 이론 구조 켜기/끄기 — 차트 범례(이동평균 아래)에 붙인다. 차트 표시라 차트 위에 있는 게 맞다
     const structBtn = h(
       'button',
-      { type: 'button', class: 'struct-toggle', 'data-testid': 'structure-toggle', title: '다우 이론: 고점·저점 이름(HH·HL·LH·LL), 추세 계속(BOS)·추세전환 · 스윙 5봉' },
+      { type: 'button', class: 'struct-toggle', 'data-testid': 'structure-toggle', title: '다우 이론: 추세 지속(직전 고점·저점을 같은 방향으로 넘음)·추세전환(강하게 반대로 깸) · 스윙 5봉' },
       h('span', { class: 'dot', 'aria-hidden': 'true' }),
       '다우 구조',
     );

@@ -8,7 +8,7 @@ type DrawTarget = Parameters<IPrimitivePaneRenderer['draw']>[0];
 /**
  * 다우 이론 시장 구조 표시 (2026-11-04). 손익비 박스·작도보다 아래에 깐다.
  * - 스윙 이름 HH·HL·LH·LL은 표시하지 않는다(추세전환의 재료일 뿐, 사용자 요청)
- * - BOS(추세 계속): 깨진 스윙 → 깬 봉까지 흐린 점선
+ * - BOS(추세 계속): 깨진 스윙 → 깬 봉까지 흐린 점선, 이름표 「추세 지속 ↑/↓」(사용자 요청: 한국어로 쉽게)
  * - CHoCH(추세 전환): 같은 자리 실선, 상승 전환 초록·하락 전환 빨강, 굵은 이름표 「추세전환 ▲/▼」(사용자 요청, 영어 약어 대신)
  */
 export class StructurePrimitive implements ISeriesPrimitive<Time> {
@@ -70,7 +70,7 @@ export class StructurePrimitive implements ISeriesPrimitive<Time> {
         ctx.fillStyle = color;
         ctx.font = `${choch ? 700 : 500} ${choch ? 11 : 10}px ${THEME.font}`;
         ctx.textBaseline = b.dir === 'up' ? 'bottom' : 'top';
-        const text = choch ? `추세전환 ${b.dir === 'up' ? '▲' : '▼'}` : 'BOS';
+        const text = choch ? `추세전환 ${b.dir === 'up' ? '▲' : '▼'}` : `추세 지속 ${b.dir === 'up' ? '↑' : '↓'}`;
         ctx.fillText(text, (x1 + x2) / 2, b.dir === 'up' ? y - 3 : y + 3);
       }
 
