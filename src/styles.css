@@ -2956,3 +2956,205 @@ button.flow-row.current .flow-name {
     display: none;
   }
 }
+
+/* 화면 분할 (멀티차트, 2026-11-06): 차트 위 줄 오른쪽에 칸 수 버튼, 아래에 칸 격자 */
+.chart-area {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.chart-head {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  padding: 2px 10px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.split-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.split-label {
+  margin-right: 6px;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.split-btn {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 24px;
+  padding: 0;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.split-btn:hover {
+  background: var(--ink-08);
+}
+
+.split-btn.on {
+  border-color: var(--entry);
+  background: var(--ink-08);
+}
+
+/* 칸 모양 아이콘: 테두리 + 나눔선 (그림 파일 없이) */
+.split-icon {
+  position: relative;
+  width: 16px;
+  height: 12px;
+  border: 1.5px solid var(--muted);
+  border-radius: 2px;
+}
+
+.split-btn.on .split-icon {
+  border-color: var(--text);
+}
+
+.split-icon-2::after,
+.split-icon-4::after,
+.split-icon-4::before {
+  content: '';
+  position: absolute;
+  background: var(--muted);
+}
+
+.split-icon-2::after,
+.split-icon-4::after {
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1.5px;
+  transform: translateX(-50%);
+}
+
+.split-icon-4::before {
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 1.5px;
+  transform: translateY(-50%);
+}
+
+.split-btn.on .split-icon::after,
+.split-btn.on .split-icon::before {
+  background: var(--text);
+}
+
+.panes {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  gap: 1px;
+  background: var(--line);
+}
+
+.panes[data-split='2'] {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.panes[data-split='4'] {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+}
+
+.panes > .chart-wrap,
+.panes > .view-pane {
+  background: var(--bg);
+}
+
+.panes[data-split='2'] > .chart-wrap,
+.panes[data-split='4'] > .chart-wrap {
+  box-shadow: inset 0 0 0 1px var(--entry);
+}
+
+.view-pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.pane-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+
+.pane-symbol {
+  width: 110px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--well);
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.pane-tf {
+  height: 24px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--well);
+  color: var(--text);
+  font: inherit;
+}
+
+.pane-note {
+  flex: 1;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.pane-send {
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.pane-send:hover {
+  color: var(--text);
+  border-color: var(--line-hover);
+}
+
+.pane-chart {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+@media (max-width: 640px) {
+  .chart-head {
+    display: none;
+  }
+}
+
+.chart-head-main {
+  margin-right: auto;
+  color: var(--muted);
+  font-size: 11.5px;
+}

@@ -47,6 +47,8 @@ import { compactUsdt, formatClock, formatPct, formatTime, settingsSummary, SL_MO
 import { HUNT_FAR_PCT, HUNT_NEAR_PCT, huntTip, huntZone, inHuntZone } from '../core/huntZone';
 import { FlowBoard } from './flowBoard';
 import { WatchList } from './watchList';
+import { ViewPane } from './viewPane';
+import { fillPanes, parseSplit, SPLITS, type PaneSel, type SplitCount, type SplitState } from '../core/split';
 import { loadCoinMeta, loadUpbitPrices } from '../data/coinMeta';
 import { icon, type IconName } from './icons';
 import { SymbolPicker } from './symbolPicker';
@@ -147,6 +149,8 @@ const DRAW_TOOLS_KEY = 'rrtool.v1.drawtools';
 export const STRUCTURE_KEY = 'rrtool.v1.structure';
 /** 종목 리스트 열림 여부 ('open'/'closed'). 없으면 넓은 화면(1500px+)에서만 연다 */
 export const WATCH_KEY = 'rrtool.v1.watch';
+/** 화면 분할 (칸 수 + 보기 칸 종목·시간봉) */
+export const SPLIT_KEY = 'rrtool.v1.split';
 /** 구조는 SL용 스윙(기본 2봉)보다 크게 본다 — 2봉이면 15분봉에서 CHoCH가 수십 개라 읽을 수 없다(2026-11-04 시안) */
 export const STRUCTURE_BARS = 5;
 const DRAW_COLOR_KEY = 'rrtool.v1.drawcolor';
@@ -172,6 +176,8 @@ export class App {
   private ui!: UiSelection;
   private settings: AnalysisSettings = DEFAULT_SETTINGS;
   private watchOpen = false;
+  private split: SplitState = { n: 1, panes: [] };
+  private viewPanes: ViewPane[] = [];
   private structureOn = true;
   private sizing: SizingSettings = DEFAULT_SIZING;
   /** 종목별 작도 */
@@ -266,10 +272,18 @@ export class App {
     this.chart.setDefaultDrawColor(this.loadDrawColor());
     this.chart.addLegendControl(this.el.structBtn);
     this.setWatchOpen(this.loadWatchOpen(), false);
+    try {
+      this.split = parseSplit(this.d.storage.getItem(SPLIT_KEY));
+    } catch {
+      // 기본 1칸
+    }
     this.structureOn = this.loadStructureOn();
     this.applyStructure();
     this.setTheme(this.themeMode, false); // 버튼 글자 (차트는 이미 이 테마 색으로 만들어짐)
-    PHONE.addEventListener?.('change', () => this.renderTopbar());
+    PHONE.addEventListener?.('change', () => {
+      this.renderTopbar();
+      this.setSplit(this.split.n, false); // 폰이 되면 1칸, 넓어지면 고른 칸 수로
+    });
     window.setInterval(() => {
       this.renderStatus();
       this.renderCountdown();
@@ -345,6 +359,9 @@ export class App {
     this.el.picker.setSymbols(this.symbols);
     this.el.flow.start(this.provider, this.symbols.map((s) => s.symbol));
     this.el.watch.setSymbols(this.symbols);
+    this.el.symbolList.replaceChildren(...this.symbols.map((s) => h('option', { value: s.symbol.replace(/USDT$/, '') })));
+    for (const p of this.viewPanes) p.setSymbols(this.symbols);
+    this.setSplit(this.split.n, false);
     await this.loadMarket();
   }
 
@@ -1026,7 +1043,22 @@ export class App {
     );
     watchHandle.addEventListener('click', () => this.setWatchOpen(!this.watchOpen));
     chartWrap.append(watchHandle);
-    const layout = h('main', { class: 'layout' }, chartWrap, watch.root, panel);
+    // 화면 분할: 차트 위 줄 오른쪽 (웨돔처럼). 첫 칸 = 계산기 칸, 나머지는 보기 칸
+    const splitBtns = new Map<SplitCount, HTMLButtonElement>();
+    const splitGroup = h('div', { class: 'split-group', role: 'group', 'aria-label': '화면 분할' }, h('span', { class: 'split-label' }, '화면 분할'));
+    for (const n of SPLITS) {
+      const b = h('button', { type: 'button', class: 'split-btn', 'data-n': String(n), 'data-testid': `split-${n}`, title: `${n}칸`, 'aria-label': `화면 ${n}칸` }, h('span', { class: `split-icon split-icon-${n}`, 'aria-hidden': 'true' }));
+      b.addEventListener('click', () => this.setSplit(n));
+      splitBtns.set(n, b);
+      splitGroup.append(b);
+    }
+    // 칸을 나누면 왼쪽에 「계산기 칸」이 어느 것인지 (노란 테두리 칸)
+    const mainLabel = h('span', { class: 'chart-head-main', 'data-testid': 'split-main-label' });
+    const chartHead = h('div', { class: 'chart-head' }, mainLabel, splitGroup);
+    const symbolList = h('datalist', { id: 'pane-symbols' });
+    const panes = h('div', { class: 'panes', 'data-split': '1' }, chartWrap);
+    const chartArea = h('section', { class: 'chart-area' }, chartHead, panes, symbolList);
+    const layout = h('main', { class: 'layout' }, chartArea, watch.root, panel);
 
     const toast = h('div', { class: 'toast', 'data-testid': 'toast', role: 'status', hidden: true });
     // 되돌리기 알림: 문구 + 되돌리기 버튼 + 5초 줄어드는 막대
@@ -1103,7 +1135,7 @@ export class App {
     return {
       picker, tf, sltf, long, short, status, statusReason, themeBtn, structBtn,
       loadError, chart, empty, card, sideChip, title, entry, times, rr, rrInput, rrLabel, rrChips, rrTp, rrProfitNote, reasons, bufferInput, bufferChips, bufferNote,
-      sl, tp, slWhy, sizing, restore, del, settingsInputs, settingRows, modeHelp, settingsSummaryEl, toast, undo, tools, tour, flow, watch, watchBtn, watchHandle, layout,
+      sl, tp, slWhy, sizing, restore, del, settingsInputs, settingRows, modeHelp, settingsSummaryEl, toast, undo, tools, tour, flow, watch, watchBtn, watchHandle, layout, panes, splitBtns, symbolList, mainLabel,
     };
   }
 
@@ -1207,6 +1239,7 @@ export class App {
     document.documentElement.dataset.theme = mode;
     document.querySelector('meta[name="theme-color"]')?.setAttribute('content', THEME.bg);
     this.chart?.applyTheme();
+    for (const p of this.viewPanes ?? []) p.applyTheme();
     const btn = this.el?.themeBtn;
     if (btn) {
       const next = mode === 'dark' ? '라이트' : '다크';
@@ -1688,6 +1721,7 @@ export class App {
     e.picker.setValue(this.ui.symbol);
     e.flow.setCurrent(this.ui.symbol);
     e.watch.setCurrent(this.ui.symbol);
+    setText(e.mainLabel, this.split.n > 1 && !PHONE.matches ? `노란 테두리 = 계산기 칸 · ${this.ui.symbol} ${tfName(this.ui.timeframe)}` : '');
     e.tf.value = this.ui.timeframe;
     // SL 기준: 모든 SL 방식에서 고를 수 있다. 차트와 같은 시간봉에는 '(차트)' 표시
     // 폰은 칸이 좁아 차트와 같은 시간봉을 '차트와 같음'으로 짧게 (옆 칸이 차트 시간봉)
@@ -1700,6 +1734,66 @@ export class App {
     this.renderSizingControls(false);
     show(e.loadError, this.loadError !== null);
     setText(e.loadError, this.loadError ?? '');
+  }
+
+  /**
+   * 화면 분할 바꾸기. 폰에서는 늘 1칸 (보기 칸은 만들지 않음). 칸을 줄이면 남는 칸은 닫고(연결도 끊음),
+   * 고른 종목·시간봉은 저장해 두어 다시 늘리면 그대로 돌아온다
+   */
+  private setSplit(n: SplitCount, persist = true): void {
+    const e = this.el;
+    this.split = { ...this.split, n };
+    const shown: SplitCount = PHONE.matches ? 1 : n;
+    if (this.symbols.length) this.split.panes = fillPanes({ n: shown, panes: this.split.panes }, this.ui.symbol, this.ui.timeframe);
+    for (const [k, b] of e.splitBtns) {
+      b.classList.toggle('on', k === n);
+      b.setAttribute('aria-pressed', String(k === n));
+    }
+    e.panes.dataset.split = String(shown);
+    this.renderTopbar();
+    const want = this.symbols.length ? shown - 1 : 0;
+    while (this.viewPanes.length > want) this.viewPanes.pop()!.destroy();
+    while (this.viewPanes.length < want) {
+      const i = this.viewPanes.length;
+      const pane = new ViewPane(
+        this.split.panes[i],
+        {
+          createProvider: () => this.d.createProvider(),
+          formatTime: (ms) => formatTime(ms),
+          onSend: (sel) => this.sendToCalculator(sel),
+          onChange: (sel) => {
+            this.split.panes[i] = sel;
+            this.saveSplit();
+          },
+        },
+        'pane-symbols',
+      );
+      pane.setSymbols(this.symbols);
+      pane.setStructure(this.structureOn ? STRUCTURE_BARS : null);
+      e.panes.append(pane.root);
+      this.viewPanes.push(pane);
+      void pane.load(this.split.panes[i]);
+    }
+    if (persist) this.saveSplit();
+  }
+
+  private saveSplit(): void {
+    try {
+      this.d.storage.setItem(SPLIT_KEY, JSON.stringify(this.split));
+    } catch {
+      // 저장 못 해도 이번 화면에는 적용
+    }
+  }
+
+  /** 보기 칸의 「계산기로」: 그 종목·시간봉을 계산기 칸으로 */
+  private sendToCalculator(sel: PaneSel): void {
+    if (sel.symbol === this.ui.symbol && sel.tf === this.ui.timeframe) return;
+    this.ui.symbol = sel.symbol;
+    if (sel.tf !== this.ui.timeframe) {
+      this.ui.timeframe = sel.tf;
+      if (this.ui.slBasis === this.defaultSlBasis()) this.ui.slBasis = undefined;
+    }
+    void this.loadMarket();
   }
 
   private loadWatchOpen(): boolean {
@@ -1754,6 +1848,7 @@ export class App {
   /** 차트에 구조 표시 반영 + 버튼 눌림 상태. 스윙 봉 수가 바뀌면 다시 계산 */
   private applyStructure(): void {
     this.chart?.setStructure(this.structureOn ? STRUCTURE_BARS : null);
+    for (const p of this.viewPanes) p.setStructure(this.structureOn ? STRUCTURE_BARS : null);
     const btn = this.el?.structBtn;
     if (btn) {
       btn.setAttribute('aria-pressed', String(this.structureOn));
