@@ -23,7 +23,9 @@ describe('site security headers (public/_headers)', () => {
     const meta = readFileSync('src/data/coinMeta.ts', 'utf8');
     const metaHosts = [...meta.matchAll(/'(https:\/\/api\.[a-z]+\.com)\/(?:v1|api\/v3)'/g)].map((m) => m[1]);
     expect(metaHosts.sort()).toEqual(['https://api.coingecko.com', 'https://api.upbit.com']);
-    expect(directive('connect-src').split(' ').slice(1).sort()).toEqual(["'self'", rest, `wss://${wsHost}`, ...metaHosts].sort());
+    // 환율(ECB 기준값, Frankfurter — src/ui/watchList.ts, 2026-11-07)
+    expect(readFileSync('src/ui/watchList.ts', 'utf8')).toContain('https://api.frankfurter.dev/v1/');
+    expect(directive('connect-src').split(' ').slice(1).sort()).toEqual(["'self'", rest, `wss://${wsHost}`, ...metaHosts, 'https://api.frankfurter.dev'].sort());
     // 바깥 그림은 코인게코 아이콘 서버 하나만 (src/core/coinMeta.ts에서 주소 모양도 확인)
     expect(directive('img-src')).toBe("img-src 'self' data: blob: https://coin-images.coingecko.com");
     // 글꼴(Pretendard)은 npm 패키지를 빌드에 넣어 이 사이트에서 내보낸다 — 바깥 글꼴 서버 없음

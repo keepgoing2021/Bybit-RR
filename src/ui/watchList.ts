@@ -4,6 +4,7 @@ import type { SymbolInfo, TickerStat } from '../core/types';
 import { bybitBase, type CoinMeta } from '../core/coinMeta';
 import { mapTvToBybit, mergeGroups, parseMyGroups, parseTvSymbols, parseTvText, tvTicker, tvWatchlistId, type MyGroup } from '../core/tvImport';
 import { matchKorean, sortRows } from '../core/watchlist';
+import { fxValue, lastTwo, tvFxPair, FX_CURRENCIES } from '../core/fx';
 import { buildGroups, nextSort, parseFavorites, parseSort, tickDirection, toggleFavorite, type WatchRow, type WatchSort, type WatchSortKey } from '../core/watchlist';
 import type { StorageLike } from '../core/persistence';
 import { h, setText, show } from './dom';
@@ -12,6 +13,9 @@ import { h, setText, show } from './dom';
 const REFRESH_MS = 3_000;
 /** 미국 주식 현재가 (Finnhub 무료 1분 60번이라 1분에 한 번, 30개씩) */
 const STOCK_REFRESH_MS = 60_000;
+/** 아직 한 번도 안 물어본 종목이 남았을 때 (처음 채우기) */
+const STOCK_FILL_MS = 20_000;
+const STOCK_BATCH = 25;
 const US_EXCHANGES = ['NYSE', 'NASDAQ', 'AMEX', 'BATS', 'NYSEARCA'];
 const FAV_KEY = 'rrtool.v1.favorites';
 const SORT_KEY = 'rrtool.v1.watchsort';
@@ -63,6 +67,12 @@ export class WatchList {
   private stockTimer: number | null = null;
   private stockOffset = 0;
   private stockOff = false;
+  /** 한 번이라도 물어본 종목 / Finnhub가 「없는 종목」이라고 한 것 (상장폐지·이름 변경) */
+  private readonly stockTried = new Set<string>();
+  private readonly stockMissing = new Set<string>();
+  /** 환율 (ECB 기준값, 하루 한 번) */
+  private fx: { today: Record<string, number>; prev: Record<string, number> | null; date: string } | null = null;
+  private fxAt = 0;
   private groups: MyGroup[];
   private symbols: SymbolInfo[] = [];
   private ticks = new Map<string, number>();
@@ -202,7 +212,7 @@ export class WatchList {
     const want = this.open && this.symbols.length > 0 && document.visibilityState !== 'hidden';
     if (!want) {
       if (this.timer !== null) window.clearInterval(this.timer);
-      if (this.stockTimer !== null) window.clearInterval(this.stockTimer);
+      if (this.stockTimer !== null) window.clearTimeout(this.stockTimer);
       this.timer = null;
       this.stockTimer = null;
       return;
@@ -211,7 +221,6 @@ export class WatchList {
     void this.refresh();
     this.timer = window.setInterval(() => void this.refresh(), REFRESH_MS);
     void this.refreshStocks();
-    this.stockTimer = window.setInterval(() => void this.refreshStocks(), STOCK_REFRESH_MS);
   }
 
   private async refresh(): Promise<void> {
@@ -342,7 +351,15 @@ export class WatchList {
       this.noData.set(tv, el);
     }
     const [ex, t] = tv.split(':');
-    const q = t && US_EXCHANGES.includes(ex) ? this.stockQuotes.get(t) : undefined;
+    const us = !!t && US_EXCHANGES.includes(ex);
+    let q = us ? this.stockQuotes.get(t) : undefined;
+    const pair = tvFxPair(tv);
+    if (!q && pair && this.fx) {
+      const c = fxValue(this.fx.today, pair);
+      const p = this.fx.prev ? fxValue(this.fx.prev, pair) : null;
+      if (c !== null) q = { c, dp: p ? ((c - p) / p) * 100 : null, t: 0 };
+      el.row.title = `${tv} — ECB 기준 환율 (${this.fx.date}, 하루 한 번). 누르면 트레이딩뷰 차트`;
+    }
     el.row.classList.toggle('has-quote', !!q);
     if (q) {
       setText(el.price, q.c.toFixed(q.c >= 1 ? 2 : 4));
@@ -353,39 +370,85 @@ export class WatchList {
       if (dir) el.price.dataset.flash = dir;
       else delete el.price.dataset.flash;
     } else {
-      setText(el.price, '시세 없음');
+      // 미국 종목: 아직 안 물어봤으면 받는 중, Finnhub가 없다고 하면 상장폐지·이름 변경, 그 밖(해외·지수·선물)은 무료 시세 없음
+      const label = us
+        ? this.stockMissing.has(t)
+          ? '상장폐지·이름 변경?'
+          : this.stockOff
+            ? '시세 없음'
+            : this.stockTried.has(t)
+              ? '잠시 후 다시'
+              : '불러오는 중…'
+        : pair
+          ? '불러오는 중…'
+          : '무료 시세 없음';
+      setText(el.price, label);
       setText(el.change, '');
     }
     return el.row;
   }
 
-  /** 펼쳐 둔 묶음의 Bybit에 없는 미국 종목 → /stock-quote (한 번에 30개, 다음엔 그다음 30개) */
+  /**
+   * 펼쳐 둔 묶음의 Bybit에 없는 미국 종목 → /stock-quote. 아직 안 물어본 것부터 25개씩 20초마다(처음 채우기),
+   * 다 물어봤으면 1분마다 25개씩 돌아가며 (Finnhub 무료 1분 60번 안쪽). 환율은 한 시간에 한 번
+   */
   private async refreshStocks(): Promise<void> {
+    if (this.stockTimer !== null) window.clearTimeout(this.stockTimer);
+    this.stockTimer = null;
+    void this.refreshFx();
     if (this.stockOff) return;
     const tickers: string[] = [];
     for (const g of this.groups) {
       if (this.folded.has(`g:${g.name}`)) continue;
       for (const tv of g.items) {
         const [ex, t] = tv.split(':');
-        if (t && US_EXCHANGES.includes(ex) && !mapTvToBybit(tv, this.symbols) && !tickers.includes(t)) tickers.push(t);
+        if (t && US_EXCHANGES.includes(ex) && !mapTvToBybit(tv, this.symbols) && !this.stockMissing.has(t) && !tickers.includes(t)) tickers.push(t);
       }
     }
     if (!tickers.length) return;
-    if (this.stockOffset >= tickers.length) this.stockOffset = 0;
-    const batch = tickers.slice(this.stockOffset, this.stockOffset + 30);
-    this.stockOffset += 30;
+    const untried = tickers.filter((t) => !this.stockTried.has(t));
+    let batch: string[];
+    if (untried.length) batch = untried.slice(0, STOCK_BATCH);
+    else {
+      if (this.stockOffset >= tickers.length) this.stockOffset = 0;
+      batch = tickers.slice(this.stockOffset, this.stockOffset + STOCK_BATCH);
+      this.stockOffset += STOCK_BATCH;
+    }
     try {
       const r = await fetch(`/stock-quote?s=${encodeURIComponent(batch.join(','))}`, { headers: { Accept: 'application/json' } });
       if (r.status === 503) {
         this.stockOff = true; // 키가 없는 곳(개발 서버 등)
         return;
       }
-      if (!r.ok) return;
-      const body = (await r.json()) as { quotes?: Record<string, { c: number; dp: number | null; t: number }> };
-      for (const [k, v] of Object.entries(body.quotes ?? {})) this.stockQuotes.set(k, v);
-      this.render();
+      if (r.ok) {
+        const body = (await r.json()) as { quotes?: Record<string, { c: number; dp: number | null; t: number }>; missing?: string[] };
+        for (const t of batch) this.stockTried.add(t);
+        for (const [k, v] of Object.entries(body.quotes ?? {})) this.stockQuotes.set(k, v);
+        for (const t of body.missing ?? []) this.stockMissing.add(t);
+        this.render();
+      }
     } catch {
       // 다음 차례에 다시
+    } finally {
+      const more = tickers.some((t) => !this.stockTried.has(t));
+      if (this.open && document.visibilityState !== 'hidden') this.stockTimer = window.setTimeout(() => void this.refreshStocks(), more ? STOCK_FILL_MS : STOCK_REFRESH_MS);
+    }
+  }
+
+  /** 환율 (Frankfurter = ECB 기준값, 가입 없음). 한 시간에 한 번, 지난 1주 중 마지막 두 날로 등락% */
+  private async refreshFx(): Promise<void> {
+    if (Date.now() - this.fxAt < 3600_000) return;
+    const need = this.groups.some((g) => g.items.some((tv) => tvFxPair(tv) && !mapTvToBybit(tv, this.symbols)));
+    if (!need) return;
+    this.fxAt = Date.now();
+    const from = new Date(Date.now() - 8 * 86_400_000).toISOString().slice(0, 10);
+    try {
+      const r = await fetch(`https://api.frankfurter.dev/v1/${from}..?base=USD&symbols=${FX_CURRENCIES.filter((c) => c !== 'USD').join(',')}`, { credentials: 'omit', referrerPolicy: 'no-referrer' });
+      if (!r.ok) throw new Error(String(r.status));
+      this.fx = lastTwo(await r.json());
+      this.render();
+    } catch {
+      this.fxAt = Date.now() - 3300_000; // 5분 뒤 다시
     }
   }
 

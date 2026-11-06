@@ -152,7 +152,7 @@ describe('미국 주식 현재가 중계 (/stock-quote, Finnhub)', async () => {
     const r = await stockQuote(req('?s=sbux,YUM,NOPE,<bad>,brk.b'), env, up);
     const text = await r.text();
     expect(r.status).toBe(200);
-    expect(JSON.parse(text)).toEqual({ quotes: { SBUX: { c: 100.5, dp: -1.2, t: 1_700_000_000_000 }, YUM: { c: 100.5, dp: -1.2, t: 1_700_000_000_000 }, 'BRK.B': { c: 100.5, dp: -1.2, t: 1_700_000_000_000 } } });
+    expect(JSON.parse(text)).toEqual({ quotes: { SBUX: { c: 100.5, dp: -1.2, t: 1_700_000_000_000 }, YUM: { c: 100.5, dp: -1.2, t: 1_700_000_000_000 }, 'BRK.B': { c: 100.5, dp: -1.2, t: 1_700_000_000_000 } }, missing: ['NOPE'] });
     expect(text).not.toContain('secret-key');
     expect(calls).toHaveLength(4);
     expect(calls.every((u) => u.startsWith('https://finnhub.io/api/v1/quote?symbol='))).toBe(true);
@@ -170,6 +170,6 @@ describe('미국 주식 현재가 중계 (/stock-quote, Finnhub)', async () => {
 
   it('Finnhub가 실패한 종목만 빠진다', async () => {
     const r = await stockQuote(req('?s=AAA,BBB'), env, async (u: string) => (u.includes('AAA') ? new Response('x', { status: 429 }) : new Response('{"c":2,"dp":1,"t":5}')));
-    expect(await r.json()).toEqual({ quotes: { BBB: { c: 2, dp: 1, t: 5000 } } });
+    expect(await r.json()).toEqual({ quotes: { BBB: { c: 2, dp: 1, t: 5000 } }, missing: [] }); // 429는 「없음」이 아니라 다음에 다시
   });
 });
