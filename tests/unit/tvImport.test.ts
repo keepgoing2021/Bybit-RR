@@ -51,3 +51,16 @@ describe('트레이딩뷰 목록 가져오기', () => {
     expect(mergeGroups([{ name: 'A', items: ['X'] }, { name: 'B', items: ['Y'] }], [{ name: 'A', items: ['Z'] }]).map((g) => `${g.name}:${g.items}`)).toEqual(['B:Y', 'A:Z']);
   });
 });
+
+describe('트레이딩뷰 위젯 이름 (막힌 종목은 따라가는 CFD로)', async () => {
+  const { widgetSymbol } = await import('../../src/core/tvImport');
+  it('막힌 지수·선물은 대신 보여 줄 종목, 대신이 없으면 null, 나머지는 그대로', () => {
+    expect(widgetSymbol('TVC:SPX')).toEqual({ symbol: 'CAPITALCOM:US500', alias: true });
+    expect(widgetSymbol('TVC:US10Y')).toEqual({ symbol: 'FRED:DGS10', alias: true });
+    expect(widgetSymbol('TVC:GOLD')).toEqual({ symbol: 'TVC:GOLD', alias: false });
+    expect(widgetSymbol('HKEX:700')).toBeNull();
+    expect(widgetSymbol('TSE:7936')).toBeNull();
+    expect(widgetSymbol('EURONEXT:RMS')).toEqual({ symbol: 'EURONEXT:RMS', alias: false });
+    expect(widgetSymbol('SZSE:300750')).toEqual({ symbol: 'SZSE:300750', alias: false });
+  });
+});

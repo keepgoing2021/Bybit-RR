@@ -3520,3 +3520,41 @@ a.watch-nodata:not(.has-quote) .watch-price {
   font-size: 11px;
   text-align: center;
 }
+
+/* 트레이딩뷰 시세 위젯 (무료 시세 없는 종목을 누르면 펼침, 2026-11-07) */
+a.watch-nodata.needs-widget {
+  opacity: 0.85;
+  cursor: pointer;
+}
+
+a.watch-nodata.needs-widget .watch-price {
+  color: var(--entry);
+}
+
+.watch-widget {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 10px 8px 30px;
+  border-bottom: 1px solid var(--ink-04);
+  background: var(--ink-04);
+}
+
+.watch-widget-frame {
+  width: 100%;
+  height: 80px;
+  border: 0;
+  color-scheme: normal;
+  background: transparent;
+}
+
+.watch-widget-chart {
+  align-self: flex-end;
+  color: var(--muted);
+  font-size: 11.5px;
+  text-decoration: none;
+}
+
+.watch-widget-chart:hover {
+  color: var(--text);
+}

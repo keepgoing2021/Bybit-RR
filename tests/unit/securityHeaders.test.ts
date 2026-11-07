@@ -28,6 +28,8 @@ describe('site security headers (public/_headers)', () => {
     expect(directive('connect-src').split(' ').slice(1).sort()).toEqual(["'self'", rest, `wss://${wsHost}`, ...metaHosts, 'https://api.frankfurter.dev'].sort());
     // 바깥 그림은 코인게코 아이콘 서버 하나만 (src/core/coinMeta.ts에서 주소 모양도 확인)
     expect(directive('img-src')).toBe("img-src 'self' data: blob: https://coin-images.coingecko.com");
+    // 끼워 넣는 화면은 트레이딩뷰 공식 시세 위젯 하나만 (무료 시세가 없는 지수·선물·해외 종목, 2026-11-07)
+    expect(directive('frame-src')).toBe('frame-src https://www.tradingview-widget.com');
     // 글꼴(Pretendard)은 npm 패키지를 빌드에 넣어 이 사이트에서 내보낸다 — 바깥 글꼴 서버 없음
     const css = readFileSync('src/styles.css', 'utf8');
     expect(css).toContain("@import 'pretendard/");
