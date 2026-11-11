@@ -1345,8 +1345,9 @@ test('stop-hunting zone: 2–10% beyond the SL wick, as wide as the RR box, with
   expect(h.slInside).toBe(false);
   // 그린 방식: 보이는 띠가 이름표(22px)보다 두꺼우면 빗금 띠, 아니면 화면 끝 칩
   const paneH = await page.evaluate(() => {
+    const left = document.querySelector('[data-testid=chart]')!.getBoundingClientRect().left;
     const c = [...document.querySelectorAll('[data-testid=chart] canvas')].map((e) => e.getBoundingClientRect());
-    return Math.max(...c.filter((b) => b.left < 50).map((b) => b.height));
+    return Math.max(...c.filter((b) => b.left - left < 50).map((b) => b.height));
   });
   const visible = (g: typeof h) => Math.min(paneH, Math.max(g.yNear, g.yFar)) - Math.max(0, Math.min(g.yNear, g.yFar));
   expect(h.drawn).toBe(visible(h) >= 22 ? 'band' : 'edge');
@@ -1392,7 +1393,7 @@ test('stop-hunting zone: 2–10% beyond the SL wick, as wide as the RR box, with
     let n = 0;
     for (const c of cv) {
       const b = c.getBoundingClientRect();
-      if (b.left >= 50) continue;
+      if (b.left - document.querySelector('[data-testid=chart]')!.getBoundingClientRect().left >= 50) continue;
       const k = c.width / b.width;
       const ctx = c.getContext('2d');
       if (!ctx) continue;
@@ -1407,7 +1408,7 @@ test('stop-hunting zone: 2–10% beyond the SL wick, as wide as the RR box, with
   expect(rgb[2]).toBeGreaterThan(rgb[1] + 15); // 파랑 > 초록
   expect(rgb[0]).toBeGreaterThan(rgb[1]); // 빨강 > 초록 → 보라
   // 박스 오른쪽(구간 밖)은 칠하지 않음
-  const paneW = await page.evaluate(() => Math.max(...[...document.querySelectorAll('[data-testid=chart] canvas')].map((e) => e.getBoundingClientRect()).filter((b) => b.left < 50).map((b) => b.width)));
+  const paneW = await page.evaluate(() => { const left = document.querySelector('[data-testid=chart]')!.getBoundingClientRect().left; return Math.max(...[...document.querySelectorAll('[data-testid=chart] canvas')].map((e) => e.getBoundingClientRect()).filter((b) => b.left - left < 50).map((b) => b.width)); });
   if (paneW - g.x2 > 30) {
     const out = await page.evaluate(({ x1, x2, y }) => {
       const cv = [...document.querySelectorAll('[data-testid=chart] canvas')] as HTMLCanvasElement[];
@@ -1415,7 +1416,7 @@ test('stop-hunting zone: 2–10% beyond the SL wick, as wide as the RR box, with
       let n = 0;
       for (const c of cv) {
         const b = c.getBoundingClientRect();
-        if (b.left >= 50) continue;
+        if (b.left - document.querySelector('[data-testid=chart]')!.getBoundingClientRect().left >= 50) continue;
         const k = c.width / b.width;
         const d = c.getContext('2d')!.getImageData(Math.round(x1 * k), Math.round((y - 10) * k), Math.max(1, Math.round((x2 - x1) * k)), Math.round(20 * k)).data;
         for (let i = 0; i < d.length; i += 4) if (d[i + 3] > 0) { blue += d[i + 2] - d[i + 1]; n++; }

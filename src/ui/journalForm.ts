@@ -48,7 +48,7 @@ export class EntryButton {
   ) {
     this.enter = h('button', { type: 'button', class: 'entry-btn', 'data-testid': 'vt-enter' }, '진입');
     this.enter.addEventListener('click', () => this.doEnter());
-    this.open = h('a', { class: 'entry-open', href: '/journal', 'data-testid': 'vt-open', title: '가상 거래 진행 중 — 손절·목표에 닿으면 자동 청산돼요. 누르면 저널로', hidden: true }, '✓ 진행 중');
+    this.open = h('a', { class: 'entry-open', href: '/journal', 'data-testid': 'vt-open', title: '가상 거래 진행 중 — 손절·목표에 닿으면 자동 청산돼요. 누르면 매매일지로', hidden: true }, '✓ 진행 중');
     this.root = h('div', { class: 'entry-action', 'data-testid': 'vt-action', hidden: true }, this.enter, this.open);
     // 차트 위에 떠 있다: 누름이 차트(진입가 찍기·박스 끌기)로 새지 않게
     for (const type of ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'click', 'dblclick', 'touchstart', 'touchend', 'contextmenu'] as const) {
@@ -66,7 +66,7 @@ export class EntryButton {
     if (mine) setText(this.open, mine.exit === null ? '✓ 진행 중' : '✓ 청산됨');
     const noSl = scenario.applied.sl === null;
     this.enter.disabled = noSl;
-    this.enter.title = noSl ? '손절가가 있어야 진입할 수 있어요 (R을 계산하려고)' : '가상 진입 — 저널에 올리고 손절·목표에 닿으면 자동 청산';
+    this.enter.title = noSl ? '손절가가 있어야 진입할 수 있어요 (R을 계산하려고)' : '가상 진입 — 매매일지에 올리고 손절·목표에 닿으면 자동 청산';
   }
 
   private doEnter(): void {

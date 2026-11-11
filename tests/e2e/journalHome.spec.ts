@@ -131,7 +131,8 @@ test('폰 폭 390px: 가로 스크롤 없음', async ({ page }) => {
 test('로고를 누르면 차트(계산기) 화면으로 간다', async ({ page }) => {
   await page.goto('/journal.html');
   await expect(page.getByTestId('j-brand')).toHaveAttribute('href', '/');
-  await expect(page.getByTestId('j-tab-chart')).toHaveAttribute('href', '/');
+  await expect(page.getByTestId('nav-chart')).toHaveAttribute('href', '/');
+  await expect(page.getByTestId('journal-link')).toHaveAttribute('aria-current', 'page');
   await page.getByTestId('j-brand').click();
   await expect(page.getByTestId('brand')).toHaveAttribute('href', '/');
 });

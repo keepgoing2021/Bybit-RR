@@ -56,6 +56,7 @@ import { ViewPane } from './viewPane';
 import { fillPanes, parseSplit, SPLITS, type PaneSel, type SplitCount, type SplitState } from '../core/split';
 import { loadCoinMeta } from '../data/coinMeta';
 import { icon, type IconName } from './icons';
+import { siteNav } from './siteNav';
 import { SymbolPicker } from './symbolPicker';
 import { Tour, type TourStep } from './tour';
 
@@ -866,10 +867,8 @@ export class App {
       this.ui.symbol = symbol;
       void this.loadMarket();
     }, () => this.setWatchOpen(false), () => loadCoinMeta(this.d.storage));
-    // 페이지 탭 「차트 | 저널」 (2026-11-11): 로고 옆, 폰에서는 맨 윗줄. 진행 중인 가상 거래 수를 배지로
-    const journalBadge = h('span', { class: 'page-tab-badge', 'data-testid': 'journal-badge', hidden: true });
-    const journalLink = h('a', { href: '/journal', class: 'page-tab', 'data-testid': 'journal-link', title: '거래 저널 (기록·통계·규칙)' }, '저널', journalBadge);
-    const pageTabs = h('nav', { class: 'page-tabs', 'aria-label': '페이지' }, h('span', { class: 'page-tab on', 'aria-current': 'page' }, '차트'), journalLink);
+    // 페이지 메뉴 (2026-11-11): PC 왼쪽 세로 줄 · 폰 아래 탭바
+    const nav = siteNav('chart');
     const watchBtn = h(
       'button',
       { type: 'button', class: 'theme-toggle watch-toggle', 'data-testid': 'watch-toggle', title: '종목 리스트 열기·닫기' },
@@ -889,7 +888,6 @@ export class App {
         h('img', { class: 'brand-mark', src: '/favicon.svg', alt: '', width: '22', height: '22' }),
         h('span', { class: 'brand-text' }, h('b', { class: 'brand-name' }, h('span', { class: 'brand-one' }, '1'), 'RC'), h('small', { class: 'brand-sub' }, 'crypto risk calc')),
       ),
-      pageTabs,
       field('종목', picker.root),
       field('차트', tf),
       field('SL 기준', sltf),
@@ -1151,14 +1149,14 @@ export class App {
     const undoText = h('span', { class: 'undo-text', 'data-testid': 'undo-text' });
     const undoBtn = h('button', { type: 'button', class: 'undo-btn', 'data-testid': 'undo-btn', title: '되돌리기 (Ctrl+Z)' }, '되돌리기');
     // 가상 진입 직후에만 보이는 「저널에서 보기」 (2026-11-11) — 저널이 있다는 걸 진입한 순간에 알린다
-    const undoLink = h('a', { class: 'undo-link', href: '/journal', 'data-testid': 'undo-link', hidden: true }, '저널에서 보기 ›');
+    const undoLink = h('a', { class: 'undo-link', href: '/journal', 'data-testid': 'undo-link', hidden: true }, '매매일지에서 보기 ›');
     const undoBar = h('span', { class: 'undo-progress' });
     const undoRoot = h('div', { class: 'undo-bar', 'data-testid': 'undo-bar', role: 'status', hidden: true },
       h('div', { class: 'undo-row' }, undoText, undoLink, undoBtn), h('div', { class: 'undo-track' }, undoBar));
     undoBtn.addEventListener('click', () => this.runUndo());
     const undo = { root: undoRoot, text: undoText, bar: undoBar, link: undoLink };
 
-    root.replaceChildren(topbar, loadError, layout, toast, undoRoot, tour.root);
+    root.replaceChildren(nav.root, topbar, loadError, layout, toast, undoRoot, tour.root);
 
     // 이벤트
     tf.addEventListener('change', () => {
@@ -1234,7 +1232,7 @@ export class App {
     return {
       picker, tf, sltf, long, short, status, statusReason, themeBtn, structBtn,
       loadError, chart, empty, card, sideChip, title, entry, times, planOld, rr, rrInput, rrLabel, rrChips, rrTp, rrProfitNote, reasons, bufferInput, bufferChips, bufferNote,
-      sl, tp, slWhy, sizing, restore, del, settingsInputs, settingRows, modeHelp, settingsSummaryEl, toast, undo, tools, tour, flow, watch, watchBtn, watchHandle, layout, panes, splitBtns, symbolList, mainLabel, journalForm, journalWarn, journalLink, journalBadge,
+      sl, tp, slWhy, sizing, restore, del, settingsInputs, settingRows, modeHelp, settingsSummaryEl, toast, undo, tools, tour, flow, watch, watchBtn, watchHandle, layout, panes, splitBtns, symbolList, mainLabel, journalForm, journalWarn, nav,
     };
   }
 
@@ -1834,7 +1832,7 @@ export class App {
     this.renderJournal();
     this.el?.journalForm.render(this.scenario);
     for (const t of closed) {
-      this.toast(`${t.symbol.replace(/USDT$/, '')} ${t.side === 'LONG' ? '롱' : '숏'} ${t.auto === 'tp' ? '목표' : '손절'} 닿음 · 자동 청산 (저널에 기록)`);
+      this.toast(`${t.symbol.replace(/USDT$/, '')} ${t.side === 'LONG' ? '롱' : '숏'} ${t.auto === 'tp' ? '목표' : '손절'} 닿음 · 자동 청산 (매매일지에 기록)`);
     }
   }
 
@@ -1847,13 +1845,11 @@ export class App {
     if (!e) return;
     const j = loadJournal(this.d.storage);
     const openCount = j.trades.filter((t) => t.exit === null).length;
-    show(e.journalBadge, openCount > 0);
-    setText(e.journalBadge, String(openCount));
-    e.journalLink.title = openCount > 0 ? `거래 저널 · 진행 중 ${openCount}건` : '거래 저널 (기록·통계·규칙)';
+    e.nav.setOpenCount(openCount);
     const warns = entryWarnings(j, this.d.now());
     this.journalWarnings = warns;
     show(e.journalWarn, warns.length > 0);
-    e.journalWarn.replaceChildren(h('b', {}, '⚠ 내 규칙'), ...warns.map((w) => h('span', {}, w)), h('a', { href: '/journal' }, '저널 보기'));
+    e.journalWarn.replaceChildren(h('b', {}, '⚠ 내 규칙'), ...warns.map((w) => h('span', {}, w)), h('a', { href: '/journal' }, '매매일지 보기'));
     const pct = autoRiskPct(j, this.sizing.capital);
     if (pct !== null && pct !== this.sizing.riskPct) {
       const before = this.sizing.riskPct;
@@ -1861,7 +1857,7 @@ export class App {
       saveSizing(this.d.storage, this.sizing);
       this.renderSizingControls(true);
       this.renderNow(true);
-      this.toast(`리스크 자동 조절: 손실 ${before}% → ${pct}% (저널 누적 수익 기준)`);
+      this.toast(`리스크 자동 조절: 손실 ${before}% → ${pct}% (매매일지 누적 수익 기준)`);
     }
   }
 

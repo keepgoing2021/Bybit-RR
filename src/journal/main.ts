@@ -11,6 +11,7 @@ import { safeStorage } from '../core/persistence';
 import { fetchLastPrice } from '../data/bybit/klineRange';
 import { trackOpenTrades } from '../data/virtualTracker';
 import { h, setText } from '../ui/dom';
+import { siteNav } from '../ui/siteNav';
 import { loadJournal, saveJournal } from '../ui/journalForm';
 import { renderCalendar, type CalView } from './calendar';
 import { chipRow, renderOpen } from './closeCard';
@@ -26,6 +27,7 @@ import { renderReview } from './review';
  */
 const storage = safeStorage(() => window.localStorage);
 const root = document.getElementById('app')!;
+const nav = siteNav('journal');
 let journal: Journal = loadJournal(storage);
 type GroupKey = 'setup' | 'quality' | 'session' | 'side' | 'symbol';
 let groupBy: GroupKey = 'setup';
@@ -315,7 +317,7 @@ function renderMonthly(): HTMLElement | null {
 function renderTabs(): HTMLElement {
   return h(
     'div',
-    { class: 'j-tabs j-main-tabs', role: 'group', 'aria-label': '저널 메뉴' },
+    { class: 'j-tabs j-main-tabs', role: 'group', 'aria-label': '매매일지 메뉴' },
     ...TABS.map(([k, label]) => {
       const b = h('button', { type: 'button', class: k === tab ? 'on' : '', 'aria-pressed': String(k === tab), 'data-testid': `j-tab-${k}` }, label);
       b.addEventListener('click', () => {
@@ -435,7 +437,7 @@ function renderSettings(): HTMLElement {
         h('label', { class: 'j-check' }, arOn, '켜기 (계산기 「손실 %」를 자동으로 바꿔요, 총 자산을 넣었을 때만)'),
         field('평소 위험 %', arBase),
         field('수익 쌓이면 위험 %', arUp),
-        field('누적 수익률 기준 %', arTh, '총 자산 대비 저널 누적 순손익이 이 이상이면 높은 %로'),
+        field('누적 수익률 기준 %', arTh, '총 자산 대비 매매일지 누적 순손익이 이 이상이면 높은 %로'),
       ),
     ),
     save,
@@ -481,7 +483,9 @@ function render(): void {
     },
   });
   const local = journal.trades.length ? `이 브라우저에만 저장돼요 · ${age ?? '아직 백업 안 함'}` : '이 브라우저에만 저장돼요';
+  nav.setOpenCount(journal.trades.filter((t) => t.exit === null).length);
   root.replaceChildren(
+    nav.root,
     h(
       'header',
       { class: 'j-head' },
@@ -492,7 +496,7 @@ function render(): void {
         h('img', { src: '/favicon.svg', alt: '', width: '22', height: '22' }),
         h('b', {}, h('span', { class: 'j-brand-one' }, '1'), 'RC'),
       ),
-      h('nav', { class: 'page-tabs', 'aria-label': '페이지' }, h('a', { href: '/', class: 'page-tab', 'data-testid': 'j-tab-chart' }, '차트'), h('h1', { class: 'page-tab on', 'aria-current': 'page' }, '저널')),
+      h('h1', {}, '📒 매매일지'),
       h('span', { class: 'muted small j-local', 'data-testid': 'j-local' }, local),
       backup,
       restore,

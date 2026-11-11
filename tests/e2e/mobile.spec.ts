@@ -31,7 +31,7 @@ test('phone: chart on the first screen, big LONG/SHORT fixed at the bottom, no s
   await open(page);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   const chart = await rect(page, 'chart');
-  expect(chart.top).toBeLessThan(195); // 상단은 얇은 탭 줄(차트 | 저널, 2026-11-11) + 두 줄 (종목·차트·SL 기준 / 주문 설정 요약)
+  expect(chart.top).toBeLessThan(160); // 상단은 두 줄 (종목·차트·SL 기준 / 주문 설정 요약)
   expect(chart.height).toBeGreaterThanOrEqual(280);
   expect(chart.width).toBe(390); // 작도 도구 자리 없이 전체 폭
   await expect(page.getByTestId('draw-toolbar')).toBeHidden();

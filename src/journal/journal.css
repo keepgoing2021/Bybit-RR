@@ -22,7 +22,7 @@ body {
 
 .j-head h1 {
   margin: 0;
-  font-size: 14px;
+  font-size: 18px;
 }
 
 .j-brand {
@@ -619,7 +619,7 @@ body {
 
 @media (max-width: 760px) {
   .j-main {
-    padding: 14px 12px 60px;
+    padding: 14px 12px calc(60px + var(--site-nav-h) + env(safe-area-inset-bottom));
   }
 
   .j-num {
@@ -665,4 +665,11 @@ body {
   color: var(--text, inherit);
   font-weight: 600;
   white-space: nowrap;
+}
+
+/* 폰: 알림이 아래 페이지 탭바에 가리지 않게 */
+@media (max-width: 640px) {
+  .j-toast {
+    bottom: calc(24px + var(--site-nav-h) + env(safe-area-inset-bottom));
+  }
 }
