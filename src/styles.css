@@ -3370,23 +3370,66 @@ button.flow-row.current .flow-name {
   color: var(--text);
 }
 
-/* 「📒 저널」은 링크(a)지만 옆 버튼들과 같은 모양 */
-a.journal-link {
-  text-decoration: none;
+/* 페이지 탭 「차트 | 저널」 — 계산기·저널 공통 (2026-11-11). 로고 옆에 두어 '페이지가 둘'이라는 게 바로 읽히게 */
+.page-tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  padding: 2px;
   border: 1px solid var(--line);
+  border-radius: 9px;
   background: var(--raised);
-  border-radius: 6px;
 }
 
-a.journal-link:hover {
-  border-color: var(--line-hover);
+.page-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 5px 10px;
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+a.page-tab:hover {
   color: var(--text);
 }
 
-/* 폰은 상단 줄이 좁아 링크를 숨긴다 — 기록 카드의 「저널에서 청산가 입력」·경고의 「저널 보기」로 들어간다 */
+.page-tab.on {
+  color: var(--text);
+  background: var(--bg);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+.page-tab-badge {
+  min-width: 18px;
+  padding: 1px 5px;
+  border-radius: 99px;
+  background: var(--entry);
+  color: #14161a;
+  font-size: 11px;
+  font-weight: 800;
+  text-align: center;
+}
+
+/* 폰: 로고가 없으니 탭을 맨 윗줄에 가로로 꽉 채운다 */
 @media (max-width: 640px) {
-  a.journal-link {
-    display: none;
+  .topbar > .page-tabs {
+    grid-column: 1 / -1;
+    order: -1;
+    margin-right: 0;
+  }
+
+  .page-tabs .page-tab {
+    flex: 1;
+    justify-content: center;
+    padding: 2px 10px;
+    font-size: 12px;
   }
 }
 

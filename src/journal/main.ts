@@ -492,7 +492,7 @@ function render(): void {
         h('img', { src: '/favicon.svg', alt: '', width: '22', height: '22' }),
         h('b', {}, h('span', { class: 'j-brand-one' }, '1'), 'RC'),
       ),
-      h('h1', {}, '📒 거래 저널'),
+      h('nav', { class: 'page-tabs', 'aria-label': '페이지' }, h('a', { href: '/', class: 'page-tab', 'data-testid': 'j-tab-chart' }, '차트'), h('h1', { class: 'page-tab on', 'aria-current': 'page' }, '저널')),
       h('span', { class: 'muted small j-local', 'data-testid': 'j-local' }, local),
       backup,
       restore,

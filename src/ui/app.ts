@@ -866,12 +866,10 @@ export class App {
       this.ui.symbol = symbol;
       void this.loadMarket();
     }, () => this.setWatchOpen(false), () => loadCoinMeta(this.d.storage));
-    const journalLink = h(
-      'a',
-      { href: '/journal', class: 'theme-toggle journal-link', 'data-testid': 'journal-link', title: '거래 저널 (기록·통계·규칙)' },
-      h('span', { class: 'icon', 'aria-hidden': 'true' }, '📒'),
-      h('span', { class: 'label' }, '저널'),
-    );
+    // 페이지 탭 「차트 | 저널」 (2026-11-11): 로고 옆, 폰에서는 맨 윗줄. 진행 중인 가상 거래 수를 배지로
+    const journalBadge = h('span', { class: 'page-tab-badge', 'data-testid': 'journal-badge', hidden: true });
+    const journalLink = h('a', { href: '/journal', class: 'page-tab', 'data-testid': 'journal-link', title: '거래 저널 (기록·통계·규칙)' }, '저널', journalBadge);
+    const pageTabs = h('nav', { class: 'page-tabs', 'aria-label': '페이지' }, h('span', { class: 'page-tab on', 'aria-current': 'page' }, '차트'), journalLink);
     const watchBtn = h(
       'button',
       { type: 'button', class: 'theme-toggle watch-toggle', 'data-testid': 'watch-toggle', title: '종목 리스트 열기·닫기' },
@@ -891,11 +889,12 @@ export class App {
         h('img', { class: 'brand-mark', src: '/favicon.svg', alt: '', width: '22', height: '22' }),
         h('span', { class: 'brand-text' }, h('b', { class: 'brand-name' }, h('span', { class: 'brand-one' }, '1'), 'RC'), h('small', { class: 'brand-sub' }, 'crypto risk calc')),
       ),
+      pageTabs,
       field('종목', picker.root),
       field('차트', tf),
       field('SL 기준', sltf),
       h('div', { class: 'sides' }, long, short),
-      h('div', { class: 'status' }, status, statusReason, watchBtn, journalLink),
+      h('div', { class: 'status' }, status, statusReason, watchBtn),
       sizing.fold,
       sizing.bar,
       flow.root,
@@ -1235,7 +1234,7 @@ export class App {
     return {
       picker, tf, sltf, long, short, status, statusReason, themeBtn, structBtn,
       loadError, chart, empty, card, sideChip, title, entry, times, planOld, rr, rrInput, rrLabel, rrChips, rrTp, rrProfitNote, reasons, bufferInput, bufferChips, bufferNote,
-      sl, tp, slWhy, sizing, restore, del, settingsInputs, settingRows, modeHelp, settingsSummaryEl, toast, undo, tools, tour, flow, watch, watchBtn, watchHandle, layout, panes, splitBtns, symbolList, mainLabel, journalForm, journalWarn, journalLink,
+      sl, tp, slWhy, sizing, restore, del, settingsInputs, settingRows, modeHelp, settingsSummaryEl, toast, undo, tools, tour, flow, watch, watchBtn, watchHandle, layout, panes, splitBtns, symbolList, mainLabel, journalForm, journalWarn, journalLink, journalBadge,
     };
   }
 
@@ -1847,6 +1846,10 @@ export class App {
     const e = this.el;
     if (!e) return;
     const j = loadJournal(this.d.storage);
+    const openCount = j.trades.filter((t) => t.exit === null).length;
+    show(e.journalBadge, openCount > 0);
+    setText(e.journalBadge, String(openCount));
+    e.journalLink.title = openCount > 0 ? `거래 저널 · 진행 중 ${openCount}건` : '거래 저널 (기록·통계·규칙)';
     const warns = entryWarnings(j, this.d.now());
     this.journalWarnings = warns;
     show(e.journalWarn, warns.length > 0);
