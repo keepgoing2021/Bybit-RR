@@ -29,6 +29,13 @@ for (const [name, size] of [['PC', { width: 1280, height: 800 }], ['폰', { widt
     expect(box.x).toBeGreaterThanOrEqual(0);
     expect(box.x + box.width).toBeLessThanOrEqual(size.width);
     await enter.click();
+    await expect(page.getByTestId('undo-link')).toBeVisible();
+    await expect(page.getByTestId('undo-link')).toHaveAttribute('href', '/journal');
+    if (process.env.SHOT) {
+      await page.getByText('알겠어요').click().catch(() => {});
+      await page.waitForTimeout(500);
+      await page.screenshot({ path: `${process.env.SHOT}/entry-${size.width}.png` });
+    }
     const j = await journal(page);
     expect(j.trades).toHaveLength(1);
     expect(j.trades[0].id).toBe(id);

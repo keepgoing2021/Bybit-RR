@@ -699,8 +699,9 @@ export class App {
   }
 
   /** 지운 직후 5초 동안 '되돌리기' (Ctrl+Z도). 새로 지우면 앞의 것은 되돌릴 수 없다 */
-  private offerUndo(message: string, run: () => void): void {
+  private offerUndo(message: string, run: () => void, journalLink = false): void {
     const u = this.el.undo;
+    show(u.link, journalLink);
     if (this.undoAction) window.clearTimeout(this.undoAction.timer);
     show(this.el.toast, false);
     setText(u.text, message);
@@ -1032,7 +1033,7 @@ export class App {
       },
       () => this.renderJournal(),
       (msg) => this.toast(msg),
-      (message, run) => this.offerUndo(message, run),
+      (message, run) => this.offerUndo(message, run, true),
     );
     // 패널은 카드 묶음: 가격 / 손익비 / 분할 진입 / 리스크 / 근거
     const card = h(
@@ -1150,11 +1151,13 @@ export class App {
     // 되돌리기 알림: 문구 + 되돌리기 버튼 + 5초 줄어드는 막대
     const undoText = h('span', { class: 'undo-text', 'data-testid': 'undo-text' });
     const undoBtn = h('button', { type: 'button', class: 'undo-btn', 'data-testid': 'undo-btn', title: '되돌리기 (Ctrl+Z)' }, '되돌리기');
+    // 가상 진입 직후에만 보이는 「저널에서 보기」 (2026-11-11) — 저널이 있다는 걸 진입한 순간에 알린다
+    const undoLink = h('a', { class: 'undo-link', href: '/journal', 'data-testid': 'undo-link', hidden: true }, '저널에서 보기 ›');
     const undoBar = h('span', { class: 'undo-progress' });
     const undoRoot = h('div', { class: 'undo-bar', 'data-testid': 'undo-bar', role: 'status', hidden: true },
-      h('div', { class: 'undo-row' }, undoText, undoBtn), h('div', { class: 'undo-track' }, undoBar));
+      h('div', { class: 'undo-row' }, undoText, undoLink, undoBtn), h('div', { class: 'undo-track' }, undoBar));
     undoBtn.addEventListener('click', () => this.runUndo());
-    const undo = { root: undoRoot, text: undoText, bar: undoBar };
+    const undo = { root: undoRoot, text: undoText, bar: undoBar, link: undoLink };
 
     root.replaceChildren(topbar, loadError, layout, toast, undoRoot, tour.root);
 

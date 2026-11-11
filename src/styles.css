@@ -1985,8 +1985,23 @@ button.weights-preset.active {
   font-size: 14px;
 }
 
+.undo-link {
+  margin-left: auto;
+  color: var(--text);
+  font-weight: 600;
+  white-space: nowrap;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.undo-link:not([hidden]) + button.undo-btn {
+  margin-left: 0;
+}
+
 button.undo-btn {
   margin-left: auto;
+  white-space: nowrap;
+  flex-shrink: 0;
   min-height: 36px;
   color: var(--entry);
   border-color: var(--entry);
