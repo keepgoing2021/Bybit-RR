@@ -27,6 +27,8 @@ import type { PresetLevel } from '../core/presets';
 import { hitTestPreset, type AvgLine, type BoxGeometry, type SplitLine } from './geometry';
 import { RRBoxPrimitive, type OverlayModel } from './rrPrimitive';
 import { StructurePrimitive } from './structurePrimitive';
+import { VolumePeakPrimitive, type VolumePeakBox } from './volumePeakPrimitive';
+import { volumePeaks } from '../core/volumePeak';
 import { marketStructure, type MarketStructure } from '../core/structure';
 import { THEME } from './theme';
 
@@ -110,6 +112,8 @@ export class ChartView {
   // 다우 이론 구조 (HH·HL·LH·LL, BOS·CHoCH). null이면 끔, 숫자면 스윙 좌우 봉 수
   private readonly structPrim: StructurePrimitive;
   private structureBars: number | null = null;
+  private readonly volPrim: VolumePeakPrimitive;
+  private volPeakOn = false;
   /** 박스 몸통을 잡으면 통째로 위아래·과거까지 (2026-11-06: 모드 없이 늘 — 트레이딩뷰 포지션 도구처럼) */
   private freeMode = true;
   /** 자유 모드로 박스를 잡은 순간의 가격 (위아래 이동량 계산) */
@@ -168,6 +172,8 @@ export class ChartView {
     );
     this.structPrim = new StructurePrimitive(() => this.drawMapper());
     this.series.attachPrimitive(this.structPrim);
+    this.volPrim = new VolumePeakPrimitive(() => this.drawMapper());
+    this.series.attachPrimitive(this.volPrim);
     this.series.attachPrimitive(this.drawPrim);
     this.series.attachPrimitive(this.prim);
     this.series.attachPrimitive(this.countdown);
@@ -256,6 +262,7 @@ export class ChartView {
     this.series.setData(candles.map(toBar));
     this.setMaData();
     this.rebuildStructure();
+    this.rebuildVolumePeaks();
     if (resetView) this.resetView();
     this.rebuildOverlay();
   }
@@ -286,6 +293,8 @@ export class ChartView {
       this.rebuildStructure();
       this.rebuildOverlay();
     }
+    // 진행 중인 봉의 거래대금이 커지면 오늘 표시가 그 봉으로 옮겨 간다
+    this.rebuildVolumePeaks();
   }
 
   /** 다우 이론 구조 표시 켜기(스윙 좌우 봉 수) / 끄기(null) */
@@ -304,6 +313,21 @@ export class ChartView {
   setStructure(bars: number | null): void {
     this.structureBars = bars;
     this.rebuildStructure();
+  }
+
+  /** 하루 중 거래대금이 가장 큰 캔들 표시 켜기/끄기 */
+  setVolumePeaks(on: boolean): void {
+    this.volPeakOn = on;
+    this.rebuildVolumePeaks();
+  }
+
+  /** 마지막으로 그린 거래대금 이름표 (시험용) */
+  getVolumePeakBoxes(): readonly VolumePeakBox[] {
+    return this.volPrim.drawn();
+  }
+
+  private rebuildVolumePeaks(): void {
+    this.volPrim.set(this.volPeakOn ? volumePeaks(this.candles, this.tfMs) : []);
   }
 
   /** 차트 왼쪽 위 범례(시고저종·이동평균) 아래에 버튼 같은 조작을 붙인다 */

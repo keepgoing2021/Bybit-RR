@@ -88,7 +88,9 @@ export function demoCandleAt(
     if (p > high) high = p;
     if (p < low) low = p;
   }
-  return { time: start, open, high, low, close, volume: 0, confirmed: barClose <= until };
+  // 거래량은 봉의 진폭에 비례 (많이 움직인 봉 = 거래가 터진 봉). 거래대금 = 거래량 × 종가 — 「거래 터진 곳」 표시용
+  const volume = Math.round(((high - low) / open) * 1e5);
+  return { time: start, open, high, low, close, volume, turnover: volume * close, confirmed: barClose <= until };
 }
 
 export function demoCandles(

@@ -153,6 +153,7 @@ export const TOUR_KEY = 'rrtool.v1.tourDone';
 const DRAW_TOOLS_KEY = 'rrtool.v1.drawtools';
 /** 다우 이론 구조 표시 (HH·HL·LH·LL, BOS·CHoCH) 켜짐 여부. 기본 켜짐, 끄면 'off' */
 export const STRUCTURE_KEY = 'rrtool.v1.structure';
+export const VOL_PEAK_KEY = 'rrtool.v1.volPeak';
 /** 종목 리스트 열림 여부 ('open'/'closed'). 없으면 넓은 화면(1500px+)에서만 연다 */
 export const WATCH_KEY = 'rrtool.v1.watch';
 /** 박스 끌기 안내 말풍선을 봤는지 ('1') */
@@ -197,6 +198,7 @@ export class App {
   /** 멀티차트: 계산기 칸이 아닌 칸에 맡겨 둔 계산 (종목별) */
   private stash = new Map<string, Scenario>();
   private structureOn = true;
+  private volPeakOn = true;
   private sizing: SizingSettings = DEFAULT_SIZING;
   /** 종목별 작도 */
   private drawingsBySymbol: Record<string, Drawing[]> = {};
@@ -315,6 +317,7 @@ export class App {
     });
     this.chart.setDefaultDrawColor(this.loadDrawColor());
     this.chart.addLegendControl(this.el.structBtn);
+    this.chart.addLegendControl(this.el.volPeakBtn);
 
     // 저널(다른 탭)에서 기록·청산·설정을 바꾸면 경고·리스크 조절을 바로 다시 / 날이 바뀌면 경고도 바뀌니 1분마다
     window.addEventListener('storage', (ev) => {
@@ -329,7 +332,9 @@ export class App {
       // 기본 1칸
     }
     this.structureOn = this.loadStructureOn();
+    this.volPeakOn = this.loadVolPeakOn();
     this.applyStructure();
+    this.applyVolPeak();
     this.setTheme(this.themeMode, false); // 버튼 글자 (차트는 이미 이 테마 색으로 만들어짐)
     PHONE.addEventListener?.('change', () => {
       this.renderTopbar();
@@ -837,6 +842,14 @@ export class App {
       '다우 구조',
     );
     structBtn.addEventListener('click', () => this.toggleStructure());
+    // 하루 중 거래대금이 가장 큰 캔들에 「🔥 $35.2M」 (2026-11-11)
+    const volPeakBtn = h(
+      'button',
+      { type: 'button', class: 'struct-toggle', 'data-testid': 'volpeak-toggle', title: '하루(한국 시간 오전 9시 기준) 중 거래대금이 가장 큰 캔들과 그 금액(USDT) · Bybit 선물 기준 · 일봉 이상에서는 숨김' },
+      h('span', { class: 'dot', 'aria-hidden': 'true' }),
+      '거래 터진 곳',
+    );
+    volPeakBtn.addEventListener('click', () => this.toggleVolPeak());
 
     // 사용 안내 다시 보기 (처음 한 번은 저절로 뜬다)
     const tourBtn = h(
@@ -1230,7 +1243,7 @@ export class App {
     });
 
     return {
-      picker, tf, sltf, long, short, status, statusReason, themeBtn, structBtn,
+      picker, tf, sltf, long, short, status, statusReason, themeBtn, structBtn, volPeakBtn,
       loadError, chart, empty, card, sideChip, title, entry, times, planOld, rr, rrInput, rrLabel, rrChips, rrTp, rrProfitNote, reasons, bufferInput, bufferChips, bufferNote,
       sl, tp, slWhy, sizing, restore, del, settingsInputs, settingRows, modeHelp, settingsSummaryEl, toast, undo, tools, tour, flow, watch, watchBtn, watchHandle, layout, panes, splitBtns, symbolList, mainLabel, journalForm, journalWarn, nav,
     };
@@ -1925,6 +1938,7 @@ export class App {
       );
       pane.setSymbols(this.symbols);
       pane.setStructure(this.structureOn ? STRUCTURE_BARS : null);
+      pane.setVolumePeaks(this.volPeakOn);
       e.panes.append(pane.root);
       this.viewPanes.push(pane);
       void pane.load(this.split.panes[i]);
@@ -2076,6 +2090,35 @@ export class App {
       return this.d.storage.getItem(STRUCTURE_KEY) !== 'off';
     } catch {
       return true;
+    }
+  }
+
+  private loadVolPeakOn(): boolean {
+    try {
+      return this.d.storage.getItem(VOL_PEAK_KEY) !== 'off';
+    } catch {
+      return true;
+    }
+  }
+
+  private toggleVolPeak(): void {
+    this.volPeakOn = !this.volPeakOn;
+    try {
+      this.d.storage.setItem(VOL_PEAK_KEY, this.volPeakOn ? 'on' : 'off');
+    } catch {
+      // 저장 못 해도 이번 화면에는 적용
+    }
+    this.applyVolPeak();
+  }
+
+  private applyVolPeak(): void {
+    this.chart?.setVolumePeaks(this.volPeakOn);
+    for (const p of this.viewPanes) p.setVolumePeaks(this.volPeakOn);
+    const btn = this.el?.volPeakBtn;
+    if (btn) {
+      btn.setAttribute('aria-pressed', String(this.volPeakOn));
+      btn.classList.toggle('on', this.volPeakOn);
+      btn.setAttribute('aria-label', `거래 터진 곳 표시 ${this.volPeakOn ? '끄기' : '켜기'}`);
     }
   }
 
@@ -2328,6 +2371,7 @@ export class App {
       getLastCopied: () => this.lastCopied,
       getMetrics: () => (this.scenario ? this.metricsFor(this.scenario) : null),
       getRenderedGeometry: () => this.chart.getRenderedGeometry(),
+      getVolumePeakBoxes: () => this.chart.getVolumePeakBoxes(),
       computeExpectedGeometry: () => this.chart.computeExpectedGeometry(),
       chartClientRect: () => this.chart.clientRect(),
       getVisibleRange: () => this.chart.getVisibleRange(),
