@@ -370,3 +370,263 @@ body {
     gap: 8px;
   }
 }
+
+/* ---------- 2026-11-11 개편: 청산 칩 · 숫자 3개 · 달력 · 곡선 · 리뷰 ---------- */
+.j-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.j-chips-name {
+  flex: 0 0 100%;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.j-chip {
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: none;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.j-chip[aria-pressed='true'] {
+  background: var(--entry);
+  border-color: var(--entry);
+  color: #111;
+  font-weight: 700;
+}
+
+.j-close:disabled,
+.j-save:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.j-err {
+  color: var(--loss);
+  font-size: 12px;
+}
+
+.j-err:empty,
+.j-preview:empty {
+  display: none;
+}
+
+[data-sign='up'] {
+  color: var(--profit);
+}
+
+[data-sign='down'] {
+  color: var(--loss);
+}
+
+.j-nums {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.j-num {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--card-line);
+  border-radius: 14px;
+  background: var(--card);
+}
+
+.j-num-value {
+  font-size: 26px;
+  line-height: 1.2;
+}
+
+.j-num[data-tone='up'] .j-num-value {
+  color: var(--profit);
+}
+
+.j-num[data-tone='down'] .j-num-value {
+  color: var(--loss);
+}
+
+.j-cal-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.j-cal-head h2 {
+  margin-right: auto;
+}
+
+.j-strip {
+  display: grid;
+  grid-template-columns: repeat(28, minmax(0, 1fr));
+  gap: 3px;
+}
+
+.j-strip-day,
+.j-day {
+  border: 0;
+  border-radius: 6px;
+  background: var(--well);
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.j-strip-day {
+  height: 26px;
+  padding: 0;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.j-strip-day:disabled,
+.j-day:disabled {
+  cursor: default;
+}
+
+.j-cal {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.j-cal-dow {
+  text-align: center;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.j-day {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-height: 46px;
+  min-width: 0;
+  padding: 4px 5px;
+  font-size: 11px;
+  overflow: hidden;
+}
+
+.j-day b {
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.j-strip-day[data-tone='w'],
+.j-day[data-tone='w'] {
+  background: color-mix(in srgb, var(--profit) 26%, var(--well));
+  color: var(--text);
+}
+
+.j-strip-day[data-tone='l'],
+.j-day[data-tone='l'] {
+  background: color-mix(in srgb, var(--loss) 30%, var(--well));
+  color: var(--text);
+}
+
+.j-strip-day[data-tone='e'],
+.j-day[data-tone='e'] {
+  color: var(--text);
+}
+
+.j-strip-day[aria-pressed='true'],
+.j-day[aria-pressed='true'] {
+  outline: 2px solid var(--entry);
+}
+
+.j-curve {
+  display: block;
+  width: 100%;
+  height: 72px;
+}
+
+.j-curve-line {
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.j-curve-line[data-sign='up'] {
+  stroke: var(--profit);
+}
+
+.j-curve-line[data-sign='down'] {
+  stroke: var(--loss);
+}
+
+.j-curve-zero {
+  stroke: var(--line);
+  stroke-dasharray: 3 3;
+  vector-effect: non-scaling-stroke;
+}
+
+.j-weak,
+.j-review p {
+  margin: 0;
+  font-size: 13px;
+}
+
+.j-fix {
+  gap: 4px;
+  border-left: 3px solid var(--entry);
+  overflow-wrap: anywhere;
+}
+
+.j-review-input {
+  width: 100%;
+  height: 36px;
+  box-sizing: border-box;
+}
+
+.j-main-tabs {
+  flex-wrap: wrap;
+}
+
+.j-main-tabs button {
+  height: 34px;
+  padding: 0 16px;
+}
+
+.j-fill {
+  white-space: normal;
+}
+
+.j-fill .j-chips + .j-chips {
+  margin-top: 8px;
+}
+
+@media (max-width: 760px) {
+  .j-main {
+    padding: 14px 12px 60px;
+  }
+
+  .j-num {
+    padding: 10px;
+  }
+
+  .j-num-value {
+    font-size: 20px;
+  }
+
+  .j-num .j-stat-sub {
+    font-size: 11px;
+  }
+
+  .j-strip {
+    grid-template-columns: repeat(14, minmax(0, 1fr));
+  }
+}

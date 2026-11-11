@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  autoRiskPct, backupAgeText, computeStats, emptyJournal, entryWarnings, grossR, groupStats, limitStatus, mergeJournal, parseBackup, parseJournal, periodStart, sessionOf, toBackup, toCsv, tradeResult, type Trade,
+  autoRiskPct, backupAgeText, isRuleBreak, upsertReview, computeStats, emptyJournal, entryWarnings, grossR, groupStats, limitStatus, mergeJournal, parseBackup, parseJournal, periodStart, sessionOf, toBackup, toCsv, tradeResult, type Trade,
 } from '../../src/core/journal';
 
 const H = 3600_000;
@@ -186,5 +186,97 @@ describe('백업 · 복원', () => {
     expect(backupAgeText(NOW - H, NOW)).toBe('오늘 백업함');
     expect(backupAgeText(NOW - 3 * 24 * H - H, NOW)).toBe('백업 3일 전');
     expect(backupAgeText(NOW + 24 * H, NOW)).toBeNull();
+  });
+});
+
+describe('청산 칩 · 주간 리뷰 (2026-11-11 개편)', () => {
+  const raw = (trades: unknown[], extra: Record<string, unknown> = {}) => JSON.stringify({ version: 1, trades, settings: {}, ...extra });
+  const W = Date.UTC(2026, 10, 1, 15, 0); // 11/2(월) 00:00 KST
+
+  it('칩: 목록에 있는 값만 받는다 (이상한 값은 그 항목만 버림)', () => {
+    const ok = parseJournal(raw([{ ...closed(104), closeRule: 'movedSl', mood: 'tired' }])).trades[0];
+    expect(ok.closeRule).toBe('movedSl');
+    expect(ok.mood).toBe('tired');
+    const bad = parseJournal(raw([{ ...closed(104), closeRule: '<img>', mood: 5 }])).trades;
+    expect(bad).toHaveLength(1);
+    expect('closeRule' in bad[0]).toBe(false);
+    expect('mood' in bad[0]).toBe(false);
+  });
+
+  it('리뷰: 깨진 줄은 버리고 긴 글은 200자로 자른다. 예전 데이터는 빈 목록', () => {
+    const j = parseJournal(raw([], { reviews: [
+      { weekStart: W, pattern: '급하게 들어감', fix: '손절 옮기지 않기', writtenAt: W + 1 },
+      { weekStart: 'x', pattern: 'a', fix: 'b', writtenAt: 1 },
+      { weekStart: W + 7 * 86_400_000, pattern: 'p'.repeat(300), fix: '', writtenAt: W + 2 },
+    ] }));
+    expect(j.reviews).toHaveLength(2);
+    expect(j.reviews![1].pattern).toHaveLength(200);
+    expect(parseJournal(raw([])).reviews).toEqual([]);
+  });
+
+  it('왕복: 다시 저장해도 칩·리뷰가 남는다 (계산기 탭이 저널을 다시 써도 안전)', () => {
+    const first = parseJournal(raw([{ ...closed(104), closeRule: 'kept', mood: 'calm' }], { reviews: [{ weekStart: W, pattern: 'a', fix: 'b', writtenAt: 5 }] }));
+    const again = parseJournal(JSON.stringify(first));
+    expect(again).toEqual(first);
+    expect(again.trades[0].mood).toBe('calm');
+    expect(again.reviews![0].fix).toBe('b');
+  });
+
+  it('규칙 위반: 진입 때 위반 표시 또는 청산 칩이 「지켰다」가 아님', () => {
+    expect(isRuleBreak(closed(104))).toBe(false);
+    expect(isRuleBreak(closed(104, { quality: 'break' }))).toBe(true);
+    expect(isRuleBreak(closed(104, { closeRule: 'kept' }))).toBe(false);
+    expect(isRuleBreak(closed(104, { closeRule: 'earlyExit' }))).toBe(true);
+    const s = computeStats([closed(104), closed(104), closed(104), closed(104, { closeRule: 'earlyExit' })]);
+    expect(s.ruleBreaks).toBe(1);
+    expect(s.rcr).toBe(0.75);
+  });
+
+  it('upsertReview: 같은 주는 바꿔 넣고 글은 200자', () => {
+    const j = emptyJournal();
+    upsertReview(j, { weekStart: W, pattern: 'a', fix: 'b', writtenAt: 1 });
+    upsertReview(j, { weekStart: W, pattern: 'x'.repeat(250), fix: 'c', writtenAt: 2 });
+    expect(j.reviews).toHaveLength(1);
+    expect(j.reviews![0].fix).toBe('c');
+    expect(j.reviews![0].pattern).toHaveLength(200);
+  });
+
+  it('백업: 칩·리뷰가 들어가고, 리뷰 없는 예전 백업도 읽힌다', () => {
+    const j = emptyJournal();
+    j.trades.push(closed(104, { closeRule: 'noPlan', mood: 'revenge' }));
+    upsertReview(j, { weekStart: W, pattern: 'a', fix: 'b', writtenAt: 1 });
+    const read = parseBackup(toBackup(j, NOW));
+    expect(read.ok).toBe(true);
+    if (!read.ok) return;
+    expect(read.journal.trades[0].closeRule).toBe('noPlan');
+    expect(read.journal.reviews).toHaveLength(1);
+    const old = parseBackup(JSON.stringify({ app: '1rc-journal', version: 1, trades: [closed(104)], settings: {} }));
+    expect(old.ok).toBe(true);
+    if (old.ok) expect(old.journal.reviews).toEqual([]);
+  });
+
+  it('합치기: 리뷰는 같은 주면 나중에 쓴 것, 칩은 지금 것에 없을 때만 백업에서', () => {
+    const t = closed(104, { id: 'same' });
+    const cur = emptyJournal();
+    cur.trades.push({ ...t });
+    cur.reviews = [{ weekStart: W, pattern: '옛', fix: '옛', writtenAt: 1 }, { weekStart: W - 7 * 86_400_000, pattern: 'p', fix: 'f', writtenAt: 1 }];
+    const bak = emptyJournal();
+    bak.trades.push({ ...t, closeRule: 'kept', mood: 'calm' });
+    bak.reviews = [{ weekStart: W, pattern: '새', fix: '새', writtenAt: 9 }];
+    const m = mergeJournal(cur, bak).journal;
+    expect(m.trades[0].closeRule).toBe('kept');
+    expect(m.trades[0].mood).toBe('calm');
+    expect(m.reviews).toHaveLength(2);
+    expect(m.reviews!.find((r) => r.weekStart === W)!.fix).toBe('새');
+    // 지금 것에 칩이 있으면 그대로
+    cur.trades[0].closeRule = 'movedSl';
+    expect(mergeJournal(cur, bak).journal.trades[0].closeRule).toBe('movedSl');
+  });
+
+  it('CSV: 청산 칩 두 칸', () => {
+    const lines = toCsv([closed(104, { closeRule: 'earlyExit', mood: 'rushed' }), closed(104)]).split('\n');
+    expect(lines[0].endsWith('청산 때 규칙,그때 상태')).toBe(true);
+    expect(lines[1].endsWith('일찍 청산,조급')).toBe(true);
+    expect(lines[2].endsWith(',,')).toBe(true);
   });
 });

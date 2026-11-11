@@ -11,6 +11,12 @@ import type { Side } from './types';
 export type Quality = 'rule' | 'high' | 'break';
 export const QUALITY_LABEL: Record<Quality, string> = { rule: '규칙 준수', high: '고확률', break: '규칙 위반' };
 
+/** 청산 직후 고르는 칩 (2026-11-11): 규칙을 지켰나 · 그때 상태 */
+export type CloseRule = 'kept' | 'movedSl' | 'earlyExit' | 'noPlan';
+export type Mood = 'calm' | 'rushed' | 'revenge' | 'tired';
+export const CLOSE_RULE_LABEL: Record<CloseRule, string> = { kept: '지켰다', movedSl: '손절 옮김', earlyExit: '일찍 청산', noPlan: '계획 없이 진입' };
+export const MOOD_LABEL: Record<Mood, string> = { calm: '차분', rushed: '조급', revenge: '복수심', tired: '피곤' };
+
 export interface Trade {
   id: string;
   symbol: string;
@@ -35,6 +41,9 @@ export interface Trade {
   rules: string[];
   /** 한쪽 수수료율 (시장가). 순손익 = 가격 차 − 진입·청산 수수료 */
   feeRate: number;
+  /** 청산 칩 — 안 골랐으면 항목이 없다 */
+  closeRule?: CloseRule;
+  mood?: Mood;
 }
 
 export interface DailyRules {
@@ -69,10 +78,23 @@ export interface JournalSettings {
   autoRisk: AutoRisk;
 }
 
+/** 주간 리뷰: 한 주(월요일 시작, 한국 시간)에 하나 */
+export interface WeeklyReview {
+  weekStart: number;
+  /** 반복된 패턴 한 줄 */
+  pattern: string;
+  /** 다음 주 고칠 것 하나 */
+  fix: string;
+  writtenAt: number;
+}
+export const REVIEW_MAX_CHARS = 200;
+const MAX_REVIEWS = 520;
+
 export interface Journal {
   version: 1;
   trades: Trade[];
   settings: JournalSettings;
+  reviews?: WeeklyReview[];
 }
 
 export const MAX_RULES = 8;
@@ -87,7 +109,7 @@ export const DEFAULT_JOURNAL_SETTINGS: JournalSettings = {
 };
 
 export function emptyJournal(): Journal {
-  return { version: 1, trades: [], settings: structuredClone(DEFAULT_JOURNAL_SETTINGS) };
+  return { version: 1, trades: [], settings: structuredClone(DEFAULT_JOURNAL_SETTINGS), reviews: [] };
 }
 
 // ---------- 계산 ----------
@@ -126,6 +148,17 @@ export function tradeResult(t: Trade): TradeResult | null {
   return { r, pnl, outcome: r > 0.05 ? 'win' : r < -0.05 ? 'loss' : 'be' };
 }
 
+/** 규칙 위반: 진입 때 위반으로 표시했거나, 청산 칩이 「지켰다」가 아닌 거래 */
+export function isRuleBreak(t: Trade): boolean {
+  return t.quality === 'break' || (t.closeRule !== undefined && t.closeRule !== 'kept');
+}
+
+/** 주간 리뷰 넣기 — 같은 주는 바꿔 넣는다 */
+export function upsertReview(j: Journal, r: WeeklyReview): void {
+  const clean: WeeklyReview = { weekStart: r.weekStart, pattern: r.pattern.slice(0, REVIEW_MAX_CHARS), fix: r.fix.slice(0, REVIEW_MAX_CHARS), writtenAt: r.writtenAt };
+  j.reviews = [...(j.reviews ?? []).filter((x) => x.weekStart !== r.weekStart), clean].sort((a, b) => a.weekStart - b.weekStart).slice(-MAX_REVIEWS);
+}
+
 export interface Stats {
   trades: number;
   wins: number;
@@ -154,7 +187,7 @@ export function computeStats(trades: Trade[]): Stats {
   const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
   const avgWin = avg(wins.map((x) => x.res.r));
   const avgLoss = avg(losses.map((x) => x.res.r));
-  const breaks = rows.filter((x) => x.t.quality === 'break');
+  const breaks = rows.filter((x) => isRuleBreak(x.t));
   return {
     trades: n,
     wins: wins.length,
@@ -278,7 +311,7 @@ function parseTrade(v: unknown): Trade | null {
   if (!isNum(r.entry) || !isNum(r.sl) || !isNumOrNull(r.tp) || !isNumOrNull(r.qty) || !isNumOrNull(r.riskUsdt) || !isNumOrNull(r.riskPct)) return null;
   if (!isNum(r.openedAt) || !isNumOrNull(r.closedAt) || !isNumOrNull(r.exit)) return null;
   const quality: Quality = r.quality === 'high' || r.quality === 'break' ? r.quality : 'rule';
-  return {
+  const out: Trade = {
     id: r.id.slice(0, 40),
     symbol: r.symbol,
     side: r.side,
@@ -297,6 +330,23 @@ function parseTrade(v: unknown): Trade | null {
     rules: Array.isArray(r.rules) ? r.rules.filter((x): x is string => typeof x === 'string').map((x) => x.slice(0, 60)).slice(0, MAX_RULES) : [],
     feeRate: isNum(r.feeRate) && r.feeRate >= 0 && r.feeRate < 0.01 ? r.feeRate : 0.00055,
   };
+  if (typeof r.closeRule === 'string' && Object.hasOwn(CLOSE_RULE_LABEL, r.closeRule)) out.closeRule = r.closeRule as CloseRule;
+  if (typeof r.mood === 'string' && Object.hasOwn(MOOD_LABEL, r.mood)) out.mood = r.mood as Mood;
+  return out;
+}
+
+function parseReviews(v: unknown): WeeklyReview[] {
+  if (!Array.isArray(v)) return [];
+  const byWeek = new Map<number, WeeklyReview>();
+  for (const x of v as unknown[]) {
+    if (!x || typeof x !== 'object') continue;
+    const r = x as Record<string, unknown>;
+    if (!isNum(r.weekStart) || !isNum(r.writtenAt)) continue;
+    const prev = byWeek.get(r.weekStart);
+    if (prev && prev.writtenAt >= r.writtenAt) continue;
+    byWeek.set(r.weekStart, { weekStart: r.weekStart, pattern: str(r.pattern, REVIEW_MAX_CHARS), fix: str(r.fix, REVIEW_MAX_CHARS), writtenAt: r.writtenAt });
+  }
+  return [...byWeek.values()].sort((a, b) => a.weekStart - b.weekStart).slice(-MAX_REVIEWS);
 }
 
 function parseSettings(v: unknown): JournalSettings {
@@ -328,7 +378,7 @@ export function parseJournal(raw: string | null): Journal {
     const v = raw ? JSON.parse(raw) : null;
     if (!v || typeof v !== 'object' || v.version !== 1) return emptyJournal();
     const trades = Array.isArray(v.trades) ? (v.trades as unknown[]).map(parseTrade).filter((t): t is Trade => t !== null) : [];
-    return { version: 1, trades, settings: parseSettings(v.settings) };
+    return { version: 1, trades, settings: parseSettings(v.settings), reviews: parseReviews(v.reviews) };
   } catch {
     return emptyJournal();
   }
@@ -336,7 +386,7 @@ export function parseJournal(raw: string | null): Journal {
 
 /** CSV (엑셀에서 열기). 쉼표·따옴표가 든 칸은 따옴표로 감싼다 */
 export function toCsv(trades: Trade[]): string {
-  const head = ['진입 시각', '청산 시각', '종목', '방향', '진입가', '손절가', '목표가', '청산가', '수량', '셋업', '품질', '세션', 'R', '순손익', '근거', '지킨 규칙'];
+  const head = ['진입 시각', '청산 시각', '종목', '방향', '진입가', '손절가', '목표가', '청산가', '수량', '셋업', '품질', '세션', 'R', '순손익', '근거', '지킨 규칙', '청산 때 규칙', '그때 상태'];
   const cell = (v: unknown) => {
     const s = v === null || v === undefined ? '' : String(v);
     // 엑셀 수식 주입 방지: =,+,-,@로 시작하는 글자 칸 앞에 '
@@ -346,7 +396,7 @@ export function toCsv(trades: Trade[]): string {
   const iso = (ms: number | null) => (ms === null ? '' : new Date(ms).toISOString());
   const rows = trades.map((t) => {
     const res = tradeResult(t);
-    return [iso(t.openedAt), iso(t.closedAt), t.symbol, t.side, t.entry, t.sl, t.tp, t.exit, t.qty, t.setup, QUALITY_LABEL[t.quality], sessionOf(t.openedAt), res ? res.r.toFixed(2) : '', res?.pnl != null ? res.pnl.toFixed(2) : '', t.reason, t.rules.join(' / ')];
+    return [iso(t.openedAt), iso(t.closedAt), t.symbol, t.side, t.entry, t.sl, t.tp, t.exit, t.qty, t.setup, QUALITY_LABEL[t.quality], sessionOf(t.openedAt), res ? res.r.toFixed(2) : '', res?.pnl != null ? res.pnl.toFixed(2) : '', t.reason, t.rules.join(' / '), t.closeRule ? CLOSE_RULE_LABEL[t.closeRule] : '', t.mood ? MOOD_LABEL[t.mood] : ''];
   });
   return [head, ...rows].map((r) => r.map(cell).join(',')).join('\n');
 }
@@ -361,7 +411,7 @@ export const BACKUP_MAX_CHARS = 5_000_000;
 
 /** 백업 파일 내용 (JSON). 저널 전체(거래 + 설정) */
 export function toBackup(j: Journal, now: number): string {
-  return JSON.stringify({ app: BACKUP_APP, version: 1, exportedAt: new Date(now).toISOString(), trades: j.trades, settings: j.settings });
+  return JSON.stringify({ app: BACKUP_APP, version: 1, exportedAt: new Date(now).toISOString(), trades: j.trades, settings: j.settings, reviews: j.reviews ?? [] });
 }
 
 export type BackupRead = { ok: true; journal: Journal; skipped: number } | { ok: false; reason: string };
@@ -383,7 +433,7 @@ export function parseBackup(raw: string): BackupRead {
   // 같은 id가 두 번 든 파일은 앞의 것만
   const seen = new Set<string>();
   const unique = trades.filter((t) => (seen.has(t.id) ? false : (seen.add(t.id), true)));
-  return { ok: true, journal: { version: 1, trades: unique, settings: parseSettings(r.settings) }, skipped: r.trades.length - unique.length };
+  return { ok: true, journal: { version: 1, trades: unique, settings: parseSettings(r.settings), reviews: parseReviews(r.reviews) }, skipped: r.trades.length - unique.length };
 }
 
 export interface MergeResult {
@@ -414,10 +464,21 @@ export function mergeJournal(current: Journal, backup: Journal): MergeResult {
     } else if (mine.exit === null && t.exit !== null) {
       byId.set(t.id, t);
       updated++;
-    } else kept++;
+    } else {
+      // 같은 거래: 지금 것을 두되, 지금 것에 없는 청산 칩만 백업에서 가져온다
+      if (mine.exit !== null && t.exit !== null && (mine.closeRule === undefined || mine.mood === undefined)) {
+        const filled: Trade = { ...mine };
+        if (filled.closeRule === undefined && t.closeRule !== undefined) filled.closeRule = t.closeRule;
+        if (filled.mood === undefined && t.mood !== undefined) filled.mood = t.mood;
+        byId.set(t.id, filled);
+      }
+      kept++;
+    }
   }
+  // 리뷰: 주마다 하나, 같은 주는 나중에 쓴 것
+  const reviews = parseReviews([...(current.reviews ?? []), ...(backup.reviews ?? [])]);
   const fresh = current.trades.length === 0;
-  return { journal: { version: 1, trades: [...byId.values()], settings: fresh ? backup.settings : current.settings }, added, updated, kept };
+  return { journal: { version: 1, trades: [...byId.values()], settings: fresh ? backup.settings : current.settings, reviews }, added, updated, kept };
 }
 
 /** 「백업 3일 전」 같은 글. 한 적 없으면 null */

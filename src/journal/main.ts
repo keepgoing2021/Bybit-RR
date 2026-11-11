@@ -1,17 +1,25 @@
 import '../styles.css';
 import './journal.css';
 import {
-  backupAgeText, BACKUP_MAX_CHARS, computeStats, groupStats, JOURNAL_KEY, limitStatus, MAX_RULES, mergeJournal, MIN_GROUP_TRADES, parseBackup, QUALITY_LABEL, sessionOf,
+  backupAgeText, BACKUP_MAX_CHARS, CLOSE_RULE_LABEL, computeStats, groupStats, JOURNAL_KEY, limitStatus, MAX_RULES, mergeJournal, MIN_GROUP_TRADES, MOOD_LABEL, parseBackup, QUALITY_LABEL, sessionOf,
   toBackup, toCsv, tradeResult,
   type Journal, type Stats, type Trade,
 } from '../core/journal';
+import { avgHoldMs, dayKey, maxDrawdownR, maxStreaks, monthlyRows } from '../core/journalInsights';
 import { safeStorage } from '../core/persistence';
 import { h, setText } from '../ui/dom';
 import { loadJournal, saveJournal } from '../ui/journalForm';
+import { renderCalendar, type CalView } from './calendar';
+import { chipRow, renderOpen } from './closeCard';
+import type { Ctx } from './ctx';
+import { renderCurve } from './curve';
+import { fmtDay, fmtHold, fmtPct, fmtR, fmtTime, fmtUsd, sign } from './format';
+import { renderNumbers } from './home';
+import { renderReview } from './review';
 
 /**
  * 1rc.app/journal — 거래 저널 (2026-11-06). 계산기와 같은 브라우저 저장소(rrtool.v1.journal)를 쓴다.
- * 숫자 요약 · 손실 한도 신호등 · 진행 중(청산가만 넣기) · 끝난 거래 · 잘/못 되는 곳(10건 이상) · 설정 · CSV
+ * 2026-11-11 개편: 첫 화면 = (주간 리뷰) → 진행 중(청산 카드) → 숫자 3개 → 달력 → 누적 R → 탭(거래 목록 / 통계 / 설정)
  */
 const storage = safeStorage(() => window.localStorage);
 const root = document.getElementById('app')!;
@@ -28,12 +36,44 @@ const GROUPS: [GroupKey, string, (t: Trade) => string][] = [
   ['symbol', '종목', (t) => t.symbol.replace(/USDT$/, '')],
 ];
 
-const fmtR = (r: number | null) => (r === null ? '—' : `${r > 0 ? '+' : ''}${r.toFixed(2)}R`);
-const fmtPct = (v: number | null) => (v === null ? '—' : `${(v * 100).toFixed(1)}%`);
-const fmtUsd = (v: number) => `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v).toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
-const fmtTime = (ms: number) =>
-  new Date(ms).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
-const sign = (v: number | null) => (v === null ? '' : v > 0 ? 'up' : v < 0 ? 'down' : '');
+type Tab = 'list' | 'stats' | 'settings';
+const TABS: [Tab, string][] = [['list', '거래 목록'], ['stats', '통계'], ['settings', '설정']];
+const TAB_KEY = 'rrtool.v1.journalTab';
+const CAL_KEY = 'rrtool.v1.journalCalView';
+/** 화면 형태 기억 (이 브라우저). 못 읽거나 모르는 값이면 기본값 */
+function remembered<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
+  try {
+    const v = storage.getItem(key);
+    return allowed.includes(v as T) ? (v as T) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+function remember(key: string, value: string): void {
+  try {
+    storage.setItem(key, value);
+  } catch {
+    // 기억만 못 한다
+  }
+}
+let tab: Tab = remembered(TAB_KEY, ['list', 'stats', 'settings'] as const, 'list');
+let calView: CalView = remembered(CAL_KEY, ['strip', 'month'] as const, 'strip');
+const kstNow = new Date(Date.now() + 9 * 3600_000);
+let calMonth = { y: kstNow.getUTCFullYear(), m0: kstNow.getUTCMonth() };
+/** 달력에서 고른 날 (그날 끝난 거래만 보기) */
+let dayFilter: string | null = null;
+/** 거래 목록에서 칩을 채우는 중인 거래 */
+let fillId: string | null = null;
+
+const ctx: Ctx = {
+  get journal() {
+    return journal;
+  },
+  persist,
+  rerender: () => render(),
+  toast: alertBox,
+  now: () => Date.now(),
+};
 
 /** 마지막으로 백업 파일을 내려받은 시각 (이 브라우저) */
 const BACKUP_AT_KEY = 'rrtool.v1.journalBackupAt';
@@ -125,6 +165,9 @@ function renderSummary(s: Stats): HTMLElement {
       statCard('평균 손익비', s.avgRR === null ? '—' : `1 : ${s.avgRR.toFixed(2)}`, '평균 이익 ÷ 평균 손실'),
       statCard('순손익', `${fmtUsd(s.netPnl)} USDT`, `합계 ${fmtR(s.totalR)} · ${s.trades}건`, sign(s.netPnl)),
       statCard('규칙 지킨 비율', fmtPct(s.rcr), `위반 ${s.ruleBreaks}건 · ${fmtUsd(s.ruleBreakPnl)} USDT`, s.rcr !== null && s.rcr < 0.8 ? 'down' : ''),
+      statCard('최대 낙폭', s.trades ? fmtR(-maxDrawdownR(journal.trades)) : '—', '고점에서 가장 많이 내려온 폭', maxDrawdownR(journal.trades) > 0 ? 'down' : ''),
+      statCard('최대 연속', `${maxStreaks(journal.trades).win}승 / ${maxStreaks(journal.trades).loss}패`, '본전은 연속을 끊어요'),
+      statCard('평균 보유 시간', fmtHold(avgHoldMs(journal.trades)), '진입 → 청산'),
     ),
   );
 }
@@ -151,50 +194,6 @@ function renderLimits(): HTMLElement {
   );
 }
 
-function renderOpen(): HTMLElement {
-  const open = journal.trades.filter((t) => t.exit === null).sort((a, b) => b.openedAt - a.openedAt);
-  const rows = open.map((t) => {
-    const exit = h('input', { class: 'j-exit num', inputmode: 'decimal', placeholder: '청산가', 'aria-label': `${t.symbol} 청산가`, 'data-testid': `j-exit-${t.id}` });
-    const close = h('button', { type: 'button', class: 'j-close', 'data-testid': `j-close-${t.id}` }, '청산');
-    const doClose = () => {
-      const v = Number(exit.value.replace(/[,\s]/g, ''));
-      if (!(Number.isFinite(v) && v > 0)) {
-        alertBox('청산가를 숫자로 넣어 주세요.');
-        return;
-      }
-      t.exit = v;
-      t.closedAt = Date.now();
-      persist();
-    };
-    close.addEventListener('click', doClose);
-    exit.addEventListener('keydown', (e) => e.key === 'Enter' && doClose());
-    // 손절·목표 자리로 바로
-    const quick = (label: string, price: number | null) => {
-      if (price === null) return null;
-      const b = h('button', { type: 'button', class: 'j-quick' }, label);
-      b.addEventListener('click', () => {
-        exit.value = String(price);
-        doClose();
-      });
-      return b;
-    };
-    return h(
-      'div',
-      { class: 'j-open-row', 'data-testid': 'j-open-row' },
-      h('div', { class: 'j-open-main' }, h('b', { 'data-side': t.side }, `${t.symbol.replace(/USDT$/, '')} ${t.side === 'LONG' ? '롱' : '숏'}`), h('span', { class: 'muted' }, `${fmtTime(t.openedAt)} · ${t.setup || '셋업 없음'} · ${QUALITY_LABEL[t.quality]}`)),
-      h('div', { class: 'j-open-prices num' }, `진입 ${t.entry} · 손절 ${t.sl}${t.tp !== null ? ` · 목표 ${t.tp}` : ''}`),
-      t.reason ? h('div', { class: 'j-reason' }, t.reason) : null,
-      h('div', { class: 'j-open-actions' }, exit, close, quick('손절가로', t.sl), quick('목표가로', t.tp), deleteBtn(t)),
-    );
-  });
-  return h(
-    'section',
-    { class: 'j-section', 'data-testid': 'j-open' },
-    h('h2', {}, `진행 중 ${open.length}`),
-    rows.length ? h('div', { class: 'j-open' }, ...rows) : h('p', { class: 'muted' }, '계산기에서 LONG/SHORT 계산 후 「📒 저널에 기록」을 누르면 여기 나와요.'),
-  );
-}
-
 function deleteBtn(t: Trade): HTMLButtonElement {
   // 확인 창 대신 두 번 누르기 (한 번 = 「정말?」)
   const b = h('button', { type: 'button', class: 'j-del', title: '이 기록 지우기' }, '지우기');
@@ -218,12 +217,20 @@ function deleteBtn(t: Trade): HTMLButtonElement {
 }
 
 function renderClosed(): HTMLElement {
-  const closed = journal.trades.filter((t) => t.exit !== null).sort((a, b) => (b.closedAt ?? 0) - (a.closedAt ?? 0));
+  const all = journal.trades.filter((t) => t.exit !== null).sort((a, b) => (b.closedAt ?? 0) - (a.closedAt ?? 0));
+  const closed = dayFilter === null ? all : all.filter((t) => t.closedAt !== null && dayKey(t.closedAt) === dayFilter);
   const list = showAll ? closed : closed.slice(0, 30);
-  const head = h('tr', {}, ...['청산', '종목', '셋업', '품질', '세션', 'R', '순손익', '근거', ''].map((x) => h('th', {}, x)));
-  const rows = list.map((t) => {
+  const cols = ['청산', '종목', '셋업', '품질', '세션', 'R', '순손익', '규칙 · 상태', '근거', ''];
+  const head = h('tr', {}, ...cols.map((x) => h('th', {}, x)));
+  const rows = list.flatMap((t) => {
     const res = tradeResult(t);
-    return h(
+    const chips = [t.closeRule ? CLOSE_RULE_LABEL[t.closeRule] : null, t.mood ? MOOD_LABEL[t.mood] : null].filter(Boolean).join(' · ');
+    const fill = h('button', { type: 'button', class: 'link', 'data-testid': `j-fill-${t.id}`, 'aria-expanded': String(fillId === t.id) }, chips || '채우기');
+    fill.addEventListener('click', () => {
+      fillId = fillId === t.id ? null : t.id;
+      render();
+    });
+    const row = h(
       'tr',
       { 'data-outcome': res?.outcome ?? '' },
       h('td', { class: 'num' }, t.closedAt ? fmtTime(t.closedAt) : ''),
@@ -233,21 +240,83 @@ function renderClosed(): HTMLElement {
       h('td', {}, sessionOf(t.openedAt)),
       h('td', { class: 'num', 'data-sign': sign(res?.r ?? null) }, fmtR(res?.r ?? null)),
       h('td', { class: 'num', 'data-sign': sign(res?.pnl ?? null) }, res?.pnl != null ? fmtUsd(res.pnl) : '—'),
+      h('td', {}, fill),
       h('td', { class: 'j-reason-cell', title: t.reason }, t.reason),
       h('td', {}, deleteBtn(t)),
     );
+    if (fillId !== t.id) return [row];
+    // 누르면 바로 저장 (다시 그리지 않아 두 줄을 이어서 고를 수 있다)
+    const store = () => {
+      if (!saveJournal(storage, journal)) alertBox('저장하지 못했어요 (브라우저 저장소가 막혀 있어요).');
+    };
+    const editor = h(
+      'td',
+      { colspan: String(cols.length), class: 'j-fill' },
+      chipRow('규칙 지켰나', CLOSE_RULE_LABEL, t.closeRule, (v) => {
+        if (v) t.closeRule = v;
+        else delete t.closeRule;
+        store();
+      }, `j-rule-${t.id}`),
+      chipRow('그때 상태', MOOD_LABEL, t.mood, (v) => {
+        if (v) t.mood = v;
+        else delete t.mood;
+        store();
+      }, `j-mood-${t.id}`),
+    );
+    return [row, h('tr', {}, editor)];
   });
   const more = closed.length > 30 ? h('button', { type: 'button', class: 'link' }, showAll ? '최근 30건만' : `전부 보기 (${closed.length}건)`) : null;
   more?.addEventListener('click', () => {
     showAll = !showAll;
     render();
   });
+  const clear = dayFilter === null ? null : h('button', { type: 'button', class: 'link', 'data-testid': 'j-day-clear' }, `${fmtDay(dayFilter)}만 보는 중 · 전체 보기`);
+  clear?.addEventListener('click', () => {
+    dayFilter = null;
+    render();
+  });
   return h(
     'section',
     { class: 'j-section', 'data-testid': 'j-closed' },
-    h('h2', {}, `끝난 거래 ${closed.length}`),
+    h('div', { class: 'j-cal-head' }, h('h2', {}, `끝난 거래 ${closed.length}`), clear),
     closed.length ? h('div', { class: 'j-table-wrap' }, h('table', { class: 'j-table' }, h('thead', {}, head), h('tbody', {}, ...rows))) : h('p', { class: 'muted' }, '청산가를 넣으면 R·순손익(수수료 뺌)이 자동으로 계산돼요.'),
     more,
+  );
+}
+
+function renderMonthly(): HTMLElement | null {
+  const rows = monthlyRows(journal.trades);
+  if (!rows.length) return null;
+  return h(
+    'section',
+    { class: 'j-section', 'data-testid': 'j-monthly' },
+    h('h2', {}, '월별'),
+    h(
+      'div',
+      { class: 'j-table-wrap' },
+      h(
+        'table',
+        { class: 'j-table' },
+        h('thead', {}, h('tr', {}, ...['달', '거래', '승률', '합계 R'].map((x) => h('th', {}, x)))),
+        h('tbody', {}, ...rows.map((m) => h('tr', {}, h('td', { class: 'num' }, m.key), h('td', { class: 'num' }, String(m.trades)), h('td', { class: 'num' }, fmtPct(m.winRate)), h('td', { class: 'num', 'data-sign': sign(m.totalR) }, fmtR(m.totalR))))),
+      ),
+    ),
+  );
+}
+
+function renderTabs(): HTMLElement {
+  return h(
+    'div',
+    { class: 'j-tabs j-main-tabs', role: 'group', 'aria-label': '저널 메뉴' },
+    ...TABS.map(([k, label]) => {
+      const b = h('button', { type: 'button', class: k === tab ? 'on' : '', 'aria-pressed': String(k === tab), 'data-testid': `j-tab-${k}` }, label);
+      b.addEventListener('click', () => {
+        tab = k;
+        remember(TAB_KEY, k);
+        render();
+      });
+      return b;
+    }),
   );
 }
 
@@ -382,6 +451,27 @@ function render(): void {
   const restore = h('button', { type: 'button', class: 'j-csv', 'data-testid': 'j-restore', title: '백업 파일을 지금 기록에 합쳐요 (지금 기록은 지워지지 않아요)' }, '백업 불러오기');
   restore.addEventListener('click', () => file.click());
   const age = backupAgeText(lastBackupAt(), Date.now());
+  const hasClosed = journal.trades.some((t) => t.exit !== null);
+  const calendar = renderCalendar(ctx, { view: calView, month: calMonth, day: dayFilter }, {
+    view: (v) => {
+      calView = v;
+      remember(CAL_KEY, v);
+      render();
+    },
+    month: (y, m0) => {
+      calMonth = { y, m0 };
+      render();
+    },
+    day: (k) => {
+      dayFilter = k;
+      showAll = false;
+      if (k !== null && tab !== 'list') {
+        tab = 'list';
+        remember(TAB_KEY, tab);
+      }
+      render();
+    },
+  });
   const local = journal.trades.length ? `이 브라우저에만 저장돼요 · ${age ?? '아직 백업 안 함'}` : '이 브라우저에만 저장돼요';
   root.replaceChildren(
     h(
@@ -395,7 +485,15 @@ function render(): void {
       csv,
       file,
     ),
-    h('main', { class: 'j-main' }, renderSummary(stats), renderLimits(), renderOpen(), renderClosed(), renderGroups(), renderSettings()),
+    h(
+      'main',
+      { class: 'j-main' },
+      renderReview(ctx),
+      renderOpen(ctx, deleteBtn),
+      ...(hasClosed ? [renderNumbers(ctx), calendar, renderCurve(ctx)] : []),
+      renderTabs(),
+      ...(tab === 'list' ? [renderClosed()] : tab === 'stats' ? [renderSummary(stats), renderLimits(), renderGroups(), renderMonthly()] : [renderSettings()]),
+    ),
   );
 }
 
