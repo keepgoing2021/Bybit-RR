@@ -2,7 +2,7 @@ import { formatPrice } from '../core/price';
 import { formatTurnover } from '../core/symbolSearch';
 import type { SymbolInfo, TickerStat } from '../core/types';
 import { bybitBase, type CoinMeta } from '../core/coinMeta';
-import { widgetSymbol, mapTvToBybit, mergeGroups, parseMyGroups, parseTvSymbols, parseTvText, tvTicker, tvWatchlistId, type MyGroup } from '../core/tvImport';
+import { mapTvToBybit, mergeGroups, parseMyGroups, parseTvSymbols, parseTvText, tvTicker, tvWatchlistId, type MyGroup } from '../core/tvImport';
 import { matchKorean, sortRows } from '../core/watchlist';
 import { fxValue, lastTwo, tvFxPair, FX_CURRENCIES } from '../core/fx';
 import { buildGroups, nextSort, parseFavorites, parseSort, tickDirection, toggleFavorite, type WatchRow, type WatchSort, type WatchSortKey } from '../core/watchlist';
@@ -61,9 +61,7 @@ export class WatchList {
   private readonly importBox: HTMLDivElement;
   private readonly importInput: HTMLInputElement;
   private readonly importMsg: HTMLSpanElement;
-  private readonly noData = new Map<string, { wrap: HTMLDivElement; row: HTMLAnchorElement; price: HTMLSpanElement; change: HTMLSpanElement; panel: HTMLDivElement | null; last?: number }>();
-  /** 트레이딩뷰 시세 위젯을 펼친 종목 (한 번에 하나) */
-  private widgetFor: string | null = null;
+  private readonly noData = new Map<string, { wrap: HTMLDivElement; row: HTMLAnchorElement; price: HTMLSpanElement; change: HTMLSpanElement; last?: number }>();
   /** Bybit에 없는 미국 주식·ETF 현재가 (Finnhub, 1분마다 30개씩 돌아가며) */
   private stockQuotes = new Map<string, { c: number; dp: number | null; t: number }>();
   private stockTimer: number | null = null;
@@ -350,29 +348,11 @@ export class WatchList {
         h('span', {}),
       );
       const wrap = h('div', { class: 'watch-nodata-wrap' }, row);
-      // 무료 시세가 없는 종목(지수·선물·해외 주식 등)은 누르면 트레이딩뷰 공식 시세 위젯을 그 아래에 펼친다
-      row.addEventListener('click', (e) => {
-        if (!row.classList.contains('needs-widget')) return; // 시세가 있는 줄은 그대로 트레이딩뷰 새 탭
-        e.preventDefault();
-        this.widgetFor = this.widgetFor === tv ? null : tv;
-        this.render();
-      });
-      el = { wrap, row, price, change, panel: null };
+      el = { wrap, row, price, change };
       this.noData.set(tv, el);
     }
     const [ex, t] = tv.split(':');
     const us = !!t && US_EXCHANGES.includes(ex);
-    const needsWidget = !us && !tvFxPair(tv);
-    el.row.classList.toggle('needs-widget', needsWidget);
-    const open = needsWidget && this.widgetFor === tv;
-    el.row.setAttribute('aria-expanded', String(open));
-    if (open && !el.panel) el.panel = this.widgetPanel(tv);
-    if (!open && el.panel) {
-      el.panel.remove();
-      el.panel = null;
-    }
-    if (el.panel && el.panel.parentElement !== el.wrap) el.wrap.append(el.panel);
-    if (needsWidget) el.row.title = `${tv} — 눌러서 트레이딩뷰 시세 보기`;
     let q = us ? this.stockQuotes.get(t) : undefined;
     const pair = tvFxPair(tv);
     if (!q && pair && this.fx) {
@@ -402,38 +382,11 @@ export class WatchList {
               : '불러오는 중…'
         : pair
           ? '불러오는 중…'
-          : open
-            ? '접기 ▴'
-            : '눌러서 보기 ▾';
+          : '차트 보기';
       setText(el.price, label);
       setText(el.change, '');
     }
     return el.wrap;
-  }
-
-  /**
-   * 트레이딩뷰 공식 무료 「시세」 위젯 (다른 사이트에 붙이라고 공개한 것). 트레이딩뷰에 있는 종목이면 다 된다.
-   * 지수·해외는 트레이딩뷰 무료 기준으로 지연될 수 있다. 화면 보안 정책 frame-src에 이 주소만 허용
-   */
-  private widgetPanel(tv: string): HTMLDivElement {
-    const chart = h('a', { class: 'watch-widget-chart', href: `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(tv)}`, target: '_blank', rel: 'noopener noreferrer' }, '📈 트레이딩뷰에서 차트 열기');
-    const w = widgetSymbol(tv);
-    if (!w) {
-      // 트레이딩뷰가 다른 사이트에 시세를 못 보여 주게 해 둔 종목 (홍콩·도쿄 주식 등)
-      return h('div', { class: 'watch-widget', 'data-testid': 'watch-widget-blocked' }, h('small', { class: 'muted' }, '이 종목은 트레이딩뷰가 다른 사이트에 시세를 못 보여 주게 해 둬서, 차트로만 볼 수 있어요'), chart);
-    }
-    const dark = document.documentElement.dataset.theme !== 'light';
-    const cfg = { symbol: w.symbol, width: '100%', isTransparent: true, colorTheme: dark ? 'dark' : 'light', locale: 'kr' };
-    const frame = h('iframe', {
-      class: 'watch-widget-frame',
-      src: `https://www.tradingview-widget.com/embed-widget/single-quote/?locale=kr#${encodeURIComponent(JSON.stringify(cfg))}`,
-      title: `${tv} 트레이딩뷰 시세`,
-      loading: 'lazy',
-      referrerpolicy: 'no-referrer',
-      'data-testid': 'watch-widget',
-    });
-    const note = w.alias ? h('small', { class: 'muted' }, `원래 종목은 다른 사이트에 막혀 있어서 같이 움직이는 ${w.symbol}로 보여 줘요`) : null;
-    return h('div', { class: 'watch-widget' }, frame, note, chart);
   }
 
   /**
