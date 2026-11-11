@@ -25,14 +25,22 @@ body {
   font-size: 18px;
 }
 
-.j-back {
-  color: var(--muted);
+.j-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
   text-decoration: none;
-  font-size: 13px;
+  font-size: 17px;
+  letter-spacing: 0.02em;
 }
 
-.j-back:hover {
-  color: var(--text);
+.j-brand:hover {
+  opacity: 0.8;
+}
+
+.j-brand-one {
+  color: var(--entry);
 }
 
 .j-local {

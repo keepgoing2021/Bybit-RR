@@ -127,3 +127,10 @@ test('폰 폭 390px: 가로 스크롤 없음', async ({ page }) => {
   await page.getByTestId('j-cal-toggle').click();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
 });
+
+test('로고를 누르면 차트(계산기) 화면으로 간다', async ({ page }) => {
+  await page.goto('/journal.html');
+  await expect(page.getByTestId('j-brand')).toHaveAttribute('href', '/');
+  await page.getByTestId('j-brand').click();
+  await expect(page.getByTestId('brand')).toHaveAttribute('href', '/');
+});

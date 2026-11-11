@@ -485,7 +485,13 @@ function render(): void {
     h(
       'header',
       { class: 'j-head' },
-      h('a', { href: '/', class: 'j-back', 'data-testid': 'j-back' }, '← 계산기'),
+      // 로고 = 차트(계산기) 화면으로 (2026-11-11)
+      h(
+        'a',
+        { href: '/', class: 'j-brand', 'data-testid': 'j-brand', title: '1RC 차트 화면으로' },
+        h('img', { src: '/favicon.svg', alt: '', width: '22', height: '22' }),
+        h('b', {}, h('span', { class: 'j-brand-one' }, '1'), 'RC'),
+      ),
       h('h1', {}, '📒 거래 저널'),
       h('span', { class: 'muted small j-local', 'data-testid': 'j-local' }, local),
       backup,
