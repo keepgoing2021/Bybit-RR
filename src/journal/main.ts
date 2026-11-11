@@ -16,7 +16,7 @@ import { renderCalendar, type CalView } from './calendar';
 import { chipRow, renderOpen } from './closeCard';
 import type { Ctx } from './ctx';
 import { renderCurve } from './curve';
-import { fmtDay, fmtHold, fmtPct, fmtR, fmtTime, fmtUsd, sign } from './format';
+import { fmtDay, fmtElapsed, fmtHold, fmtPct, fmtR, fmtTime, fmtUsd, sign } from './format';
 import { renderNumbers } from './home';
 import { renderReview } from './review';
 
@@ -226,7 +226,7 @@ function renderClosed(): HTMLElement {
   const all = journal.trades.filter((t) => t.exit !== null).sort((a, b) => (b.closedAt ?? 0) - (a.closedAt ?? 0));
   const closed = dayFilter === null ? all : all.filter((t) => t.closedAt !== null && dayKey(t.closedAt) === dayFilter);
   const list = showAll ? closed : closed.slice(0, 30);
-  const cols = ['청산', '종목', '셋업', '품질', '세션', 'R', '순손익', '규칙 · 상태', '근거', ''];
+  const cols = ['청산', '종목', '셋업', '품질', '세션', '보유', 'R', '순손익', '규칙 · 상태', '근거', ''];
   const head = h('tr', {}, ...cols.map((x) => h('th', {}, x)));
   const rows = list.flatMap((t) => {
     const res = tradeResult(t);
@@ -245,6 +245,7 @@ function renderClosed(): HTMLElement {
       h('td', {}, t.setup || '—'),
       h('td', { 'data-q': t.quality }, QUALITY_LABEL[t.quality]),
       h('td', {}, sessionOf(t.openedAt)),
+      h('td', { class: 'num', 'data-testid': `j-hold-${t.id}` }, fmtHold(t.closedAt !== null ? Math.max(0, t.closedAt - t.openedAt) : null)),
       h('td', { class: 'num', 'data-sign': sign(res?.r ?? null) }, fmtR(res?.r ?? null)),
       h('td', { class: 'num', 'data-sign': sign(res?.pnl ?? null) }, res?.pnl != null ? fmtUsd(res.pnl) : '—'),
       h('td', {}, auto, fill),
@@ -530,4 +531,9 @@ async function track(): Promise<void> {
 }
 void track();
 window.setInterval(() => void track(), 60_000);
+// 진행 중 카드의 지난 시간을 1초마다 다시 쓴다 (카드를 다시 그리지 않아 입력 중인 값이 지워지지 않는다)
+window.setInterval(() => {
+  if (document.hidden) return;
+  for (const el of document.querySelectorAll<HTMLElement>('[data-opened]')) el.textContent = `⏱ ${fmtElapsed(Date.now() - Number(el.dataset.opened))}`;
+}, 1000);
 document.addEventListener('visibilitychange', () => void track());

@@ -393,7 +393,7 @@ export function parseJournal(raw: string | null): Journal {
 
 /** CSV (엑셀에서 열기). 쉼표·따옴표가 든 칸은 따옴표로 감싼다 */
 export function toCsv(trades: Trade[]): string {
-  const head = ['진입 시각', '청산 시각', '종목', '방향', '진입가', '손절가', '목표가', '청산가', '수량', '셋업', '품질', '세션', 'R', '순손익', '근거', '지킨 규칙', '청산 때 규칙', '그때 상태'];
+  const head = ['진입 시각', '청산 시각', '종목', '방향', '진입가', '손절가', '목표가', '청산가', '수량', '셋업', '품질', '세션', 'R', '순손익', '근거', '지킨 규칙', '청산 때 규칙', '그때 상태', '보유 시간(분)'];
   const cell = (v: unknown) => {
     const s = v === null || v === undefined ? '' : String(v);
     // 엑셀 수식 주입 방지: =,+,-,@로 시작하는 글자 칸 앞에 '
@@ -403,7 +403,7 @@ export function toCsv(trades: Trade[]): string {
   const iso = (ms: number | null) => (ms === null ? '' : new Date(ms).toISOString());
   const rows = trades.map((t) => {
     const res = tradeResult(t);
-    return [iso(t.openedAt), iso(t.closedAt), t.symbol, t.side, t.entry, t.sl, t.tp, t.exit, t.qty, t.setup, QUALITY_LABEL[t.quality], sessionOf(t.openedAt), res ? res.r.toFixed(2) : '', res?.pnl != null ? res.pnl.toFixed(2) : '', t.reason, t.rules.join(' / '), t.closeRule ? CLOSE_RULE_LABEL[t.closeRule] : '', t.mood ? MOOD_LABEL[t.mood] : ''];
+    return [iso(t.openedAt), iso(t.closedAt), t.symbol, t.side, t.entry, t.sl, t.tp, t.exit, t.qty, t.setup, QUALITY_LABEL[t.quality], sessionOf(t.openedAt), res ? res.r.toFixed(2) : '', res?.pnl != null ? res.pnl.toFixed(2) : '', t.reason, t.rules.join(' / '), t.closeRule ? CLOSE_RULE_LABEL[t.closeRule] : '', t.mood ? MOOD_LABEL[t.mood] : '', t.closedAt !== null ? Math.max(0, Math.round((t.closedAt - t.openedAt) / 60_000)) : ''];
   });
   return [head, ...rows].map((r) => r.map(cell).join(',')).join('\n');
 }

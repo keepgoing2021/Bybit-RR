@@ -14,3 +14,9 @@ export function fmtHold(ms: number | null): string {
   const h = Math.floor(min / 60);
   return h < 48 ? `${h}시간 ${min % 60}분` : `${Math.floor(h / 24)}일 ${h % 24}시간`;
 }
+/** 진행 중 카드의 흐르는 시간: 1시간 전에는 초까지 ('12분 05초'), 그 뒤로는 fmtHold와 같다 */
+export function fmtElapsed(ms: number): string {
+  const sec = Math.max(0, Math.floor(ms / 1000));
+  if (sec < 3600) return `${Math.floor(sec / 60)}분 ${String(sec % 60).padStart(2, '0')}초`;
+  return fmtHold(sec * 1000);
+}

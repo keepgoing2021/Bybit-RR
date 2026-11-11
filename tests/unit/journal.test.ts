@@ -275,8 +275,8 @@ describe('청산 칩 · 주간 리뷰 (2026-11-11 개편)', () => {
 
   it('CSV: 청산 칩 두 칸', () => {
     const lines = toCsv([closed(104, { closeRule: 'earlyExit', mood: 'rushed' }), closed(104)]).split('\n');
-    expect(lines[0].endsWith('청산 때 규칙,그때 상태')).toBe(true);
-    expect(lines[1].endsWith('일찍 청산,조급')).toBe(true);
-    expect(lines[2].endsWith(',,')).toBe(true);
+    expect(lines[0].endsWith('청산 때 규칙,그때 상태,보유 시간(분)')).toBe(true);
+    expect(lines[1]).toMatch(/일찍 청산,조급,\d+$/);
+    expect(lines[2]).toMatch(/,,,\d+$/);
   });
 });

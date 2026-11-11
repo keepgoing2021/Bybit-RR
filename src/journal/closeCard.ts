@@ -1,7 +1,7 @@
 import { CLOSE_RULE_LABEL, MOOD_LABEL, QUALITY_LABEL, tradeResult, type CloseRule, type Mood, type Trade } from '../core/journal';
 import { h, setText } from '../ui/dom';
 import type { Ctx } from './ctx';
-import { fmtR, fmtTime, sign } from './format';
+import { fmtElapsed, fmtR, fmtTime, sign } from './format';
 
 /** 하나만 고르는 칩 줄. 같은 칩을 다시 누르면 해제. 다시 그리지 않고 제자리에서 바뀐다(입력 중인 값이 안 날아가게) */
 export function chipRow<T extends string>(name: string, labels: Record<T, string>, value: T | undefined, onPick: (v: T | undefined) => void, testid: string): HTMLElement {
@@ -82,7 +82,7 @@ function card(ctx: Ctx, t: Trade, deleteBtn: (t: Trade) => HTMLElement): HTMLEle
   return h(
     'div',
     { class: 'j-open-row', 'data-testid': 'j-open-row' },
-    h('div', { class: 'j-open-main' }, h('b', { 'data-side': t.side }, `${t.symbol.replace(/USDT$/, '')} ${t.side === 'LONG' ? '롱' : '숏'}`), h('span', { class: 'muted' }, `${fmtTime(t.openedAt)} · ${t.setup || '셋업 없음'} · ${QUALITY_LABEL[t.quality]}`)),
+    h('div', { class: 'j-open-main' }, h('b', { 'data-side': t.side }, `${t.symbol.replace(/USDT$/, '')} ${t.side === 'LONG' ? '롱' : '숏'}`), h('span', { class: 'muted' }, `${fmtTime(t.openedAt)} · ${t.setup || '셋업 없음'} · ${QUALITY_LABEL[t.quality]}`), h('span', { class: 'j-elapsed num', 'data-testid': `j-elapsed-${t.id}`, 'data-opened': String(t.openedAt), title: '진입 후 지난 시간' }, `⏱ ${fmtElapsed(ctx.now() - t.openedAt)}`)),
     h('div', { class: 'j-open-prices num' }, `진입 ${t.entry} · 손절 ${t.sl}${t.tp !== null ? ` · 목표 ${t.tp}` : ''}`),
     t.reason ? h('div', { class: 'j-reason' }, t.reason) : null,
     h('div', { class: 'j-open-actions' }, exit, nowBtn, quick('손절가로', t.sl), quick('목표가로', t.tp), preview),

@@ -652,3 +652,9 @@ body {
   color: var(--muted);
   font-size: 11px;
 }
+.j-elapsed {
+  margin-left: auto;
+  color: var(--text, inherit);
+  font-weight: 600;
+  white-space: nowrap;
+}

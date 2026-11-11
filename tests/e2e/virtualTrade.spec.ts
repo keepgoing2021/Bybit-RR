@@ -75,6 +75,12 @@ test('저널: 손절에 닿은 열린 거래를 자동 청산하고 알린다 ·
   await expect(page.getByTestId('j-open')).toContainText('진행 중 1');
   await expect(page.getByTestId('j-closed')).toContainText('끝난 거래 1');
   await expect(page.getByTestId('j-auto-a')).toContainText('자동 · 손절');
+  // 걸린 시간: 진행 중은 초 단위로 흐르고, 끝난 거래는 진입→청산 시간이 남는다
+  const elapsed = page.getByTestId('j-elapsed-e');
+  await expect(elapsed).toHaveText(/⏱ 1\d분 \d\d초/);
+  const before = await elapsed.textContent();
+  await expect(elapsed).not.toHaveText(before!, { timeout: 3000 });
+  await expect(page.getByTestId('j-hold-a')).toHaveText(/^[45]분$/);
   const saved = (await journal(page)).trades;
   expect(saved.find((t: { id: string }) => t.id === 'a')).toMatchObject({ exit: 98, auto: 'sl' });
   expect(saved.find((t: { id: string }) => t.id === 'e').trackedTo).toBeGreaterThan(opened);
