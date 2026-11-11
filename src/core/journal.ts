@@ -350,3 +350,79 @@ export function toCsv(trades: Trade[]): string {
   });
   return [head, ...rows].map((r) => r.map(cell).join(',')).join('\n');
 }
+
+// ---------- 백업 · 복원 (2026-11-11) ----------
+// 저널은 이 브라우저에만 있어서, 브라우저 기록을 지우거나 기기를 바꾸면 사라진다.
+// 파일로 내려받아 두었다가 다시 불러올 수 있게 한다 (CSV는 엑셀용이라 되돌릴 수 없다).
+
+export const BACKUP_APP = '1rc-journal';
+/** 백업 파일 크기 한도 (글자 수). 브라우저 저장소 한도(약 5MB)보다 큰 파일은 어차피 못 담는다 */
+export const BACKUP_MAX_CHARS = 5_000_000;
+
+/** 백업 파일 내용 (JSON). 저널 전체(거래 + 설정) */
+export function toBackup(j: Journal, now: number): string {
+  return JSON.stringify({ app: BACKUP_APP, version: 1, exportedAt: new Date(now).toISOString(), trades: j.trades, settings: j.settings });
+}
+
+export type BackupRead = { ok: true; journal: Journal; skipped: number } | { ok: false; reason: string };
+
+/** 백업 파일 읽기. 1RC 백업이 아니면 거절하고, 깨진 거래 줄은 건너뛴다(skipped) */
+export function parseBackup(raw: string): BackupRead {
+  if (raw.length > BACKUP_MAX_CHARS) return { ok: false, reason: '파일이 너무 커요' };
+  let v: unknown;
+  try {
+    v = JSON.parse(raw.replace(/^﻿/, ''));
+  } catch {
+    return { ok: false, reason: '1RC 백업 파일이 아니에요 (CSV는 불러올 수 없어요)' };
+  }
+  const r = v as Record<string, unknown> | null;
+  if (!r || typeof r !== 'object' || r.app !== BACKUP_APP || r.version !== 1 || !Array.isArray(r.trades)) {
+    return { ok: false, reason: '1RC 백업 파일이 아니에요' };
+  }
+  const trades = (r.trades as unknown[]).map(parseTrade).filter((t): t is Trade => t !== null);
+  // 같은 id가 두 번 든 파일은 앞의 것만
+  const seen = new Set<string>();
+  const unique = trades.filter((t) => (seen.has(t.id) ? false : (seen.add(t.id), true)));
+  return { ok: true, journal: { version: 1, trades: unique, settings: parseSettings(r.settings) }, skipped: r.trades.length - unique.length };
+}
+
+export interface MergeResult {
+  journal: Journal;
+  /** 새로 들어온 거래 */
+  added: number;
+  /** 여기선 진행 중인데 백업에선 끝난 거래 → 백업 것으로 */
+  updated: number;
+  /** 이미 있어서 그대로 둔 거래 */
+  kept: number;
+}
+
+/**
+ * 백업을 지금 저널에 합친다 — 지금 있는 기록은 지우지 않는다.
+ * 없는 거래는 더하고, 같은 거래는 지금 것을 두되 「여기선 진행 중 · 백업에선 청산」이면 백업 것을 쓴다.
+ * 설정은 지금 저널이 비어 있을 때(새 브라우저)만 백업 것을 쓴다.
+ */
+export function mergeJournal(current: Journal, backup: Journal): MergeResult {
+  const byId = new Map(current.trades.map((t) => [t.id, t]));
+  let added = 0;
+  let updated = 0;
+  let kept = 0;
+  for (const t of backup.trades) {
+    const mine = byId.get(t.id);
+    if (!mine) {
+      byId.set(t.id, t);
+      added++;
+    } else if (mine.exit === null && t.exit !== null) {
+      byId.set(t.id, t);
+      updated++;
+    } else kept++;
+  }
+  const fresh = current.trades.length === 0;
+  return { journal: { version: 1, trades: [...byId.values()], settings: fresh ? backup.settings : current.settings }, added, updated, kept };
+}
+
+/** 「백업 3일 전」 같은 글. 한 적 없으면 null */
+export function backupAgeText(lastAt: number | null, now: number): string | null {
+  if (lastAt === null || !(lastAt > 0) || lastAt > now + 60_000) return null;
+  const days = Math.floor((now - lastAt) / 86_400_000);
+  return days <= 0 ? '오늘 백업함' : `백업 ${days}일 전`;
+}

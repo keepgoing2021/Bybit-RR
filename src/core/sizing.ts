@@ -29,6 +29,11 @@ export interface SizingSettings {
   customWeights: number[];
   /** 차트에 '체결 시 예상 평단' 점선을 그릴지 */
   showAvgLine: boolean;
+  /**
+   * 자산 % 방식에서 손절 시 수수료(지정가 진입 + 시장가 손절)까지 넣어 손실 한도를 맞출지 (2026-11-11, 기본 꺼짐).
+   * 켜면 「가격 손실 + 수수료 = 총 자산 × riskPct」가 되도록 포지션이 조금 작아진다. 투입금 방식은 금액을 직접 정하므로 영향 없음
+   */
+  includeFees: boolean;
 }
 
 export const DEFAULT_SIZING: SizingSettings = {
@@ -40,6 +45,7 @@ export const DEFAULT_SIZING: SizingSettings = {
   weightMode: 'linear',
   customWeights: [],
   showAvgLine: true,
+  includeFees: false,
 };
 export const RISK_PCT_RANGE: [number, number] = [0.1, 10];
 
@@ -64,6 +70,7 @@ export function sanitizeSizing(raw: unknown): SizingSettings {
     else out.weightMode = 'linear';
   }
   if (typeof src.showAvgLine === 'boolean') out.showAvgLine = src.showAvgLine;
+  if (typeof src.includeFees === 'boolean') out.includeFees = src.includeFees;
   return out;
 }
 
@@ -90,6 +97,8 @@ export interface SizingInput {
   minQty?: number;
   /** 최소 주문 금액 (USDT) */
   minNotional?: number;
+  /** 수수료 등급 (settings.includeFees가 켜진 자산 % 방식에서만 쓴다). 없으면 일반 등급 */
+  feeTier?: FeeTier;
   settings: SizingSettings;
 }
 
@@ -140,7 +149,9 @@ function floorToStep(x: number, step: number | undefined): number {
  * 분할 진입 계획. 포지션 크기(모든 분할의 주문 금액 합)는
  * - 투입금 방식: 정한 투입금 그대로 (비우면 총 자산 전부)
  * - 자산 % 방식: 모든 분할이 체결된 뒤 SL에 맞아도 손실이 총 자산의 riskPct%가 되게
- * 로 정하고, 비중대로 나눈다. 수수료·슬리피지·펀딩비는 넣지 않는다.
+ * 로 정하고, 비중대로 나눈다. 슬리피지·펀딩비는 넣지 않는다.
+ * 수수료는 기본으로 넣지 않고, settings.includeFees를 켠 자산 % 방식에서만 손실 한도에 넣는다
+ * (feeAtStop과 같은 가정: 주문 금액 × (지정가 진입 + 시장가 손절 수수료율)).
  */
 export function planSizing(i: SizingInput): SizingResult {
   const { side, entry, sl, tp, tickSize, settings } = i;
@@ -160,7 +171,9 @@ export function planSizing(i: SizingInput): SizingResult {
   // 금액 1당 SL 손실 = 손절폭 ÷ 가격
   const lossPerNotional = shares.reduce((acc, w, k) => acc + (w * Math.abs(prices[k] - sl)) / prices[k], 0);
   const byValue = (settings.sizeMode ?? 'risk') === 'value';
-  const total = byValue ? (settings.positionValue ?? capital) : (capital * riskPct) / 100 / lossPerNotional;
+  const feeRate = FEE_RATES[i.feeTier ?? DEFAULT_FEE_TIER];
+  const feePerNotional = !byValue && settings.includeFees ? feeRate.maker + feeRate.taker : 0;
+  const total = byValue ? (settings.positionValue ?? capital) : (capital * riskPct) / 100 / (lossPerNotional + feePerNotional);
   const riskBudget = byValue ? total * lossPerNotional : (capital * riskPct) / 100;
 
   const rows = prices.map((price, k) => {

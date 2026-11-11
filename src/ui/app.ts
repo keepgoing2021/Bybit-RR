@@ -47,6 +47,7 @@ import type { FeedListener, MarketDataProvider } from '../data/provider';
 import { h, setText, show } from './dom';
 import { compactUsdt, formatClock, formatPct, formatTime, settingsSummary, SL_MODE_HELP, SL_MODE_NAMES, slRationale, SWING_LEVELS, swingLevelName, tfName, tpRationale } from './format';
 import { HUNT_FAR_PCT, HUNT_NEAR_PCT, huntTip, huntZone, inHuntZone } from '../core/huntZone';
+import { planAge, sameLocalDay } from '../core/planAge';
 import { FlowBoard } from './flowBoard';
 import { WatchList } from './watchList';
 import { JournalForm, loadJournal } from './journalForm';
@@ -913,6 +914,7 @@ export class App {
     const title = h('span', { class: 'scenario-title' });
     const del = h('button', { type: 'button', class: 'link', 'data-testid': 'btn-clear' }, '지우기');
     const times = h('p', { class: 'muted small', 'data-testid': 'entry-time' });
+    const planOld = h('p', { class: 'plan-old small', 'data-testid': 'plan-old', role: 'status', hidden: true });
     // 손익비는 결과이자 입력: 고치면 TP가 그 손익비 자리로 간다
     const rrInput = h('input', {
       class: 'rr num', 'data-testid': 'rr-input', inputmode: 'decimal', autocomplete: 'off', placeholder: '—', 'aria-label': '손익비 1:X 의 X',
@@ -1041,6 +1043,7 @@ export class App {
         cardHead('levels', '진입 / 손절 / 목표'),
         h('div', { class: 'prices' }, entry.row, sl.row, bufferRow, slWhy, tp.row),
         times,
+        planOld,
       ),
       h(
         'div',
@@ -1227,7 +1230,7 @@ export class App {
 
     return {
       picker, tf, sltf, long, short, status, statusReason, themeBtn, structBtn,
-      loadError, chart, empty, card, sideChip, title, entry, times, rr, rrInput, rrLabel, rrChips, rrTp, rrProfitNote, reasons, bufferInput, bufferChips, bufferNote,
+      loadError, chart, empty, card, sideChip, title, entry, times, planOld, rr, rrInput, rrLabel, rrChips, rrTp, rrProfitNote, reasons, bufferInput, bufferChips, bufferNote,
       sl, tp, slWhy, sizing, restore, del, settingsInputs, settingRows, modeHelp, settingsSummaryEl, toast, undo, tools, tour, flow, watch, watchBtn, watchHandle, layout, panes, splitBtns, symbolList, mainLabel, journalForm, journalWarn, journalLink,
     };
   }
@@ -1486,11 +1489,21 @@ export class App {
       return b;
     });
     const feeRates = h('span', { class: 'fee-rates num', 'data-testid': 'fee-rates' });
+    // 자산 % 방식에서 수수료까지 넣어 손실 한도를 맞추기 (기본 꺼짐). 투입금 방식은 금액을 직접 정하므로 잠근다
+    const feeInclude = h('input', { type: 'checkbox', 'data-testid': 'sizing-fee-include' });
+    const feeIncludeText = h('span', {}, '수수료까지 넣어 손실 맞추기');
+    const feeIncludeLabel = h('label', { class: 'avg-toggle fee-include' }, feeInclude, feeIncludeText);
+    feeInclude.addEventListener('change', () => {
+      this.sizing = { ...this.sizing, includeFees: feeInclude.checked };
+      saveSizing(this.d.storage, this.sizing);
+      this.renderNow();
+    });
     const feeTiers = h(
       'div',
       { class: 'fee-tier-row' },
       h('div', { class: 'fee-tiers', role: 'group', 'aria-label': 'Bybit 수수료 등급' }, ...feeTierBtns),
       feeRates,
+      feeIncludeLabel,
     );
     // 금액은 윗줄, '손실의 몇 %'는 얇은 막대 오른쪽에 (한 줄이 길어져 줄바꿈되지 않게)
     const feeShare = h('span', { class: 'fee-share num', 'data-testid': 'sizing-fee-share' });
@@ -1614,7 +1627,7 @@ export class App {
     linear.addEventListener('click', () => apply('linear'));
     equal.addEventListener('click', () => apply('equal'));
     for (const c of [capital, value, splits, weights]) c.addEventListener('keydown', (e) => e.key === 'Enter' && c.blur());
-    return { bar, fold, box, riskCard, noteSplit, capital, risk, value, byValue, byRisk, splits, weights, linear, equal, reason, table, body, summary, sum, avgShow, avgBox, splitsPill, feeFill, feeMeter, feeShare, feeDt, feeTierBtns, feeRates };
+    return { bar, fold, box, riskCard, noteSplit, capital, risk, value, byValue, byRisk, splits, weights, linear, equal, reason, table, body, summary, sum, avgShow, avgBox, splitsPill, feeFill, feeMeter, feeShare, feeDt, feeTierBtns, feeRates, feeInclude, feeIncludeLabel };
   }
 
   /** 상단 바의 분할 진입 입력칸을 저장된 값으로 맞춘다 (시나리오가 없어도 보인다) */
@@ -1654,7 +1667,7 @@ export class App {
     const info = this.symbols.find((x) => x.symbol === s.symbol);
     const r = planSizing({
       side: s.side, entry: s.entry, sl: s.applied.sl, tp: s.applied.tp, tickSize: s.tickSize,
-      qtyStep: info?.qtyStep, minQty: info?.minQty, minNotional: info?.minNotional, settings: this.sizing,
+      qtyStep: info?.qtyStep, minQty: info?.minQty, minNotional: info?.minNotional, feeTier: this.feeTier, settings: this.sizing,
     });
     return r.ok ? { plan: r.plan, reason: null } : { plan: null, reason: r.reason };
   }
@@ -1751,7 +1764,18 @@ export class App {
     // 큰 금액 + 아래 작은 줄 (USDT · 자산 대비 %)
     // 큰 금액 아래 두 줄: 총 자산 대비 % / 투입금 대비 %
     const ofValue = (v: number) => (plan.totalNotional > 0 ? (v / plan.totalNotional) * 100 : 0);
-    bigAmount(z.sum.loss, `−${usdt(plan.lossAtSl)}`, [`총 자산 −${plan.lossPct.toFixed(2)}%`, `투입금 −${ofValue(plan.lossAtSl).toFixed(2)}%`]);
+    // 수수료 포함 스위치: 자산 % 방식에서만 계산에 들어간다. 켜면 손절 칸에 「수수료 포함」 합계를 한 줄 더
+    const feeMode = this.sizing.sizeMode === 'risk';
+    const feeOn = feeMode && this.sizing.includeFees;
+    z.feeInclude.checked = this.sizing.includeFees;
+    z.feeInclude.disabled = !feeMode;
+    z.feeIncludeLabel.dataset.off = String(!feeMode);
+    z.feeIncludeLabel.title = feeMode
+      ? '켜면 「가격 손실 + 손절 시 수수료」가 정한 손실 %가 되도록 포지션을 조금 줄여요'
+      : '「자산 %」 방식에서만 쓸 수 있어요 (투입금 방식은 금액을 직접 정하니까요)';
+    const lossSubs = [`총 자산 −${plan.lossPct.toFixed(2)}%`, `투입금 −${ofValue(plan.lossAtSl).toFixed(2)}%`];
+    if (feeOn) lossSubs.push(`수수료 포함 −${usdt(plan.lossAtSl + fee.fee)}`);
+    bigAmount(z.sum.loss, `−${usdt(plan.lossAtSl)}`, lossSubs);
     bigAmount(
       z.sum.profit,
       plan.profitAtTp === null ? '—' : `+${usdt(plan.profitAtTp)}`,
@@ -2143,12 +2167,18 @@ export class App {
     e.sideChip.className = `side-chip ${s.side === 'LONG' ? 'long' : 'short'}`;
     setText(e.sideChip, s.side);
     setText(e.title, `${s.symbol} · ${tfName(s.timeframe)}`);
+    const nowMs = Date.now();
     setText(
       e.times,
       s.entryManual
         ? `지정가로 계산 (누를 때 시장가 ${fp(s.capturedEntry ?? s.entry)})`
-        : `${formatClock(s.priceTime)} ${s.priceSource === 'trade' ? '체결가' : '티커 가격'}로 계산`,
+        : `${sameLocalDay(s.priceTime, nowMs) ? formatClock(s.priceTime) : formatTime(s.priceTime)} ${s.priceSource === 'trade' ? '체결가' : '티커 가격'}로 계산`,
     );
+    // 어제 계산이 그대로 남아 있을 때: 얼마나 됐고 지금 가격과 얼마나 벌어졌는지
+    const old = planAge(s.clickedAt, s.entry, this.feed.lastPrice?.price ?? null, nowMs, !!s.entryManual);
+    setText(e.planOld, old.text ?? '');
+    show(e.planOld, old.text !== null);
+    e.planOld.dataset.warn = String(old.warn);
     if (force || document.activeElement !== e.rrInput) {
       e.rrInput.value = m.rr === null ? '' : formatRR(m.rr).slice(2);
       e.rrInput.style.width = `${Math.max(2, e.rrInput.value.length) + 0.4}ch`;

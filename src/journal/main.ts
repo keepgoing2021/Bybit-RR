@@ -1,7 +1,8 @@
 import '../styles.css';
 import './journal.css';
 import {
-  computeStats, groupStats, JOURNAL_KEY, limitStatus, MAX_RULES, MIN_GROUP_TRADES, QUALITY_LABEL, sessionOf, toCsv, tradeResult,
+  backupAgeText, BACKUP_MAX_CHARS, computeStats, groupStats, JOURNAL_KEY, limitStatus, MAX_RULES, mergeJournal, MIN_GROUP_TRADES, parseBackup, QUALITY_LABEL, sessionOf,
+  toBackup, toCsv, tradeResult,
   type Journal, type Stats, type Trade,
 } from '../core/journal';
 import { safeStorage } from '../core/persistence';
@@ -33,6 +34,68 @@ const fmtUsd = (v: number) => `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v).
 const fmtTime = (ms: number) =>
   new Date(ms).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
 const sign = (v: number | null) => (v === null ? '' : v > 0 ? 'up' : v < 0 ? 'down' : '');
+
+/** 마지막으로 백업 파일을 내려받은 시각 (이 브라우저) */
+const BACKUP_AT_KEY = 'rrtool.v1.journalBackupAt';
+function lastBackupAt(): number | null {
+  try {
+    const v = Number(storage.getItem(BACKUP_AT_KEY));
+    return Number.isFinite(v) && v > 0 ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+function download(name: string, text: string, type: string): void {
+  const a = h('a', { href: URL.createObjectURL(new Blob([text], { type })), download: name });
+  a.click();
+  window.setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+function saveBackup(): void {
+  download(`1rc-journal-backup-${new Date().toISOString().slice(0, 10)}.json`, toBackup(journal, Date.now()), 'application/json');
+  try {
+    storage.setItem(BACKUP_AT_KEY, String(Date.now()));
+  } catch {
+    // 날짜만 못 적는다 — 파일은 내려받아졌다
+  }
+  render();
+  alertBox(`거래 ${journal.trades.length}건과 설정을 파일로 저장했어요.`);
+}
+
+/** 백업 파일 불러오기 — 지금 기록은 지우지 않고 합친다 */
+async function restoreBackup(file: File): Promise<void> {
+  if (file.size > BACKUP_MAX_CHARS * 4) {
+    alertBox('파일이 너무 커요.');
+    return;
+  }
+  let text: string;
+  try {
+    text = await file.text();
+  } catch {
+    alertBox('파일을 읽지 못했어요.');
+    return;
+  }
+  const read = parseBackup(text);
+  if (!read.ok) {
+    alertBox(read.reason);
+    return;
+  }
+  // 다른 탭(계산기)에서 방금 기록한 것도 잃지 않게 저장소에서 다시 읽고 합친다
+  const merged = mergeJournal(loadJournal(storage), read.journal);
+  journal = merged.journal;
+  if (!saveJournal(storage, journal)) {
+    alertBox('저장하지 못했어요 (브라우저 저장소가 막혀 있거나 가득 찼어요).');
+    render();
+    return;
+  }
+  render();
+  const parts = [`${merged.added}건 불러왔어요`];
+  if (merged.updated) parts.push(`청산 반영 ${merged.updated}건`);
+  if (merged.kept) parts.push(`이미 있던 ${merged.kept}건은 그대로`);
+  if (read.skipped) parts.push(`읽지 못한 줄 ${read.skipped}개`);
+  alertBox(`${parts.join(' · ')}.`);
+}
 
 function persist(): void {
   if (!saveJournal(storage, journal)) alertBox('저장하지 못했어요 (브라우저 저장소가 막혀 있어요).');
@@ -305,22 +368,32 @@ function renderSettings(): HTMLElement {
 function render(): void {
   journal = loadJournal(storage);
   const stats = computeStats(journal.trades);
-  const csv = h('button', { type: 'button', class: 'j-csv', 'data-testid': 'j-csv' }, 'CSV 내보내기');
-  csv.addEventListener('click', () => {
-    // 엑셀에서 한글이 깨지지 않게 BOM
-    const blob = new Blob(['﻿' + toCsv(journal.trades)], { type: 'text/csv;charset=utf-8' });
-    const a = h('a', { href: URL.createObjectURL(blob), download: `1rc-journal-${new Date().toISOString().slice(0, 10)}.csv` });
-    a.click();
-    window.setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  const csv = h('button', { type: 'button', class: 'j-csv', 'data-testid': 'j-csv', title: '엑셀에서 보기용 (다시 불러올 수는 없어요)' }, 'CSV');
+  // 엑셀에서 한글이 깨지지 않게 BOM
+  csv.addEventListener('click', () => download(`1rc-journal-${new Date().toISOString().slice(0, 10)}.csv`, '\uFEFF' + toCsv(journal.trades), 'text/csv;charset=utf-8'));
+  const backup = h('button', { type: 'button', class: 'j-csv', 'data-testid': 'j-backup', title: '거래와 설정을 파일로 저장 (기기를 바꾸거나 브라우저 기록을 지워도 되살릴 수 있어요)' }, '백업 저장');
+  backup.addEventListener('click', saveBackup);
+  const file = h('input', { type: 'file', accept: '.json,application/json', hidden: '', 'data-testid': 'j-restore-file', 'aria-label': '백업 파일 고르기' });
+  file.addEventListener('change', () => {
+    const f = file.files?.[0];
+    file.value = ''; // 같은 파일을 다시 골라도 change가 나게
+    if (f) void restoreBackup(f);
   });
+  const restore = h('button', { type: 'button', class: 'j-csv', 'data-testid': 'j-restore', title: '백업 파일을 지금 기록에 합쳐요 (지금 기록은 지워지지 않아요)' }, '백업 불러오기');
+  restore.addEventListener('click', () => file.click());
+  const age = backupAgeText(lastBackupAt(), Date.now());
+  const local = journal.trades.length ? `이 브라우저에만 저장돼요 · ${age ?? '아직 백업 안 함'}` : '이 브라우저에만 저장돼요';
   root.replaceChildren(
     h(
       'header',
       { class: 'j-head' },
       h('a', { href: '/', class: 'j-back', 'data-testid': 'j-back' }, '← 계산기'),
       h('h1', {}, '📒 거래 저널'),
-      h('span', { class: 'muted small j-local' }, '이 브라우저에만 저장돼요'),
+      h('span', { class: 'muted small j-local', 'data-testid': 'j-local' }, local),
+      backup,
+      restore,
       csv,
+      file,
     ),
     h('main', { class: 'j-main' }, renderSummary(stats), renderLimits(), renderOpen(), renderClosed(), renderGroups(), renderSettings()),
   );

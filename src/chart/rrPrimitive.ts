@@ -353,8 +353,10 @@ function drawHuntBand(
   if (bottom - top < 22) return { mode: 'edge', chip: edgeChip };
   const inward = below ? 1 : -1;
   const edge = h.yNear >= 0 && h.yNear <= height ? h.yNear : inward > 0 ? top : bottom;
-  const cy = Math.max(top + 11, Math.min(bottom - 11, edge + inward * 13));
-  return { mode: 'band', chip: { text: h.label, left, right, cy, band: { top, bottom, inward } } };
+  // 띠가 화면 맨 위까지 덮으면(가격이 구간 안으로 들어온 오래된 계산 등) 이름표가 캔들 범례(OHLC) 위에 올라가지 않게 그 아래부터
+  const labelTop = top + 11 < topReserve && bottom - 11 >= topReserve ? topReserve - 11 : top;
+  const cy = Math.max(labelTop + 11, Math.min(bottom - 11, edge + inward * 13));
+  return { mode: 'band', chip: { text: h.label, left, right, cy, band: { top: labelTop, bottom, inward } } };
 }
 
 type Box = { x: number; y: number; w: number; h: number };

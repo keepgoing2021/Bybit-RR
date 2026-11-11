@@ -3558,3 +3558,28 @@ a.watch-nodata.needs-widget .watch-price {
 .watch-widget-chart:hover {
   color: var(--text);
 }
+
+/* 오래된 계산 알림 (어제 계산이 그대로 남아 있을 때) */
+.plan-old {
+  margin: 6px 0 0;
+  color: var(--muted);
+}
+.plan-old[data-warn='true'] {
+  padding: 6px 8px;
+  border: 1px solid color-mix(in srgb, var(--warning) 40%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--warning) 9%, transparent);
+  color: var(--warning);
+}
+.plan-old[hidden] {
+  display: none;
+}
+
+/* 수수료까지 넣어 손실 맞추기 (자산 % 방식에서만) */
+.fee-include {
+  align-self: flex-end;
+}
+.fee-include[data-off='true'] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

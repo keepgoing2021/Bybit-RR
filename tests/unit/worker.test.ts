@@ -139,8 +139,32 @@ describe('트레이딩뷰 공유 목록 중계 (/tv-watchlist)', async () => {
 
 describe('미국 주식 현재가 중계 (/stock-quote, Finnhub)', async () => {
   const { stockQuote, MAX_SYMBOLS } = await import('../../worker/stocks.js');
-  const req = (q: string, headers: Record<string, string> = {}) => new Request(`https://1rc.app/stock-quote${q}`, { headers });
+  // 브라우저가 우리 화면에서 부를 때처럼 (머리글을 직접 주면 그것만)
+  const req = (q: string, headers: Record<string, string> = { 'Sec-Fetch-Site': 'same-origin' }) => new Request(`https://1rc.app/stock-quote${q}`, { headers });
   const env = { FINNHUB_KEY: 'secret-key' };
+
+  it('우리 화면의 fetch가 아니면 Finnhub에 묻지 않는다 (머리글 없음 · 다른 사이트 · 주소창)', async () => {
+    let n = 0;
+    const up = async () => (n++, new Response('{"c":1,"t":1}'));
+    for (const headers of [{}, { 'Sec-Fetch-Site': 'cross-site' }, { 'Sec-Fetch-Site': 'same-site' }, { 'Sec-Fetch-Site': 'none' }] as Record<string, string>[]) {
+      expect((await stockQuote(req('?s=SBUX', headers), env, up)).status).toBe(403);
+    }
+    expect(n).toBe(0);
+  });
+
+  it('IP당 횟수 제한에 걸리면 429, Finnhub에 묻지 않는다. 제한기가 고장 나면 그냥 통과', async () => {
+    let n = 0;
+    const up = async () => (n++, new Response('{"c":1,"t":1}'));
+    const keys: string[] = [];
+    const limited = { ...env, QUOTE_LIMIT: { limit: async ({ key }: { key: string }) => (keys.push(key), { success: keys.length <= 1 }) } };
+    const mine = { 'Sec-Fetch-Site': 'same-origin', 'CF-Connecting-IP': '203.0.113.7' };
+    expect((await stockQuote(req('?s=SBUX', mine), limited, up)).status).toBe(200);
+    expect((await stockQuote(req('?s=SBUX', mine), limited, up)).status).toBe(429);
+    expect(keys).toEqual(['203.0.113.7', '203.0.113.7']);
+    expect(n).toBe(1);
+    const broken = { ...env, QUOTE_LIMIT: { limit: async () => { throw new Error('down'); } } };
+    expect((await stockQuote(req('?s=SBUX'), broken, up)).status).toBe(200);
+  });
 
   it('종목마다 Finnhub에 묻고 현재가·등락%만 돌려준다, 키는 응답에 없다', async () => {
     const calls: string[] = [];

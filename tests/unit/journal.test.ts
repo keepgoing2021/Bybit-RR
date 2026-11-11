@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  autoRiskPct, computeStats, emptyJournal, entryWarnings, grossR, groupStats, limitStatus, parseJournal, periodStart, sessionOf, toCsv, tradeResult, type Trade,
+  autoRiskPct, backupAgeText, computeStats, emptyJournal, entryWarnings, grossR, groupStats, limitStatus, mergeJournal, parseBackup, parseJournal, periodStart, sessionOf, toBackup, toCsv, tradeResult, type Trade,
 } from '../../src/core/journal';
 
 const H = 3600_000;
@@ -120,5 +120,71 @@ describe('저장·내보내기', () => {
     const line = csv.split('\n')[1];
     expect(line).toContain(`"'=HYPERLINK(""x""), 좋음"`);
     expect(line).toContain('2.00');
+  });
+});
+
+describe('백업 · 복원', () => {
+  it('내려받은 백업을 그대로 다시 읽는다 (거래 + 설정)', () => {
+    const j = emptyJournal();
+    j.trades = [trade(), closed(104, { qty: 10 })];
+    j.settings.setups = ['내 셋업'];
+    const read = parseBackup(toBackup(j, NOW));
+    expect(read.ok).toBe(true);
+    if (!read.ok) return;
+    expect(read.journal.trades).toEqual(j.trades);
+    expect(read.journal.settings).toEqual(j.settings);
+    expect(read.skipped).toBe(0);
+  });
+
+  it('1RC 백업이 아니면 거절한다 (CSV · 다른 JSON · 너무 큰 파일)', () => {
+    expect(parseBackup(toCsv([trade()])).ok).toBe(false);
+    expect(parseBackup('{"version":1,"trades":[]}').ok).toBe(false);
+    expect(parseBackup('[]').ok).toBe(false);
+    expect(parseBackup('null').ok).toBe(false);
+    expect(parseBackup(JSON.stringify({ app: '1rc-journal', version: 2, trades: [] })).ok).toBe(false);
+    expect(parseBackup('x'.repeat(5_000_001)).ok).toBe(false);
+  });
+
+  it('깨진 줄·겹친 id는 건너뛰고 센다', () => {
+    const t = trade();
+    const raw = JSON.stringify({ app: '1rc-journal', version: 1, trades: [t, { id: 'bad' }, t, { ...trade(), symbol: '<script>' }], settings: null });
+    const read = parseBackup(raw);
+    expect(read.ok && read.journal.trades).toEqual([t]);
+    expect(read.ok && read.skipped).toBe(3);
+  });
+
+  it('합치기: 지금 기록은 안 지우고, 없는 것만 더한다', () => {
+    const mine = emptyJournal();
+    const a = trade();
+    const b = closed(104);
+    const openHere = trade();
+    mine.trades = [a, b, openHere];
+    mine.settings.setups = ['지금 셋업'];
+    const backup = emptyJournal();
+    const c = closed(98);
+    // a: 백업에선 다른 값이지만 지금 것 유지 / openHere: 백업에선 청산됨 → 백업 것
+    backup.trades = [{ ...a, reason: '옛 메모' }, { ...openHere, exit: 104, closedAt: NOW }, c];
+    const m = mergeJournal(mine, backup);
+    expect([m.added, m.updated, m.kept]).toEqual([1, 1, 1]);
+    expect(m.journal.trades.map((t) => t.id).sort()).toEqual([a.id, b.id, openHere.id, c.id].sort());
+    expect(m.journal.trades.find((t) => t.id === a.id)!.reason).toBe('');
+    expect(m.journal.trades.find((t) => t.id === openHere.id)!.exit).toBe(104);
+    expect(m.journal.settings.setups).toEqual(['지금 셋업']);
+  });
+
+  it('빈 저널(새 브라우저)이면 설정도 백업 것으로', () => {
+    const backup = emptyJournal();
+    backup.trades = [closed(104)];
+    backup.settings.setups = ['백업 셋업'];
+    const m = mergeJournal(emptyJournal(), backup);
+    expect(m.added).toBe(1);
+    expect(m.journal.settings.setups).toEqual(['백업 셋업']);
+  });
+
+  it('백업한 지 며칠 됐는지', () => {
+    expect(backupAgeText(null, NOW)).toBeNull();
+    expect(backupAgeText(NOW - H, NOW)).toBe('오늘 백업함');
+    expect(backupAgeText(NOW - 3 * 24 * H - H, NOW)).toBe('백업 3일 전');
+    expect(backupAgeText(NOW + 24 * H, NOW)).toBeNull();
   });
 });

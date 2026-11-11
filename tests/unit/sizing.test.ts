@@ -30,7 +30,7 @@ const base = (over: Partial<SizingInput> = {}): SizingInput => ({
   sl: 90,
   tp: 120,
   tickSize: 0.1,
-  settings: { capital: 10_000, riskPct: 1, sizeMode: 'risk', positionValue: null, splits: 3, weightMode: 'linear', customWeights: [], showAvgLine: true },
+  settings: { capital: 10_000, riskPct: 1, sizeMode: 'risk', positionValue: null, splits: 3, weightMode: 'linear', customWeights: [], showAvgLine: true, includeFees: false },
   ...over,
 });
 const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
@@ -179,13 +179,13 @@ describe('planSizing — when it cannot plan', () => {
 
 describe('sanitizeSizing', () => {
   it('defaults: no capital yet, 1% risk, 3 splits, linear', () => {
-    expect(DEFAULT_SIZING).toEqual({ capital: null, riskPct: 1, sizeMode: 'value', positionValue: null, splits: 3, weightMode: 'linear', customWeights: [], showAvgLine: true });
+    expect(DEFAULT_SIZING).toEqual({ capital: null, riskPct: 1, sizeMode: 'value', positionValue: null, splits: 3, weightMode: 'linear', customWeights: [], showAvgLine: true, includeFees: false });
     expect(sanitizeSizing(null)).toEqual(DEFAULT_SIZING);
   });
 
   it('keeps valid values and clamps risk %', () => {
     expect(sanitizeSizing({ capital: 2500, riskPct: 0.5, splits: 5, weightMode: 'equalRisk', showAvgLine: false })).toEqual({
-      capital: 2500, riskPct: 0.5, sizeMode: 'value', positionValue: null, splits: 5, weightMode: 'equalRisk', customWeights: [], showAvgLine: false,
+      capital: 2500, riskPct: 0.5, sizeMode: 'value', positionValue: null, splits: 5, weightMode: 'equalRisk', customWeights: [], showAvgLine: false, includeFees: false,
     });
     expect(sanitizeSizing({ riskPct: 50 }).riskPct).toBe(10);
     expect(sanitizeSizing({ riskPct: 0 }).riskPct).toBe(0.1);
@@ -336,5 +336,44 @@ describe('profitAt (expected profit under each RR chip, every split filled)', ()
     if (!one.ok) throw new Error(one.reason);
     // 1분할: 1:2 자리(엔트리 + 2 × 손절폭)의 수익 = 2 × 손실 (수량 내림 오차 안)
     expect(profitAt(one.plan, 'LONG', 120)).toBeCloseTo(2 * one.plan.lossAtSl, 6);
+  });
+});
+
+describe('수수료까지 넣어 손실 맞추기 (includeFees, 자산 % 방식)', () => {
+  const base = { side: 'LONG' as const, entry: 100, sl: 99, tp: 102, tickSize: 0.01 };
+  const risk = { ...DEFAULT_SIZING, capital: 10_000, riskPct: 1, sizeMode: 'risk' as const, splits: 1 };
+
+  it('꺼져 있으면(기본) 예전과 같다: 가격 손실 = 한도', () => {
+    const r = planSizing({ ...base, settings: risk });
+    if (!r.ok) throw new Error(r.reason);
+    expect(r.plan.lossAtSl).toBeCloseTo(100, 6);
+    expect(DEFAULT_SIZING.includeFees).toBe(false);
+  });
+
+  it('켜면 가격 손실 + 손절 시 수수료 = 한도 (포지션이 작아진다)', () => {
+    const off = planSizing({ ...base, settings: risk });
+    const on = planSizing({ ...base, settings: { ...risk, includeFees: true } });
+    if (!on.ok || !off.ok) throw new Error('plan');
+    expect(on.plan.totalNotional).toBeLessThan(off.plan.totalNotional);
+    expect(on.plan.lossAtSl + feeAtStop(on.plan).fee).toBeCloseTo(100, 6);
+    expect(on.plan.riskBudget).toBe(100);
+  });
+
+  it('고른 수수료 등급을 쓴다, 분할이어도 합이 한도', () => {
+    const on = planSizing({ ...base, feeTier: 'vip3', settings: { ...risk, splits: 3, includeFees: true } });
+    if (!on.ok) throw new Error(on.reason);
+    expect(on.plan.lossAtSl + feeAtStop(on.plan, 'vip3').fee).toBeCloseTo(100, 6);
+  });
+
+  it('투입금 방식은 스위치와 무관 (금액을 직접 정한다)', () => {
+    const value = { ...risk, sizeMode: 'value' as const, positionValue: 5000 };
+    const a = planSizing({ ...base, settings: value });
+    const b = planSizing({ ...base, settings: { ...value, includeFees: true } });
+    expect(b).toEqual(a);
+  });
+
+  it('저장값 읽기: true/false만 받는다', () => {
+    expect(sanitizeSizing({ includeFees: true }).includeFees).toBe(true);
+    expect(sanitizeSizing({ includeFees: 'yes' }).includeFees).toBe(false);
   });
 });
