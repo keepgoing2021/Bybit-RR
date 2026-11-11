@@ -15,6 +15,7 @@ export const QUALITY_LABEL: Record<Quality, string> = { rule: '규칙 준수', h
 export type CloseRule = 'kept' | 'movedSl' | 'earlyExit' | 'noPlan';
 export type Mood = 'calm' | 'rushed' | 'revenge' | 'tired';
 export const CLOSE_RULE_LABEL: Record<CloseRule, string> = { kept: '지켰다', movedSl: '손절 옮김', earlyExit: '일찍 청산', noPlan: '계획 없이 진입' };
+export const AUTO_LABEL: Record<'sl' | 'tp', string> = { sl: '자동 · 손절', tp: '자동 · 목표' };
 export const MOOD_LABEL: Record<Mood, string> = { calm: '차분', rushed: '조급', revenge: '복수심', tired: '피곤' };
 
 export interface Trade {
@@ -44,6 +45,10 @@ export interface Trade {
   /** 청산 칩 — 안 골랐으면 항목이 없다 */
   closeRule?: CloseRule;
   mood?: Mood;
+  /** 가상 거래 자동 청산 (2026-11-11): 손절·목표에 닿아 1RC가 닫았다 */
+  auto?: 'sl' | 'tp';
+  /** 자동 추적이 어디까지 봤는지 (ms). 열린 거래에만 */
+  trackedTo?: number;
 }
 
 export interface DailyRules {
@@ -306,7 +311,7 @@ const str = (v: unknown, max: number) => (typeof v === 'string' ? v.slice(0, max
 function parseTrade(v: unknown): Trade | null {
   if (!v || typeof v !== 'object') return null;
   const r = v as Record<string, unknown>;
-  if (typeof r.id !== 'string' || typeof r.symbol !== 'string' || !/^[A-Z0-9]{2,30}$/.test(r.symbol)) return null;
+  if (typeof r.id !== 'string' || typeof r.symbol !== 'string' || !/^[A-Z0-9][A-Z0-9-]{1,29}$/.test(r.symbol)) return null;
   if (r.side !== 'LONG' && r.side !== 'SHORT') return null;
   if (!isNum(r.entry) || !isNum(r.sl) || !isNumOrNull(r.tp) || !isNumOrNull(r.qty) || !isNumOrNull(r.riskUsdt) || !isNumOrNull(r.riskPct)) return null;
   if (!isNum(r.openedAt) || !isNumOrNull(r.closedAt) || !isNumOrNull(r.exit)) return null;
@@ -332,6 +337,8 @@ function parseTrade(v: unknown): Trade | null {
   };
   if (typeof r.closeRule === 'string' && Object.hasOwn(CLOSE_RULE_LABEL, r.closeRule)) out.closeRule = r.closeRule as CloseRule;
   if (typeof r.mood === 'string' && Object.hasOwn(MOOD_LABEL, r.mood)) out.mood = r.mood as Mood;
+  if (r.auto === 'sl' || r.auto === 'tp') out.auto = r.auto;
+  if (isNum(r.trackedTo) && r.trackedTo > 0 && out.exit === null) out.trackedTo = r.trackedTo;
   return out;
 }
 

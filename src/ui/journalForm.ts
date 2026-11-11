@@ -1,4 +1,4 @@
-import { JOURNAL_KEY, parseJournal, QUALITY_LABEL, type Journal, type Quality, type Trade } from '../core/journal';
+import { JOURNAL_KEY, parseJournal, type Journal, type Trade } from '../core/journal';
 import type { StorageLike } from '../core/persistence';
 import type { Scenario } from '../core/scenario';
 import { h, setText, show } from './dom';
@@ -29,132 +29,56 @@ export function saveJournal(storage: StorageLike, j: Journal): boolean {
 }
 
 /**
- * 계산기 패널의 「📒 저널에 기록」 (2026-11-06). 종목·방향·진입·손절·수량·리스크는 계산기 값 그대로,
- * 사용자는 셋업·품질·근거 한 줄·지킨 규칙만 고른다. 같은 계산(시나리오 id)은 한 번만 기록된다.
+ * 차트 박스 옆 「진입」 버튼 (2026-11-11, 예전 「📒 저널에 기록」 폼을 대신한다).
+ * 한 번 누르면 계산기 값 그대로 가상 거래가 저널 「진행 중」에 올라간다 — 진입 때는 아무것도 묻지 않는다
+ * (셋업·근거·칩은 나중에 저널에서). 같은 계산(시나리오 id)은 한 번만. 직후 5초 되돌리기.
+ * 그 뒤 손절·목표에 닿았는지는 data/virtualTracker.ts가 따라간다.
  */
-export class JournalForm {
+export class EntryButton {
   readonly root: HTMLDivElement;
-  private readonly openBtn: HTMLButtonElement;
-  private readonly form: HTMLDivElement;
-  private readonly done: HTMLParagraphElement;
-  private readonly setup: HTMLSelectElement;
-  private readonly newSetup: HTMLInputElement;
-  private readonly reason: HTMLInputElement;
-  private readonly rulesBox: HTMLDivElement;
-  private readonly qualityBtns = new Map<Quality, HTMLButtonElement>();
-  private quality: Quality = 'rule';
-  private scenarioId: string | null = null;
+  private readonly enter: HTMLButtonElement;
+  private readonly open: HTMLAnchorElement;
 
   constructor(
     private readonly storage: StorageLike,
     private readonly context: () => RecordContext | null,
-    private readonly onSaved: (j: Journal) => void,
+    private readonly onChanged: (j: Journal) => void,
     private readonly toast: (msg: string) => void,
+    private readonly offerUndo: (message: string, run: () => void) => void,
   ) {
-    this.openBtn = h('button', { type: 'button', class: 'journal-open', 'data-testid': 'journal-open' }, '📒 저널에 기록');
-    this.openBtn.addEventListener('click', () => this.setOpen(true));
-    this.setup = h('select', { class: 'journal-setup', 'data-testid': 'journal-setup', 'aria-label': '셋업' });
-    this.newSetup = h('input', { class: 'journal-new-setup', placeholder: '+ 새 셋업 이름', maxlength: '40', 'aria-label': '새 셋업 추가' });
-    this.newSetup.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') this.addSetup();
-    });
-    this.newSetup.addEventListener('change', () => this.addSetup());
-    const quality = h('div', { class: 'journal-quality', role: 'group', 'aria-label': '진입 품질' });
-    for (const q of ['rule', 'high', 'break'] as Quality[]) {
-      const b = h('button', { type: 'button', 'data-q': q, 'data-testid': `journal-q-${q}` }, QUALITY_LABEL[q]);
-      b.addEventListener('click', () => {
-        this.quality = q;
-        this.paintQuality();
-      });
-      this.qualityBtns.set(q, b);
-      quality.append(b);
+    this.enter = h('button', { type: 'button', class: 'entry-btn', 'data-testid': 'vt-enter' }, '진입');
+    this.enter.addEventListener('click', () => this.doEnter());
+    this.open = h('a', { class: 'entry-open', href: '/journal', 'data-testid': 'vt-open', title: '가상 거래 진행 중 — 손절·목표에 닿으면 자동 청산돼요. 누르면 저널로', hidden: true }, '✓ 진행 중');
+    this.root = h('div', { class: 'entry-action', 'data-testid': 'vt-action', hidden: true }, this.enter, this.open);
+    // 차트 위에 떠 있다: 누름이 차트(진입가 찍기·박스 끌기)로 새지 않게
+    for (const type of ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'click', 'dblclick', 'touchstart', 'touchend', 'contextmenu'] as const) {
+      this.root.addEventListener(type, (e) => e.stopPropagation());
     }
-    this.reason = h('input', { class: 'journal-reason', 'data-testid': 'journal-reason', maxlength: '200', placeholder: '근거 한 줄 (예: 4시간 추세전환 + 15분 눌림)' });
-    this.rulesBox = h('div', { class: 'journal-rules', 'data-testid': 'journal-rules' });
-    const save = h('button', { type: 'button', class: 'journal-save', 'data-testid': 'journal-save' }, '기록');
-    save.addEventListener('click', () => this.save());
-    const cancel = h('button', { type: 'button', class: 'link' }, '닫기');
-    cancel.addEventListener('click', () => this.setOpen(false));
-    this.form = h(
-      'div',
-      { class: 'journal-form', hidden: true },
-      h('label', { class: 'journal-field' }, h('span', {}, '셋업'), h('div', { class: 'journal-setup-row' }, this.setup, this.newSetup)),
-      h('div', { class: 'journal-field' }, h('span', {}, '품질'), quality),
-      h('label', { class: 'journal-field' }, h('span', {}, '근거'), this.reason),
-      h('div', { class: 'journal-field' }, h('span', {}, '지킨 규칙'), this.rulesBox),
-      h('div', { class: 'journal-actions' }, cancel, save),
-    );
-    this.done = h('p', { class: 'journal-done', 'data-testid': 'journal-done', hidden: true });
-    this.root = h('div', { class: 'panel-card journal-card', 'data-testid': 'journal-card' }, this.openBtn, this.form, this.done);
-    this.paintQuality();
   }
 
-  /** 계산이 바뀔 때: 이미 기록한 계산이면 「기록됨」 */
+  /** 계산이 바뀔 때마다: 계산이 없으면 숨김, 이미 진입한 계산이면 「✓ 진행 중」 */
   render(scenario: Scenario | null): void {
+    show(this.root, !!scenario);
     if (!scenario) return;
-    if (scenario.id !== this.scenarioId) {
-      this.scenarioId = scenario.id;
-      this.setOpen(false);
-    }
-    const j = loadJournal(this.storage);
-    const recorded = j.trades.find((t) => t.id === scenario.id);
-    show(this.openBtn, recorded === undefined && this.form.hidden === true);
-    show(this.done, !!recorded);
-    if (recorded) {
-      this.done.replaceChildren(
-        `✓ 저널에 기록됨 (${recorded.setup || '셋업 없음'} · ${QUALITY_LABEL[recorded.quality]}) · 청산하면 `,
-        h('a', { href: '/journal', 'data-testid': 'journal-link-done' }, '저널에서 청산가 입력'),
-      );
-    }
+    const mine = loadJournal(this.storage).trades.find((t) => t.id === scenario.id);
+    show(this.enter, !mine);
+    show(this.open, !!mine);
+    if (mine) setText(this.open, mine.exit === null ? '✓ 진행 중' : '✓ 청산됨');
+    const noSl = scenario.applied.sl === null;
+    this.enter.disabled = noSl;
+    this.enter.title = noSl ? '손절가가 있어야 진입할 수 있어요 (R을 계산하려고)' : '가상 진입 — 저널에 올리고 손절·목표에 닿으면 자동 청산';
   }
 
-  private setOpen(open: boolean): void {
-    if (open) this.fill();
-    show(this.form, open);
-    show(this.openBtn, !open);
-  }
-
-  /** 셋업 목록·내 규칙은 저널 설정에서 */
-  private fill(): void {
-    const j = loadJournal(this.storage);
-    const cur = this.setup.value;
-    this.setup.replaceChildren(h('option', { value: '' }, '고르기'), ...j.settings.setups.map((s) => h('option', { value: s }, s)));
-    if (cur && j.settings.setups.includes(cur)) this.setup.value = cur;
-    this.rulesBox.replaceChildren(
-      ...j.settings.rules.map((r) => h('label', { class: 'journal-rule' }, h('input', { type: 'checkbox', value: r }), r)),
-    );
-    if (!j.settings.rules.length) this.rulesBox.append(h('span', { class: 'muted small' }, '저널 설정에서 내 규칙을 넣을 수 있어요'));
-  }
-
-  private addSetup(): void {
-    const name = this.newSetup.value.trim().slice(0, 40);
-    if (!name) return;
-    const j = loadJournal(this.storage);
-    if (!j.settings.setups.includes(name)) j.settings.setups.push(name);
-    saveJournal(this.storage, j);
-    this.newSetup.value = '';
-    this.fill();
-    this.setup.value = name;
-  }
-
-  private paintQuality(): void {
-    for (const [q, b] of this.qualityBtns) {
-      b.classList.toggle('on', q === this.quality);
-      b.setAttribute('aria-pressed', String(q === this.quality));
-    }
-  }
-
-  private save(): void {
+  private doEnter(): void {
     const ctx = this.context();
     if (!ctx) return;
     const s = ctx.scenario;
-    if (s.applied.sl === null) {
-      this.toast('손절가가 있어야 기록할 수 있어요 (R을 계산하려고).');
+    if (s.applied.sl === null) return;
+    const j = loadJournal(this.storage);
+    if (j.trades.some((t) => t.id === s.id)) {
+      this.render(s);
       return;
     }
-    const j = loadJournal(this.storage);
-    if (j.trades.some((t) => t.id === s.id)) return;
-    const rules = [...this.rulesBox.querySelectorAll<HTMLInputElement>('input:checked')].map((x) => x.value);
     const trade: Trade = {
       id: s.id,
       symbol: s.symbol,
@@ -168,10 +92,10 @@ export class JournalForm {
       openedAt: Date.now(),
       closedAt: null,
       exit: null,
-      setup: this.setup.value,
-      quality: this.quality,
-      reason: this.reason.value.trim().slice(0, 200),
-      rules,
+      setup: '',
+      quality: 'rule',
+      reason: '',
+      rules: [],
       feeRate: ctx.feeRate,
     };
     j.trades.push(trade);
@@ -179,11 +103,16 @@ export class JournalForm {
       this.toast('저장하지 못했어요 (브라우저 저장소가 막혀 있어요).');
       return;
     }
-    this.reason.value = '';
-    this.setOpen(false);
-    setText(this.done, '');
-    this.onSaved(j);
+    this.onChanged(j);
     this.render(s);
-    this.toast('저널에 기록했어요. 청산하면 저널에서 청산가만 넣으면 돼요.');
+    this.offerUndo(`가상 진입했어요 · ${s.symbol.replace(/USDT$/, '')} ${s.side === 'LONG' ? '롱' : '숏'}`, () => {
+      // 그 사이 다른 탭에서 바뀐 것을 잃지 않게 다시 읽고, 아직 열려 있을 때만 뺀다
+      const cur = loadJournal(this.storage);
+      const before = cur.trades.length;
+      cur.trades = cur.trades.filter((t) => !(t.id === trade.id && t.exit === null));
+      if (cur.trades.length !== before && saveJournal(this.storage, cur)) this.onChanged(cur);
+      const now = this.context();
+      this.render(now ? now.scenario : null);
+    });
   }
 }

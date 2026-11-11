@@ -65,13 +65,27 @@ function card(ctx: Ctx, t: Trade, deleteBtn: (t: Trade) => HTMLElement): HTMLEle
     });
     return b;
   };
+  // 손절·목표에 닿기 전에 정리할 때: 지금 시세를 칸에 채운다 (저장은 직접)
+  const nowBtn = h('button', { type: 'button', class: 'j-quick', 'data-testid': `j-now-${t.id}` }, '지금 가격으로');
+  nowBtn.addEventListener('click', () => {
+    nowBtn.disabled = true;
+    void ctx.lastPrice(t.symbol).then((p) => {
+      nowBtn.disabled = false;
+      if (p === null) {
+        ctx.toast('지금 가격을 받지 못했어요. 청산가를 직접 넣어 주세요.');
+        return;
+      }
+      exit.value = String(p);
+      update();
+    });
+  });
   return h(
     'div',
     { class: 'j-open-row', 'data-testid': 'j-open-row' },
     h('div', { class: 'j-open-main' }, h('b', { 'data-side': t.side }, `${t.symbol.replace(/USDT$/, '')} ${t.side === 'LONG' ? '롱' : '숏'}`), h('span', { class: 'muted' }, `${fmtTime(t.openedAt)} · ${t.setup || '셋업 없음'} · ${QUALITY_LABEL[t.quality]}`)),
     h('div', { class: 'j-open-prices num' }, `진입 ${t.entry} · 손절 ${t.sl}${t.tp !== null ? ` · 목표 ${t.tp}` : ''}`),
     t.reason ? h('div', { class: 'j-reason' }, t.reason) : null,
-    h('div', { class: 'j-open-actions' }, exit, quick('손절가로', t.sl), quick('목표가로', t.tp), preview),
+    h('div', { class: 'j-open-actions' }, exit, nowBtn, quick('손절가로', t.sl), quick('목표가로', t.tp), preview),
     err,
     chipRow('규칙 지켰나', CLOSE_RULE_LABEL, undefined, (v) => (rule = v), `j-rule-${t.id}`),
     chipRow('그때 상태', MOOD_LABEL, undefined, (v) => (mood = v), `j-mood-${t.id}`),
@@ -86,6 +100,8 @@ export function renderOpen(ctx: Ctx, deleteBtn: (t: Trade) => HTMLElement): HTML
     'section',
     { class: 'j-section', 'data-testid': 'j-open' },
     h('h2', {}, `진행 중 ${open.length}`),
-    open.length ? h('div', { class: 'j-open' }, ...open.map((t) => card(ctx, t, deleteBtn))) : h('p', { class: 'muted' }, '계산기에서 LONG/SHORT 계산 후 「📒 저널에 기록」을 누르면 여기 나와요.'),
+    open.length
+      ? h('div', { class: 'j-open' }, ...open.map((t) => card(ctx, t, deleteBtn)), h('p', { class: 'muted small' }, '손절·목표에 닿으면 자동으로 청산돼요 (가상 체결 · Bybit 1분 캔들 기준, 실제 체결가와 다를 수 있어요).'))
+      : h('p', { class: 'muted' }, '계산기 차트에서 LONG/SHORT 계산 후 박스 옆 「진입」을 누르면 여기 나와요.'),
   );
 }

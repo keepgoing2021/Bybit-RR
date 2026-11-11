@@ -50,8 +50,8 @@ import { HUNT_FAR_PCT, HUNT_NEAR_PCT, huntTip, huntZone, inHuntZone } from '../c
 import { planAge, sameLocalDay } from '../core/planAge';
 import { FlowBoard } from './flowBoard';
 import { WatchList } from './watchList';
-import { JournalForm, loadJournal } from './journalForm';
-import { autoRiskPct, entryWarnings, JOURNAL_KEY } from '../core/journal';
+import { EntryButton, loadJournal } from './journalForm';
+import { autoRiskPct, entryWarnings, JOURNAL_KEY, type Trade } from '../core/journal';
 import { ViewPane } from './viewPane';
 import { fillPanes, parseSplit, SPLITS, type PaneSel, type SplitCount, type SplitState } from '../core/split';
 import { loadCoinMeta } from '../data/coinMeta';
@@ -317,8 +317,9 @@ export class App {
 
     // 저널(다른 탭)에서 기록·청산·설정을 바꾸면 경고·리스크 조절을 바로 다시 / 날이 바뀌면 경고도 바뀌니 1분마다
     window.addEventListener('storage', (ev) => {
-      if (ev.key === JOURNAL_KEY) this.renderJournal();
+      if (ev.key === JOURNAL_KEY) this.journalChanged();
     });
+    this.chart.attachBoxAction(this.el.journalForm.root);
     window.setInterval(() => this.renderJournal(), 60_000);
     this.setWatchOpen(this.loadWatchOpen(), false);
     try {
@@ -1013,8 +1014,8 @@ export class App {
     // 지금 목표가 (손익비 카드 머리의 초록 알약)
     const rrTp = h('span', { class: 'tag profit num', 'data-testid': 'rr-tp', title: '지금 목표가 (TP)' });
     const rrProfitNote = h('p', { class: 'rr-profit-note', 'data-testid': 'rr-profit-note', hidden: true }, '칩 아래 = 분할 전부 체결 후 그 자리 수익 (USDT)');
-    // 저널에 기록 (2026-11-06): 계산기 값 + 셋업·품질·근거 한 줄·지킨 규칙
-    const journalForm = new JournalForm(
+    // 가상 진입 (2026-11-11): 차트 박스 옆 「진입」 한 번 → 저널 「진행 중」 + 자동 추적
+    const journalForm = new EntryButton(
       this.d.storage,
       () => {
         const sc = this.scenario;
@@ -1031,6 +1032,7 @@ export class App {
       },
       () => this.renderJournal(),
       (msg) => this.toast(msg),
+      (message, run) => this.offerUndo(message, run),
     );
     // 패널은 카드 묶음: 가격 / 손익비 / 분할 진입 / 리스크 / 근거
     const card = h(
@@ -1057,7 +1059,6 @@ export class App {
       reasons,
       sizing.box,
       sizing.riskCard,
-      journalForm.root,
       h('div', { class: 'actions' }, restore),
       h('p', { class: 'note' }, '가격 기준 계산입니다. 수수료·슬리피지·펀딩비는 반영하지 않았습니다. 주문은 Bybit에서 직접 넣습니다.'),
     );
@@ -1826,6 +1827,15 @@ export class App {
     });
   }
 
+  /** 저널이 밖에서 바뀌었을 때 (다른 탭 · 가상 거래 자동 청산): 경고와 「진입」 버튼 상태를 다시 맞춘다 */
+  journalChanged(closed: readonly Trade[] = []): void {
+    this.renderJournal();
+    this.el?.journalForm.render(this.scenario);
+    for (const t of closed) {
+      this.toast(`${t.symbol.replace(/USDT$/, '')} ${t.side === 'LONG' ? '롱' : '숏'} ${t.auto === 'tp' ? '목표' : '손절'} 닿음 · 자동 청산 (저널에 기록)`);
+    }
+  }
+
   /**
    * 저널 쪽 상태를 계산기에 반영: 진입 전 경고(하루 거래 수·연속 손절·하루 한도) + 리스크 자동 조절.
    * 저널 페이지(다른 탭)에서 바꿔도 storage 이벤트로 바로 따라온다
@@ -2155,6 +2165,7 @@ export class App {
     show(e.empty, !s);
     show(e.card, !!s);
     if (!s) {
+      e.journalForm.render(null);
       this.chart.setOverlay(null);
       this.renderPaneOverlays(true);
       return;

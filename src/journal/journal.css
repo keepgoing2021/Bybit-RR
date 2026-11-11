@@ -630,3 +630,25 @@ body {
     grid-template-columns: repeat(14, minmax(0, 1fr));
   }
 }
+
+/* 가상 거래 자동 청산 꼬리표 */
+.j-auto {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 1px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+/* 가상 거래 자동 청산 꼬리표 */
+.j-auto {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 1px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 11px;
+}

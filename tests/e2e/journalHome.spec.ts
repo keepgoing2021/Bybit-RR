@@ -19,6 +19,11 @@ async function seed(page: Page, trades: unknown[], extra: Record<string, unknown
 }
 const stored = (page: Page) => page.evaluate(() => JSON.parse(localStorage.getItem('rrtool.v1.journal')!));
 
+// 가상 거래 자동 추적이 진짜 Bybit 시세로 시험용 거래를 청산하지 않게 막는다
+test.beforeEach(async ({ page }) => {
+  await page.route('**/v5/market/**', (r) => r.abort());
+});
+
 test('청산 카드: 청산가 + 칩 두 번 + 저장 → 기록되고 연속 기록 1일', async ({ page }) => {
   await seed(page, [trade('b', null)]);
   const save = page.getByTestId('j-close-b');

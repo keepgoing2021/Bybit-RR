@@ -3583,3 +3583,61 @@ a.watch-nodata.needs-widget .watch-price {
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* ---------- 가상 진입 버튼 (2026-11-11): 차트 박스 옆에 떠 있다 ---------- */
+.entry-action {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 4;
+  display: flex;
+  will-change: transform;
+}
+
+.entry-action[hidden] {
+  display: none;
+}
+
+.entry-btn,
+.entry-open {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 16px;
+  border-radius: 999px;
+  border: 1px solid var(--entry);
+  background: var(--entry);
+  color: #111;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 800;
+  text-decoration: none;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 35%);
+  touch-action: manipulation;
+}
+
+.entry-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.entry-open {
+  background: var(--card);
+  color: var(--text);
+  border-color: var(--line);
+  font-weight: 600;
+}
+
+.entry-btn[hidden],
+.entry-open[hidden] {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  .entry-btn,
+  .entry-open {
+    min-height: 42px;
+    padding: 0 18px;
+  }
+}

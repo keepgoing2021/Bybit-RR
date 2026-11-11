@@ -8,6 +8,11 @@ const trade = (id: string, exit: number | null) => ({
   setup: '스윕 반전', quality: 'rule', reason: '백업 시험', rules: [], feeRate: 0.00055,
 });
 
+// 가상 거래 자동 추적이 진짜 Bybit 시세로 시험용 거래를 청산하지 않게 막는다
+test.beforeEach(async ({ page }) => {
+  await page.route('**/v5/market/**', (r) => r.abort());
+});
+
 test('journal: 백업 저장 → 저장소 비움 → 백업 불러오기로 되살린다 (지금 기록은 안 지움)', async ({ page }) => {
   await page.goto('/journal.html');
   await page.evaluate((trades) => {

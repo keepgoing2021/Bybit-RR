@@ -1,12 +1,15 @@
 import '../styles.css';
 import './journal.css';
 import {
-  backupAgeText, BACKUP_MAX_CHARS, CLOSE_RULE_LABEL, computeStats, groupStats, JOURNAL_KEY, limitStatus, MAX_RULES, mergeJournal, MIN_GROUP_TRADES, MOOD_LABEL, parseBackup, QUALITY_LABEL, sessionOf,
+  AUTO_LABEL, backupAgeText, BACKUP_MAX_CHARS, CLOSE_RULE_LABEL, computeStats, groupStats, JOURNAL_KEY, limitStatus, MAX_RULES, mergeJournal, MIN_GROUP_TRADES, MOOD_LABEL, parseBackup, QUALITY_LABEL, sessionOf,
   toBackup, toCsv, tradeResult,
   type Journal, type Stats, type Trade,
 } from '../core/journal';
 import { avgHoldMs, dayKey, maxDrawdownR, maxStreaks, monthlyRows } from '../core/journalInsights';
+import { CONFIG } from '../config';
 import { safeStorage } from '../core/persistence';
+import { fetchLastPrice } from '../data/bybit/klineRange';
+import { trackOpenTrades } from '../data/virtualTracker';
 import { h, setText } from '../ui/dom';
 import { loadJournal, saveJournal } from '../ui/journalForm';
 import { renderCalendar, type CalView } from './calendar';
@@ -65,6 +68,8 @@ let dayFilter: string | null = null;
 /** 거래 목록에서 칩을 채우는 중인 거래 */
 let fillId: string | null = null;
 
+const netFetch = (url: string) => fetch(url);
+
 const ctx: Ctx = {
   get journal() {
     return journal;
@@ -73,6 +78,7 @@ const ctx: Ctx = {
   rerender: () => render(),
   toast: alertBox,
   now: () => Date.now(),
+  lastPrice: (symbol) => fetchLastPrice(netFetch, CONFIG.bybit.restBases, symbol),
 };
 
 /** 마지막으로 백업 파일을 내려받은 시각 (이 브라우저) */
@@ -225,6 +231,7 @@ function renderClosed(): HTMLElement {
   const rows = list.flatMap((t) => {
     const res = tradeResult(t);
     const chips = [t.closeRule ? CLOSE_RULE_LABEL[t.closeRule] : null, t.mood ? MOOD_LABEL[t.mood] : null].filter(Boolean).join(' · ');
+    const auto = t.auto ? h('span', { class: 'j-auto', 'data-testid': `j-auto-${t.id}` }, AUTO_LABEL[t.auto]) : null;
     const fill = h('button', { type: 'button', class: 'link', 'data-testid': `j-fill-${t.id}`, 'aria-expanded': String(fillId === t.id) }, chips || '채우기');
     fill.addEventListener('click', () => {
       fillId = fillId === t.id ? null : t.id;
@@ -240,7 +247,7 @@ function renderClosed(): HTMLElement {
       h('td', {}, sessionOf(t.openedAt)),
       h('td', { class: 'num', 'data-sign': sign(res?.r ?? null) }, fmtR(res?.r ?? null)),
       h('td', { class: 'num', 'data-sign': sign(res?.pnl ?? null) }, res?.pnl != null ? fmtUsd(res.pnl) : '—'),
-      h('td', {}, fill),
+      h('td', {}, auto, fill),
       h('td', { class: 'j-reason-cell', title: t.reason }, t.reason),
       h('td', {}, deleteBtn(t)),
     );
@@ -503,3 +510,24 @@ window.addEventListener('storage', (e) => {
 });
 render();
 
+// 가상 거래 자동 추적 (2026-11-11): 열 때 + 60초마다. 손절·목표에 닿은 열린 거래를 청산한다
+let tracking = false;
+async function track(): Promise<void> {
+  if (tracking || document.hidden) return;
+  tracking = true;
+  try {
+    const closed = await trackOpenTrades({ storage, fetchImpl: netFetch, bases: CONFIG.bybit.restBases, now: () => Date.now() });
+    if (closed.length) {
+      render();
+      for (const t of closed) {
+        const r = tradeResult(t);
+        alertBox(`${t.symbol.replace(/USDT$/, '')} ${t.side === 'LONG' ? '롱' : '숏'} ${t.auto === 'tp' ? '목표' : '손절'} 닿음 ${fmtR(r?.r ?? null)} · 자동 청산`);
+      }
+    }
+  } finally {
+    tracking = false;
+  }
+}
+void track();
+window.setInterval(() => void track(), 60_000);
+document.addEventListener('visibilitychange', () => void track());

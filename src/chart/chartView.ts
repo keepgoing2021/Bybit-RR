@@ -668,6 +668,35 @@ export class ChartView {
     return h ? { ...h, labelY: Math.max(60, this.legendBottom() + 14) } : null;
   }
 
+  /**
+   * 박스 옆에 붙는 버튼 묶음 (가상 진입). 박스의 오른쪽 끝·엔트리 선 바로 위에 두고,
+   * 차트를 밀거나 확대해도 따라가게 그릴 때마다 자리를 다시 잡는다. 박스가 화면 밖이면 차트 안쪽 끝에 붙인다.
+   */
+  attachBoxAction(el: HTMLElement): void {
+    el.classList.add('box-action');
+    this.container.append(el);
+    let last = '';
+    const place = () => {
+      if (!this.container.isConnected) return;
+      const g = el.hidden ? null : this.prim.getRenderedGeometry();
+      if (g) {
+        const w = el.offsetWidth;
+        const hgt = el.offsetHeight;
+        const maxX = Math.max(4, this.container.clientWidth - w - 76);
+        const maxY = Math.max(4, this.container.clientHeight - hgt - 34);
+        const x = Math.round(Math.min(Math.max(g.x2 - w - 6, 4), maxX));
+        const y = Math.round(Math.min(Math.max(g.yEntry - hgt - 6, this.legendBottom() + 4), maxY));
+        const t = `translate(${x}px, ${y}px)`;
+        if (t !== last) {
+          last = t;
+          el.style.transform = t;
+        }
+      }
+      window.requestAnimationFrame(place);
+    };
+    window.requestAnimationFrame(place);
+  }
+
   getRenderedGeometry(): BoxGeometry | null {
     return this.prim.getRenderedGeometry();
   }
@@ -796,8 +825,10 @@ export class ChartView {
       const r = el.getBoundingClientRect();
       return { x: e.clientX - r.left, y: e.clientY - r.top };
     };
+    // 박스 옆 버튼(가상 진입) 위의 누름은 차트 조작이 아니다
+    const onAction = (e: Event) => e.target instanceof Element && e.target.closest('.box-action') !== null;
     const onDown = (e: PointerEvent) => {
-      if (e.button !== 0) return;
+      if (e.button !== 0 || onAction(e)) return;
       const { x, y } = local(e);
       // 작도 도구를 고른 상태: 누르는 곳마다 점을 찍는다 (차트는 움직이지 않음)
       if (this.tool) {
@@ -862,6 +893,7 @@ export class ChartView {
       this.rebuildOverlay();
     };
     const onMove = (e: PointerEvent) => {
+      if (onAction(e) && !this.drag.isDragging() && !this.mover.isMoving() && !this.drawDrag) return;
       const { x, y } = local(e);
       if (this.tool) {
         this.cursorAnchor = this.anchorAt(x, y);

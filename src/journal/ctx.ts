@@ -8,4 +8,6 @@ export interface Ctx {
   rerender(): void;
   toast(msg: string): void;
   now(): number;
+  /** 지금 가격 (Bybit 공개 시세). 못 받으면 null */
+  lastPrice(symbol: string): Promise<number | null>;
 }
