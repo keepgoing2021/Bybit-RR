@@ -1,13 +1,13 @@
 import '../styles.css';
 import './journal.css';
 import {
-  AUTO_LABEL, backupAgeText, BACKUP_MAX_CHARS, CLOSE_RULE_LABEL, computeStats, groupStats, JOURNAL_KEY, limitStatus, MAX_RULES, mergeJournal, MIN_GROUP_TRADES, MOOD_LABEL, parseBackup, QUALITY_LABEL, sessionOf,
+  AUTO_LABEL, backupAgeText, BACKUP_MAX_CHARS, CLOSE_RULE_LABEL, computeStats, groupStats, JOURNAL_KEY, limitStatus, mergeJournal, MIN_GROUP_TRADES, MOOD_LABEL, parseBackup, QUALITY_LABEL, sessionOf,
   toBackup, toCsv, tradeResult,
   type Journal, type Stats, type Trade,
 } from '../core/journal';
 import { avgHoldMs, dayKey, maxDrawdownR, maxStreaks, monthlyRows } from '../core/journalInsights';
 import { CONFIG } from '../config';
-import { safeStorage } from '../core/persistence';
+import { loadSizing, safeStorage } from '../core/persistence';
 import { fetchLastPrice } from '../data/bybit/klineRange';
 import { trackOpenTrades } from '../data/virtualTracker';
 import { h, setText } from '../ui/dom';
@@ -20,6 +20,7 @@ import { renderCurve } from './curve';
 import { fmtDay, fmtElapsed, fmtHold, fmtPct, fmtR, fmtTime, fmtUsd, sign } from './format';
 import { renderNumbers } from './home';
 import { renderReview } from './review';
+import { openSettingsSection, renderSettings } from './settings';
 
 /**
  * 1rc.app/journal — 거래 저널 (2026-11-06). 계산기와 같은 브라우저 저장소(rrtool.v1.journal)를 쓴다.
@@ -382,75 +383,13 @@ function renderGroups(): HTMLElement {
   );
 }
 
-function renderSettings(): HTMLElement {
-  const s = journal.settings;
-  const lines = (v: string[]) => v.join('\n');
-  const setups = h('textarea', { rows: '5', 'data-testid': 'j-set-setups' }, lines(s.setups));
-  const rules = h('textarea', { rows: '6', 'data-testid': 'j-set-rules' }, lines(s.rules));
-  const num = (v: number, step = '1', id = '') => h('input', { type: 'number', min: '0', step, value: String(v), 'data-testid': id, class: 'num' });
-  const maxTrades = num(s.daily.maxTradesPerDay, '1', 'j-set-max');
-  const stopAfter = num(s.daily.stopAfterLosses, '1', 'j-set-stop');
-  const lDay = num(s.limits.daily, '0.5');
-  const lWeek = num(s.limits.weekly, '0.5');
-  const lMonth = num(s.limits.monthly, '0.5');
-  const arOn = h('input', { type: 'checkbox', 'data-testid': 'j-set-ar' });
-  arOn.checked = s.autoRisk.enabled;
-  const arBase = num(s.autoRisk.basePct, '0.1');
-  const arUp = num(s.autoRisk.upPct, '0.1');
-  const arTh = num(s.autoRisk.thresholdPct, '0.5');
-  const save = h('button', { type: 'button', class: 'j-save', 'data-testid': 'j-set-save' }, '설정 저장');
-  save.addEventListener('click', () => {
-    const list = (t: HTMLTextAreaElement, max: number) => [...new Set(t.value.split('\n').map((x) => x.trim().slice(0, 60)).filter(Boolean))].slice(0, max);
-    const n = (i: HTMLInputElement, fb: number) => (Number.isFinite(Number(i.value)) && Number(i.value) >= 0 ? Number(i.value) : fb);
-    journal.settings = {
-      setups: list(setups, 30),
-      rules: list(rules, MAX_RULES),
-      daily: { maxTradesPerDay: Math.round(n(maxTrades, 0)), stopAfterLosses: Math.round(n(stopAfter, 0)) },
-      limits: { daily: n(lDay, 0), weekly: n(lWeek, 0), monthly: n(lMonth, 0) },
-      autoRisk: { enabled: arOn.checked, basePct: n(arBase, 0.5) || 0.5, upPct: n(arUp, 1) || 1, thresholdPct: n(arTh, 2) },
-    };
-    persist();
-    alertBox('설정을 저장했어요. 계산기에도 바로 적용돼요.');
-  });
-  const field = (label: string, control: HTMLElement, hint = '') => h('label', { class: 'j-field' }, h('span', {}, label), control, hint ? h('small', { class: 'muted' }, hint) : null);
-  return h(
-    'section',
-    { class: 'j-section', 'data-testid': 'j-settings' },
-    h('h2', {}, '설정 (처음 한 번만)'),
-    h(
-      'div',
-      { class: 'j-settings' },
-      field('셋업 목록', setups, '한 줄에 하나. 계산기에서 고를 수 있어요'),
-      field(`나의 진입 규칙 (최대 ${MAX_RULES}개)`, rules, '한 줄에 하나. 기록할 때 체크해요'),
-      h(
-        'div',
-        { class: 'j-field-group' },
-        h('b', {}, '하루 운영 규칙'),
-        field('하루 최대 거래 수', maxTrades, '0 = 끔'),
-        field('연속 손절 몇 번이면 중단', stopAfter, '0 = 끔'),
-      ),
-      h('div', { class: 'j-field-group' }, h('b', {}, '손실 한도 (R)'), field('하루', lDay), field('한 주', lWeek), field('한 달', lMonth)),
-      h(
-        'div',
-        { class: 'j-field-group' },
-        h('b', {}, '리스크 자동 조절'),
-        h('label', { class: 'j-check' }, arOn, '켜기 (계산기 「손실 %」를 자동으로 바꿔요, 총 자산을 넣었을 때만)'),
-        field('평소 위험 %', arBase),
-        field('수익 쌓이면 위험 %', arUp),
-        field('누적 수익률 기준 %', arTh, '총 자산 대비 매매일지 누적 순손익이 이 이상이면 높은 %로'),
-      ),
-    ),
-    save,
-  );
-}
-
 function render(): void {
   journal = loadJournal(storage);
   const stats = computeStats(journal.trades);
-  const csv = h('button', { type: 'button', class: 'j-csv', 'data-testid': 'j-csv', title: '엑셀에서 보기용 (다시 불러올 수는 없어요)' }, 'CSV');
+  const csv = h('button', { type: 'button', class: 'j-csv', 'data-testid': 'j-csv', title: '엑셀에서 보기용 (다시 불러올 수는 없어요)' }, 'CSV 받기');
   // 엑셀에서 한글이 깨지지 않게 BOM
   csv.addEventListener('click', () => download(`1rc-journal-${new Date().toISOString().slice(0, 10)}.csv`, '\uFEFF' + toCsv(journal.trades), 'text/csv;charset=utf-8'));
-  const backup = h('button', { type: 'button', class: 'j-csv', 'data-testid': 'j-backup', title: '거래와 설정을 파일로 저장 (기기를 바꾸거나 브라우저 기록을 지워도 되살릴 수 있어요)' }, '백업 저장');
+  const backup = h('button', { type: 'button', class: 'j-csv', 'data-testid': 'j-backup', title: '거래와 설정을 파일로 저장 (기기를 바꾸거나 브라우저 기록을 지워도 되살릴 수 있어요)' }, '파일로 저장');
   backup.addEventListener('click', saveBackup);
   const file = h('input', { type: 'file', accept: '.json,application/json', hidden: '', 'data-testid': 'j-restore-file', 'aria-label': '백업 파일 고르기' });
   file.addEventListener('change', () => {
@@ -458,7 +397,7 @@ function render(): void {
     file.value = ''; // 같은 파일을 다시 골라도 change가 나게
     if (f) void restoreBackup(f);
   });
-  const restore = h('button', { type: 'button', class: 'j-csv', 'data-testid': 'j-restore', title: '백업 파일을 지금 기록에 합쳐요 (지금 기록은 지워지지 않아요)' }, '백업 불러오기');
+  const restore = h('button', { type: 'button', class: 'j-csv', 'data-testid': 'j-restore', title: '백업 파일을 지금 기록에 합쳐요 (지금 기록은 지워지지 않아요)' }, '파일 고르기');
   restore.addEventListener('click', () => file.click());
   const age = backupAgeText(lastBackupAt(), Date.now());
   const hasClosed = journal.trades.some((t) => t.exit !== null);
@@ -484,6 +423,22 @@ function render(): void {
   });
   const local = journal.trades.length ? `이 브라우저에만 저장돼요 · ${age ?? '아직 백업 안 함'}` : '이 브라우저에만 저장돼요';
   nav.setOpenCount(journal.trades.filter((t) => t.exit === null).length);
+  // 백업·CSV 버튼은 설정 탭 「백업·내보내기」에 모았다 (2026-11-12). 머리글의 안내를 누르면 그리로 간다
+  const localBtn = h('button', { type: 'button', class: 'muted small j-local', 'data-testid': 'j-local', title: '백업·내보내기 열기' }, `${local} ›`);
+  localBtn.addEventListener('click', () => {
+    tab = 'settings';
+    remember(TAB_KEY, tab);
+    openSettingsSection('data');
+    render();
+  });
+  const settingsDeps = {
+    save: () => saveJournal(storage, journal),
+    capital: loadSizing(storage).capital,
+    backup,
+    restore,
+    csv,
+    backupAge: age,
+  };
   root.replaceChildren(
     nav.root,
     h(
@@ -497,10 +452,7 @@ function render(): void {
         h('b', {}, h('span', { class: 'j-brand-one' }, '1'), 'RC'),
       ),
       h('h1', {}, '📒 매매일지'),
-      h('span', { class: 'muted small j-local', 'data-testid': 'j-local' }, local),
-      backup,
-      restore,
-      csv,
+      localBtn,
       file,
     ),
     h(
@@ -510,7 +462,7 @@ function render(): void {
       renderOpen(ctx, deleteBtn),
       ...(hasClosed ? [renderNumbers(ctx), calendar, renderCurve(ctx)] : []),
       renderTabs(),
-      ...(tab === 'list' ? [renderClosed()] : tab === 'stats' ? [renderSummary(stats), renderLimits(), renderGroups(), renderMonthly()] : [renderSettings()]),
+      ...(tab === 'list' ? [renderClosed()] : tab === 'stats' ? [renderSummary(stats), renderLimits(), renderGroups(), renderMonthly()] : [renderSettings(ctx, settingsDeps)]),
     ),
   );
 }

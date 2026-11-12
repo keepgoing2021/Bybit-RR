@@ -98,7 +98,7 @@ test('주간 리뷰: 지난 주 거래가 있으면 카드가 뜨고, 저장하�
   expect((await stored(page)).reviews).toHaveLength(1);
 });
 
-test('통계 탭: 월별 표 · 최대 낙폭, 설정 탭은 그대로', async ({ page }) => {
+test('통계 탭: 월별 표 · 최대 낙폭, 설정 탭도 열린다', async ({ page }) => {
   await seed(page, [trade('a', 104), trade('c', 98, Date.now() - 1800_000)]);
   await page.getByTestId('j-tab-stats').click();
   await expect(page.getByTestId('j-monthly')).toContainText(kstDay(Date.now()).slice(0, 7));
@@ -106,7 +106,7 @@ test('통계 탭: 월별 표 · 최대 낙폭, 설정 탭은 그대로', async (
   await page.reload();
   await expect(page.getByTestId('j-monthly')).toBeVisible(); // 고른 탭을 기억
   await page.getByTestId('j-tab-settings').click();
-  await expect(page.getByTestId('j-set-save')).toBeVisible();
+  await expect(page.getByTestId('j-set-status')).toBeVisible();
 });
 
 test('빈 저널 · 예전 기록(칩 없음)에서도 깨지지 않는다', async ({ page }) => {

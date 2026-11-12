@@ -22,6 +22,9 @@ test('journal: 백업 저장 → 저장소 비움 → 백업 불러오기로 되
   await expect(page.getByTestId('j-local')).toContainText('아직 백업 안 함');
   await expect(page.getByTestId('j-closed')).toContainText('끝난 거래 1');
 
+  // 머리글의 안내를 누르면 설정 탭 「백업·내보내기」로 간다 (2026-11-12: 백업 버튼을 거기로 모았다)
+  await page.getByTestId('j-local').click();
+  await expect(page.getByTestId('j-backup')).toBeInViewport();
   const [dl] = await Promise.all([page.waitForEvent('download'), page.getByTestId('j-backup').click()]);
   expect(dl.suggestedFilename()).toMatch(/^1rc-journal-backup-\d{4}-\d{2}-\d{2}\.json$/);
   const path = await dl.path();

@@ -45,6 +45,17 @@ body {
 
 .j-local {
   margin-right: auto;
+  padding: 4px 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.j-local:hover {
+  color: var(--text);
 }
 
 .j-main {
@@ -306,50 +317,6 @@ body {
   border-color: var(--entry);
 }
 
-.j-settings {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
-}
-
-.j-field {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 13px;
-}
-
-.j-field textarea {
-  min-height: 90px;
-  padding: 8px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--well);
-  color: var(--text);
-  font: inherit;
-  resize: vertical;
-}
-
-.j-field input[type='number'] {
-  width: 120px;
-}
-
-.j-field-group {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 12px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-}
-
-.j-check {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  font-size: 13px;
-}
-
 .j-toast {
   position: fixed;
   left: 50%;
@@ -368,8 +335,7 @@ body {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .j-limits,
-  .j-settings {
+  .j-limits {
     grid-template-columns: 1fr;
   }
 
@@ -671,5 +637,549 @@ body {
 @media (max-width: 640px) {
   .j-toast {
     bottom: calc(24px + var(--site-nav-h) + env(safe-area-inset-bottom));
+  }
+}
+
+/* ---------- 설정 (2026-11-12 개편): 바로 저장 · − / + · 스위치 · 칩 편집 ---------- */
+.js-settings {
+  display: grid;
+  grid-template-columns: 168px minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.js-nav {
+  position: sticky;
+  top: 70px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.js-nav button {
+  min-height: 38px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.js-nav button:hover {
+  color: var(--text);
+}
+
+.js-nav button.on {
+  background: var(--card);
+  color: var(--text);
+  box-shadow: inset 3px 0 0 var(--entry);
+}
+
+.js-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.js-top h2 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.js-status {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.js-status[data-saved='true'] {
+  color: var(--profit);
+  font-weight: 600;
+}
+
+.js-undo,
+.js-reset {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.js-undo {
+  border-color: var(--entry);
+  color: var(--entry);
+  font-weight: 700;
+}
+
+.js-reset {
+  color: var(--muted);
+}
+
+.js-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  align-items: start;
+}
+
+.js-card {
+  padding: 14px 16px;
+  border: 1px solid var(--card-line);
+  border-radius: 12px;
+  background: var(--card);
+  scroll-margin-top: 80px;
+}
+
+.js-wide {
+  grid-column: 1 / -1;
+}
+
+.js-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.js-card-head h3 {
+  margin: 0 auto 0 0;
+  font-size: 15px;
+}
+
+.js-desc {
+  margin: 4px 0 6px;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.js-count,
+.js-state {
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: var(--well);
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.js-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--card-line);
+}
+
+.js-desc + .js-row {
+  border-top: 0;
+}
+
+.js-row-text {
+  min-width: 0;
+}
+
+.js-row-grow {
+  flex: 1;
+}
+
+.js-row-text b {
+  font-weight: 600;
+  font-size: 13.5px;
+}
+
+.js-row-text small {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.js-row-ctl {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+}
+
+.js-step {
+  display: inline-flex;
+  align-items: stretch;
+  height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--well);
+  overflow: hidden;
+  vertical-align: middle;
+  line-height: 1;
+}
+
+.js-step[data-off='true'] {
+  opacity: 0.45;
+}
+
+.js-step-btn {
+  width: 36px;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font-size: 18px;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.js-step-btn:hover:not(:disabled) {
+  background: var(--raised);
+}
+
+.js-step-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.js-step-val {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 8px;
+  border-left: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+}
+
+.js-step-val i {
+  font-style: normal;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.js-settings .js-step-input {
+  width: 38px;
+  min-height: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-weight: 700;
+  font-size: 14px;
+  text-align: right;
+  outline-offset: -2px;
+}
+
+.js-switch {
+  flex: none;
+  width: 44px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--line-hover);
+  cursor: pointer;
+  position: relative;
+  transition: background 0.15s;
+}
+
+.js-switch span {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.15s;
+}
+
+.js-switch[aria-checked='true'] {
+  background: var(--profit);
+}
+
+.js-switch[aria-checked='true'] span {
+  transform: translateX(18px);
+}
+
+.js-presets {
+  display: flex;
+  gap: 6px;
+  margin: 6px 0 2px;
+}
+
+.js-preset {
+  flex: 1;
+  min-height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.js-preset small {
+  font-weight: 500;
+  opacity: 0.8;
+}
+
+.js-preset[aria-pressed='true'] {
+  border-color: var(--entry);
+  color: var(--entry);
+  background: color-mix(in srgb, var(--entry) 12%, transparent);
+}
+
+.js-bar {
+  height: 6px;
+  margin-top: 6px;
+  border-radius: 999px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.js-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--entry);
+}
+
+.js-bar[data-full='true'] i {
+  background: var(--loss, #f6465d);
+}
+
+.js-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.js-chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--well);
+  overflow: hidden;
+}
+
+.js-chip-name,
+.js-chip-x {
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  min-height: 34px;
+}
+
+.js-chip-name {
+  padding: 0 4px 0 12px;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.js-chip-x {
+  padding: 0 11px 0 7px;
+  color: var(--muted);
+}
+
+.js-chip-x:hover {
+  color: var(--loss, #f6465d);
+}
+
+.js-chip.editing {
+  gap: 6px;
+  padding: 3px 6px 3px 10px;
+  border-color: var(--entry);
+  border-radius: 10px;
+}
+
+.js-settings .js-chip-input,
+.js-settings .js-add-input {
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--well);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+}
+
+.js-settings .js-chip-input {
+  width: 200px;
+  max-width: 46vw;
+  border: 0;
+  padding: 0;
+  background: none;
+}
+
+.js-add {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.js-settings .js-add-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.js-mini {
+  flex: none;
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.js-mini.primary {
+  border-color: var(--entry);
+  color: var(--entry);
+  font-weight: 700;
+}
+
+.js-mini:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.js-err {
+  display: block;
+  margin-top: 6px;
+  color: var(--loss, #f6465d);
+  font-size: 12.5px;
+}
+
+.js-card[data-section='risk'][data-on='false'] .js-sentence,
+.js-card[data-section='risk'][data-on='false'] .js-example {
+  opacity: 0.55;
+}
+
+.js-sentence {
+  margin-top: 4px;
+  font-size: 14px;
+  line-height: 3;
+}
+
+.js-example {
+  margin: 8px 0 0;
+  padding: 9px 11px;
+  border-radius: 8px;
+  background: var(--well);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.js-example small {
+  color: var(--muted);
+}
+
+.js-card[data-section='data'] .j-csv {
+  min-height: 36px;
+  height: auto;
+}
+
+@media (max-width: 760px) {
+  .js-settings {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .js-nav {
+    position: static;
+    flex-direction: row;
+    gap: 6px;
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+
+  .js-nav button {
+    flex: none;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    font-size: 13px;
+  }
+
+  .js-nav button.on {
+    box-shadow: none;
+    border-color: var(--entry);
+    color: var(--entry);
+    background: none;
+  }
+
+  .js-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .js-top {
+    flex-wrap: wrap;
+  }
+
+  /* 글이 좁아져 한 글자씩 꺾이지 않게: 설명은 한 줄 다 쓰고 버튼은 그 아래 오른쪽 */
+  .js-row {
+    flex-wrap: wrap;
+  }
+
+  .js-row-text:not(.js-row-grow) {
+    flex: 1 1 100%;
+  }
+
+  .js-row-ctl {
+    margin-left: auto;
+  }
+
+  .js-step,
+  .js-step-btn {
+    height: 40px;
+  }
+
+  .js-step-btn {
+    width: 40px;
+  }
+
+  .js-switch {
+    width: 50px;
+    height: 30px;
+  }
+
+  .js-switch span {
+    width: 24px;
+    height: 24px;
+  }
+
+  .js-switch[aria-checked='true'] span {
+    transform: translateX(20px);
+  }
+
+  .js-sentence {
+    line-height: 3.3;
   }
 }
