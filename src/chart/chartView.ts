@@ -880,8 +880,9 @@ export class ChartView {
         this.placePoint(x, y);
         return;
       }
-      // 「🔥 거래 터진 곳」 이름표: 누르면 그 캔들의 고가·저가 선을 켜고 끈다 (차트·박스는 그대로)
-      if (!this.drag.hover(x, y) && this.volPrim.toggleAt(x, y)) {
+      // 「🔥 거래 터진 곳」 이름표: 누르면 그 캔들의 고가·저가 선을 켜고 끈다 (차트·박스는 그대로).
+      // 내가 그린 작도가 이름표와 겹치면 작도가 먼저다 (작도를 고르거나 끌 수 있게)
+      if (!this.drag.hover(x, y) && !this.drawingAt(x, y) && this.volPrim.toggleAt(x, y)) {
         e.preventDefault();
         e.stopPropagation();
         this.swallowPointer = true;
