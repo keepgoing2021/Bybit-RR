@@ -1,4 +1,4 @@
-import { CLOSE_RULE_LABEL, MOOD_LABEL, QUALITY_LABEL, REASON_MAX_CHARS, tradeResult, type CloseRule, type Mood, type Trade } from '../core/journal';
+import { CLOSE_RULE_LABEL, MOOD_LABEL, QUALITY_LABEL, REASON_MAX_CHARS, tradeResult, type CloseRule, type Mood, type Quality, type Trade } from '../core/journal';
 import { h, setText } from '../ui/dom';
 import type { Ctx } from './ctx';
 import { fmtElapsed, fmtR, fmtTime, sign } from './format';
@@ -37,6 +37,18 @@ export function noteEditor(ctx: Ctx, t: Trade, onChange: () => void): HTMLElemen
         done();
       }, `j-setup-${t.id}`)
     : h('p', { class: 'muted small' }, '셋업 목록이 비어 있어요. 「설정」 탭에서 추가해 주세요.');
+  // 품질: 셋 중 하나는 늘 골라져 있다
+  const qKeys = Object.keys(QUALITY_LABEL) as Quality[];
+  const qButtons = qKeys.map((k) => {
+    const b = h('button', { type: 'button', class: 'j-chip', 'aria-pressed': String(t.quality === k), 'data-testid': `j-quality-${t.id}-${k}` }, QUALITY_LABEL[k]);
+    b.addEventListener('click', () => {
+      t.quality = k;
+      qButtons.forEach((x, i) => x.setAttribute('aria-pressed', String(qKeys[i] === k)));
+      done();
+    });
+    return b;
+  });
+  const quality = h('div', { class: 'j-chips', role: 'group', 'aria-label': '품질' }, h('span', { class: 'j-chips-name' }, '품질'), ...qButtons);
   // 진입 규칙: 여러 개 체크
   const ruleNames = [...new Set([...ctx.journal.settings.rules, ...t.rules])];
   const ruleButtons = ruleNames.map((name, i) => {
@@ -71,7 +83,7 @@ export function noteEditor(ctx: Ctx, t: Trade, onChange: () => void): HTMLElemen
     saveReason();
     setText(state, '저장됨');
   });
-  return h('div', { class: 'j-note' }, setups, rules, h('div', { class: 'j-reason-edit' }, h('span', { class: 'j-chips-name' }, '진입 근거'), area, h('div', { class: 'j-reason-actions' }, save, state)));
+  return h('div', { class: 'j-note' }, setups, quality, rules, h('div', { class: 'j-reason-edit' }, h('span', { class: 'j-chips-name' }, '진입 근거'), area, h('div', { class: 'j-reason-actions' }, save, state)));
 }
 
 function card(ctx: Ctx, t: Trade, deleteBtn: (t: Trade) => HTMLElement): HTMLElement {

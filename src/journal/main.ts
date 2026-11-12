@@ -250,13 +250,14 @@ function renderClosed(): HTMLElement {
     const note = h('button', { type: 'button', class: 'link j-note-btn', 'data-testid': `j-note-${t.id}`, 'aria-expanded': String(fillId === t.id), 'data-empty': String(!t.reason), title: t.reason || '셋업 · 진입 규칙 · 근거 쓰기' }, t.reason || '＋ 근거 쓰기');
     note.addEventListener('click', toggleFill);
     const setupCell = h('td', { 'data-testid': `j-setupcell-${t.id}` }, t.setup || '—');
+    const qualityCell = h('td', { 'data-q': t.quality, 'data-testid': `j-qualitycell-${t.id}` }, QUALITY_LABEL[t.quality]);
     const row = h(
       'tr',
       { 'data-outcome': res?.outcome ?? '' },
       h('td', { class: 'num' }, t.closedAt ? fmtTime(t.closedAt) : ''),
       h('td', {}, h('b', { 'data-side': t.side }, `${t.symbol.replace(/USDT$/, '')} ${t.side === 'LONG' ? '롱' : '숏'}`)),
       setupCell,
-      h('td', { 'data-q': t.quality }, QUALITY_LABEL[t.quality]),
+      qualityCell,
       h('td', {}, sessionOf(t.openedAt)),
       h('td', { class: 'num', 'data-testid': `j-hold-${t.id}` }, fmtHold(t.closedAt !== null ? Math.max(0, t.closedAt - t.openedAt) : null)),
       h('td', { class: 'num', 'data-sign': sign(res?.r ?? null) }, fmtR(res?.r ?? null)),
@@ -270,6 +271,8 @@ function renderClosed(): HTMLElement {
     const store = () => void ctx.save();
     const showNote = () => {
       setText(setupCell, t.setup || '—');
+      setText(qualityCell, QUALITY_LABEL[t.quality]);
+      qualityCell.dataset.q = t.quality;
       setText(note, t.reason || '＋ 근거 쓰기');
       note.title = t.reason || '셋업 · 진입 규칙 · 근거 쓰기';
       note.dataset.empty = String(!t.reason);

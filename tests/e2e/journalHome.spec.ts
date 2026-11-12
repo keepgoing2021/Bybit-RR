@@ -149,12 +149,18 @@ test('거래 목록: 근거 칸을 누르면 펼쳐져 셋업 · 진입 규칙 �
   await expect(note).toHaveText('4시간 지지에서 스윕 후 반등');
   await page.getByTestId('j-setup-a-스윕 반전').click();
   await expect(page.getByTestId('j-setupcell-a')).toHaveText('스윕 반전');
+  // 품질: 셋 중 하나 (다시 눌러도 꺼지지 않는다)
+  await page.getByTestId('j-quality-a-high').click();
+  await page.getByTestId('j-quality-a-high').click();
+  await expect(page.getByTestId('j-quality-a-high')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('j-qualitycell-a')).toHaveText('고확률');
   await page.getByTestId('j-erule-a-0').click();
   await page.getByTestId('j-erule-a-2').click();
   await page.getByTestId('j-erule-a-0').click(); // 다시 누르면 해제
   let tr = (await stored(page)).trades[0];
   expect(tr.reason).toBe('4시간 지지에서 스윕 후 반등');
   expect(tr.setup).toBe('스윕 반전');
+  expect(tr.quality).toBe('high');
   expect(tr.rules).toEqual(['확인 신호가 나왔다']);
   // 글 상자를 벗어나기만 해도 저장된다 (버튼을 안 눌러도)
   await page.getByTestId('j-reason-a').fill('고쳐 쓴 근거');
