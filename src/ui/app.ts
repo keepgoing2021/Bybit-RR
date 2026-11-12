@@ -318,6 +318,9 @@ export class App {
     this.chart.setDefaultDrawColor(this.loadDrawColor());
     this.chart.addLegendControl(this.el.structBtn);
     this.chart.addLegendControl(this.el.volPeakBtn);
+    const showPeakPeriod = (p: 'day' | 'week') => setText(this.el.volPeakPeriod, p === 'week' ? ' · 한 주' : ' · 하루');
+    this.chart.onVolumePeakPeriod(showPeakPeriod);
+    showPeakPeriod(this.chart.getVolumePeakPeriod());
 
     // 저널(다른 탭)에서 기록·청산·설정을 바꾸면 경고·리스크 조절을 바로 다시 / 날이 바뀌면 경고도 바뀌니 1분마다
     window.addEventListener('storage', (ev) => {
@@ -841,12 +844,14 @@ export class App {
       '다우 구조',
     );
     structBtn.addEventListener('click', () => this.toggleStructure());
-    // 하루 중 거래대금이 가장 큰 캔들에 「🔥 $35.2M」 (2026-11-11)
+    // 하루(넓게 보면 한 주) 중 거래대금이 가장 큰 캔들에 「🔥 $35.2M」 (2026-11-11). 지금 기준을 버튼에 적는다
+    const volPeakPeriod = h('span', { class: 'volpeak-period', 'data-testid': 'volpeak-period' }, ' · 하루');
     const volPeakBtn = h(
       'button',
-      { type: 'button', class: 'struct-toggle', 'data-testid': 'volpeak-toggle', title: '하루(한국 시간 오전 9시 기준) 중 거래대금이 가장 큰 캔들과 그 금액(USDT) · Bybit 선물 기준 · 일봉 이상에서는 숨김' },
+      { type: 'button', class: 'struct-toggle', 'data-testid': 'volpeak-toggle', title: '하루(한국 시간 오전 9시 기준) 중 거래대금이 가장 큰 캔들과 그 금액(USDT) · 차트를 넓게 보면 한 주(월요일 오전 9시 기준)에 하나 · 이름표를 누르면 고점·저점 선 · Bybit 선물 기준 · 일봉 이상에서는 숨김' },
       h('span', { class: 'dot', 'aria-hidden': 'true' }),
       '거래 터진 곳',
+      volPeakPeriod,
     );
     volPeakBtn.addEventListener('click', () => this.toggleVolPeak());
 
@@ -1243,7 +1248,7 @@ export class App {
     });
 
     return {
-      picker, tf, sltf, long, short, status, statusReason, themeBtn, structBtn, volPeakBtn,
+      picker, tf, sltf, long, short, status, statusReason, themeBtn, structBtn, volPeakBtn, volPeakPeriod,
       loadError, chart, empty, card, sideChip, title, entry, times, planOld, rr, rrInput, rrLabel, rrChips, rrTp, rrProfitNote, reasons, bufferInput, bufferChips, bufferNote,
       sl, tp, slWhy, sizing, restore, del, settingsInputs, settingRows, modeHelp, settingsSummaryEl, toast, undo, tools, tour, flow, watch, watchBtn, watchHandle, layout, panes, splitBtns, symbolList, mainLabel, journalForm, journalWarn, nav,
     };
@@ -2372,6 +2377,7 @@ export class App {
       getMetrics: () => (this.scenario ? this.metricsFor(this.scenario) : null),
       getRenderedGeometry: () => this.chart.getRenderedGeometry(),
       getVolumePeakBoxes: () => this.chart.getVolumePeakBoxes(),
+      getVolumePeakPeriod: () => this.chart.getVolumePeakPeriod(),
       computeExpectedGeometry: () => this.chart.computeExpectedGeometry(),
       chartClientRect: () => this.chart.clientRect(),
       getVisibleRange: () => this.chart.getVisibleRange(),

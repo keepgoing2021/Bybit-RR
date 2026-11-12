@@ -26,6 +26,8 @@ const LABEL_H = 17;
 const GAP = 7;
 /** 이름표 누름 범위 여유 (손가락으로도 눌리게) */
 const HIT_PAD = 8;
+/** 이름표끼리 이만큼은 떨어져야 둘 다 그린다 */
+const LABEL_GAP = 6;
 
 /**
  * 하루 중 거래대금이 가장 큰 캔들에 「🔥 $35.2M」 이름표 (2026-11-11).
@@ -92,6 +94,9 @@ export class VolumePeakPrimitive implements ISeriesPrimitive<Time> {
       ctx.font = `700 11px ${THEME.font}`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
+      // 1) 자리 계산. 이름표끼리 겹치면 거래대금이 큰 쪽만 남긴다 (넓게 봐도 캔들을 덮지 않게)
+      type Item = { p: VolumePeak; x: number; yHigh: number; yLow: number; text: string; w: number; left: number; top: number; above: boolean; bx1: number; bx2: number; yTop: number; yBottom: number };
+      const items: Item[] = [];
       for (const p of this.peaks) {
         const x = m.toX(p.time);
         const yHigh = m.toY(p.high);
@@ -99,12 +104,28 @@ export class VolumePeakPrimitive implements ISeriesPrimitive<Time> {
         if (x === null || yHigh === null || yLow === null) continue;
         const text = `🔥 ${p.approx ? '≈' : ''}${fmtUsdShort(p.usd)}${p.ratio !== null && p.ratio >= 1.05 ? ` · ${fmtRatio(p.ratio)}` : ''}`;
         const w = Math.ceil(ctx.measureText(text).width) + 12;
-        // 가격 구간: 캔들부터 다음 날 끝까지 (화면 밖은 자른다). 이름표를 눌러 펼친 것만 점선 2줄
+        if (x + w / 2 < 0 || x - w / 2 > m.width) continue;
+        // 가격 구간: 캔들부터 다음 날(주) 끝까지 (화면 밖은 자른다)
         const xEnd = m.toX(p.bandEnd);
-        const bx1 = Math.max(0, x);
-        const bx2 = Math.min(m.width, xEnd ?? m.width);
-        const yTop = Math.min(yHigh, yLow);
-        const yBottom = Math.max(yHigh, yLow);
+        const above = yHigh - GAP - LABEL_H >= 2;
+        items.push({
+          p, x, yHigh, yLow, text, w, above,
+          left: Math.round(x - w / 2),
+          top: Math.round(above ? yHigh - GAP - LABEL_H : yLow + GAP),
+          bx1: Math.max(0, x),
+          bx2: Math.min(m.width, xEnd ?? m.width),
+          yTop: Math.min(yHigh, yLow),
+          yBottom: Math.max(yHigh, yLow),
+        });
+      }
+      const kept: Item[] = [];
+      for (const it of [...items].sort((a, b) => b.p.usd - a.p.usd)) {
+        const hit = kept.some((k) => it.left < k.left + k.w + LABEL_GAP && k.left < it.left + it.w + LABEL_GAP && it.top < k.top + LABEL_H + LABEL_GAP && k.top < it.top + LABEL_H + LABEL_GAP);
+        if (!hit) kept.push(it);
+      }
+      kept.sort((a, b) => a.p.time - b.p.time);
+      // 2) 그리기
+      for (const { p, x, yHigh, yLow, text, w, left, top, above, bx1, bx2, yTop, yBottom } of kept) {
         const open = this.opened.has(p.time);
         if (open && bx2 > bx1) {
           ctx.globalAlpha = 0.7;
@@ -119,10 +140,6 @@ export class VolumePeakPrimitive implements ISeriesPrimitive<Time> {
           ctx.stroke();
           ctx.setLineDash([]);
         }
-        if (x + w / 2 < 0 || x - w / 2 > m.width) continue;
-        const above = yHigh - GAP - LABEL_H >= 2;
-        const top = above ? yHigh - GAP - LABEL_H : yLow + GAP;
-        const left = Math.round(x - w / 2);
         // 캔들까지 짧은 선
         ctx.strokeStyle = THEME.entry;
         ctx.globalAlpha = 0.9;
@@ -135,12 +152,12 @@ export class VolumePeakPrimitive implements ISeriesPrimitive<Time> {
         ctx.globalAlpha = 0.92;
         ctx.fillStyle = THEME.entry;
         ctx.beginPath();
-        ctx.roundRect(left, Math.round(top), w, LABEL_H, 5);
+        ctx.roundRect(left, top, w, LABEL_H, 5);
         ctx.fill();
         ctx.globalAlpha = 1;
         ctx.fillStyle = '#14161a';
-        ctx.fillText(text, left + w / 2, Math.round(top) + LABEL_H / 2 + 0.5);
-        boxes.push({ time: p.time, usd: p.usd, text, x: left, y: Math.round(top), w, h: LABEL_H, above, open, band: { x1: bx1, x2: bx2, yTop, yBottom } });
+        ctx.fillText(text, left + w / 2, top + LABEL_H / 2 + 0.5);
+        boxes.push({ time: p.time, usd: p.usd, text, x: left, y: top, w, h: LABEL_H, above, open, band: { x1: bx1, x2: bx2, yTop, yBottom } });
       }
       ctx.restore();
       this.boxes = boxes;

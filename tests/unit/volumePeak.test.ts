@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Candle } from '../../src/core/types';
-import { DAY_MS, fmtRatio, fmtUsdShort, volumePeaks } from '../../src/core/volumePeak';
+import { DAY_MS, fmtRatio, fmtUsdShort, peakPeriodFor, volumePeaks } from '../../src/core/volumePeak';
 
 const H = 3_600_000;
 const D0 = Date.UTC(2026, 10, 10); // UTC 자정 = 한국 시간 오전 9시
@@ -64,5 +64,39 @@ describe('fmtUsdShort', () => {
     expect(fmtUsdShort(35_240_000)).toBe('$35.2M');
     expect(fmtUsdShort(1_240_000_000)).toBe('$1.24B');
     expect(fmtUsdShort(999_960)).toBe('$1.0M');
+  });
+});
+
+describe('한 주 기준 (차트를 넓게 볼 때): 월요일 UTC 자정 ~ 다음 월요일', () => {
+  const MON = Date.UTC(2026, 10, 9); // 월요일
+  it('한 주에 하나 — 그 주에서 거래대금이 가장 큰 캔들', () => {
+    const list = [c(MON, 5), c(MON + DAY_MS, 9), c(MON + 6 * DAY_MS + 23 * H, 7), c(MON + 7 * DAY_MS, 3), c(MON + 8 * DAY_MS, 4)];
+    const out = volumePeaks(list, H, 'week');
+    expect(out.map((p) => [p.time, p.usd])).toEqual([[MON + DAY_MS, 9], [MON + 8 * DAY_MS, 4]]);
+    // 가격 구간 선은 다음 주 끝까지
+    expect(out[0].bandEnd).toBe(MON + 14 * DAY_MS);
+  });
+  it('일요일 23시는 그 주, 월요일 0시는 다음 주', () => {
+    const out = volumePeaks([c(MON - H, 5), c(MON, 4)], H, 'week');
+    expect(out.map((p) => p.time)).toEqual([MON - H, MON]);
+  });
+  it('기준을 안 주면 하루', () => {
+    expect(volumePeaks([c(MON, 5), c(MON + DAY_MS, 9)], H)).toHaveLength(2);
+  });
+});
+
+describe('peakPeriodFor: 하루 폭이 이름표보다 좁으면 한 주로', () => {
+  it('15분봉 8px → 하루 768px → 하루', () => {
+    expect(peakPeriodFor(8, 15 * 60_000)).toBe('day');
+  });
+  it('1시간봉 3px → 하루 72px → 한 주', () => {
+    expect(peakPeriodFor(3, H)).toBe('week');
+  });
+  it('4시간봉 8px → 하루 48px → 한 주', () => {
+    expect(peakPeriodFor(8, 4 * H)).toBe('week');
+  });
+  it('값이 이상하면 하루', () => {
+    expect(peakPeriodFor(Number.NaN, H)).toBe('day');
+    expect(peakPeriodFor(8, 0)).toBe('day');
   });
 });

@@ -59,6 +59,29 @@ test('일봉에서는 표시하지 않는다', async ({ page }) => {
   await expect.poll(async () => (await boxes(page)).length).toBe(0);
 });
 
+test('넓게 보면(4시간봉) 한 주에 하나로 바뀌고 이름표끼리 겹치지 않는다 · 15분봉으로 돌아오면 다시 하루', async ({ page }) => {
+  await openCalc(page);
+  await expect(page.getByTestId('volpeak-period')).toHaveText(' · 하루');
+  await page.getByTestId('tf').selectOption('240');
+  await expect(page.getByTestId('volpeak-period')).toHaveText(' · 한 주');
+  await expect.poll(async () => (await boxes(page)).length).toBeGreaterThan(0);
+  const list = await boxes(page);
+  // 한 주(월요일 UTC 자정 경계)에 하나만
+  const weeks = list.map((b) => Math.floor((b.time / 86_400_000 - 4) / 7));
+  expect(new Set(weeks).size).toBe(weeks.length);
+  for (let i = 0; i < list.length; i++) {
+    for (let j = i + 1; j < list.length; j++) {
+      const a = list[i];
+      const b = list[j];
+      const overlap = a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+      expect(overlap, `${a.text} / ${b.text}`).toBe(false);
+    }
+  }
+  if (process.env.SHOT) await page.screenshot({ path: `${process.env.SHOT}/vol-4h.png` });
+  await page.getByTestId('tf').selectOption('15');
+  await expect(page.getByTestId('volpeak-period')).toHaveText(' · 하루');
+});
+
 test('폰에서도 보인다', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await openCalc(page);

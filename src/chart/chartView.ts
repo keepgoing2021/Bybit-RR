@@ -28,7 +28,7 @@ import { hitTestPreset, type AvgLine, type BoxGeometry, type SplitLine } from '.
 import { RRBoxPrimitive, type OverlayModel } from './rrPrimitive';
 import { StructurePrimitive } from './structurePrimitive';
 import { VolumePeakPrimitive, type VolumePeakBox } from './volumePeakPrimitive';
-import { volumePeaks } from '../core/volumePeak';
+import { peakPeriodFor, volumePeaks, type PeakPeriod } from '../core/volumePeak';
 import { marketStructure, type MarketStructure } from '../core/structure';
 import { THEME } from './theme';
 
@@ -114,6 +114,8 @@ export class ChartView {
   private structureBars: number | null = null;
   private readonly volPrim: VolumePeakPrimitive;
   private volPeakOn = false;
+  private volPeakPeriod: PeakPeriod = 'day';
+  private volPeakPeriodCb: ((p: PeakPeriod) => void) | null = null;
   /** 박스 몸통을 잡으면 통째로 위아래·과거까지 (2026-11-06: 모드 없이 늘 — 트레이딩뷰 포지션 도구처럼) */
   private freeMode = true;
   /** 자유 모드로 박스를 잡은 순간의 가격 (위아래 이동량 계산) */
@@ -174,6 +176,10 @@ export class ChartView {
     this.series.attachPrimitive(this.structPrim);
     this.volPrim = new VolumePeakPrimitive(() => this.drawMapper());
     this.series.attachPrimitive(this.volPrim);
+    // 확대·축소로 하루 폭이 달라지면 표시 기준(하루 ↔ 한 주)을 다시 고른다
+    this.chart.timeScale().subscribeVisibleLogicalRangeChange(() => {
+      if (this.currentPeakPeriod() !== this.volPeakPeriod) this.rebuildVolumePeaks();
+    });
     this.series.attachPrimitive(this.drawPrim);
     this.series.attachPrimitive(this.prim);
     this.series.attachPrimitive(this.countdown);
@@ -326,8 +332,29 @@ export class ChartView {
     return this.volPrim.drawn();
   }
 
+  /** 지금 표시 기준 (하루 / 한 주). 차트를 넓게 봐서 하루가 좁아지면 한 주로 바뀐다 */
+  getVolumePeakPeriod(): PeakPeriod {
+    return this.volPeakPeriod;
+  }
+
+  /** 표시 기준이 바뀔 때 알림 (버튼 글자용) */
+  onVolumePeakPeriod(cb: (p: PeakPeriod) => void): void {
+    this.volPeakPeriodCb = cb;
+  }
+
+  private currentPeakPeriod(): PeakPeriod {
+    const r = this.chart.timeScale().getVisibleLogicalRange();
+    const barPx = r && r.to > r.from ? this.chart.timeScale().width() / (r.to - r.from) : Number.NaN;
+    return peakPeriodFor(barPx, this.tfMs);
+  }
+
   private rebuildVolumePeaks(): void {
-    this.volPrim.set(this.volPeakOn ? volumePeaks(this.candles, this.tfMs) : []);
+    const period = this.currentPeakPeriod();
+    if (period !== this.volPeakPeriod) {
+      this.volPeakPeriod = period;
+      this.volPeakPeriodCb?.(period);
+    }
+    this.volPrim.set(this.volPeakOn ? volumePeaks(this.candles, this.tfMs, period) : []);
   }
 
   /** 차트 왼쪽 위 범례(시고저종·이동평균) 아래에 버튼 같은 조작을 붙인다 */
