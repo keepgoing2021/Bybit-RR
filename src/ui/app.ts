@@ -154,6 +154,9 @@ const DRAW_TOOLS_KEY = 'rrtool.v1.drawtools';
 /** 다우 이론 구조 표시 (HH·HL·LH·LL, BOS·CHoCH) 켜짐 여부. 기본 켜짐, 끄면 'off' */
 export const STRUCTURE_KEY = 'rrtool.v1.structure';
 export const VOL_PEAK_KEY = 'rrtool.v1.volPeak';
+export type VolPeakMode = 'wave' | 'cal' | 'off';
+/** 파동 기준: 다우 구조(5봉)보다 넓게 잡아 큰 파동만 (2026-11-12 사용자 선택 「파동 크게」) */
+export const VOL_PEAK_WAVE_BARS = 10;
 /** 종목 리스트 열림 여부 ('open'/'closed'). 없으면 넓은 화면(1500px+)에서만 연다 */
 export const WATCH_KEY = 'rrtool.v1.watch';
 /** 박스 끌기 안내 말풍선을 봤는지 ('1') */
@@ -198,7 +201,9 @@ export class App {
   /** 멀티차트: 계산기 칸이 아닌 칸에 맡겨 둔 계산 (종목별) */
   private stash = new Map<string, Scenario>();
   private structureOn = true;
-  private volPeakOn = true;
+  /** 거래 터진 곳: 파동마다 / 하루·한 주마다 / 끔 */
+  private volPeakMode: VolPeakMode = 'wave';
+  private volPeakPeriod: 'day' | 'week' = 'day';
   private sizing: SizingSettings = DEFAULT_SIZING;
   /** 종목별 작도 */
   private drawingsBySymbol: Record<string, Drawing[]> = {};
@@ -318,9 +323,11 @@ export class App {
     this.chart.setDefaultDrawColor(this.loadDrawColor());
     this.chart.addLegendControl(this.el.structBtn);
     this.chart.addLegendControl(this.el.volPeakBtn);
-    const showPeakPeriod = (p: 'day' | 'week') => setText(this.el.volPeakPeriod, p === 'week' ? ' · 한 주' : ' · 하루');
-    this.chart.onVolumePeakPeriod(showPeakPeriod);
-    showPeakPeriod(this.chart.getVolumePeakPeriod());
+    this.chart.onVolumePeakPeriod((p) => {
+      this.volPeakPeriod = p;
+      this.renderVolPeakBtn();
+    });
+    this.volPeakPeriod = this.chart.getVolumePeakPeriod();
 
     // 저널(다른 탭)에서 기록·청산·설정을 바꾸면 경고·리스크 조절을 바로 다시 / 날이 바뀌면 경고도 바뀌니 1분마다
     window.addEventListener('storage', (ev) => {
@@ -334,7 +341,7 @@ export class App {
       // 기본 1칸
     }
     this.structureOn = this.loadStructureOn();
-    this.volPeakOn = this.loadVolPeakOn();
+    this.volPeakMode = this.loadVolPeakMode();
     this.applyStructure();
     this.applyVolPeak();
     this.setTheme(this.themeMode, false); // 버튼 글자 (차트는 이미 이 테마 색으로 만들어짐)
@@ -845,10 +852,10 @@ export class App {
     );
     structBtn.addEventListener('click', () => this.toggleStructure());
     // 하루(넓게 보면 한 주) 중 거래대금이 가장 큰 캔들에 「🔥 $35.2M」 (2026-11-11). 지금 기준을 버튼에 적는다
-    const volPeakPeriod = h('span', { class: 'volpeak-period', 'data-testid': 'volpeak-period' }, ' · 하루');
+    const volPeakPeriod = h('span', { class: 'volpeak-period', 'data-testid': 'volpeak-period' }, ' · 파동');
     const volPeakBtn = h(
       'button',
-      { type: 'button', class: 'struct-toggle', 'data-testid': 'volpeak-toggle', title: '하루(한국 시간 오전 9시 기준) 중 거래대금이 가장 큰 캔들과 그 금액(USDT) · 차트를 넓게 보면 한 주(월요일 오전 9시 기준)에 하나 · 이름표를 누르면 고점·저점 선 · Bybit 선물 기준 · 일봉 이상에서는 숨김' },
+      { type: 'button', class: 'struct-toggle', 'data-testid': 'volpeak-toggle', title: '거래대금이 가장 큰 캔들과 그 금액(USDT) · 누를 때마다 기준이 바뀜: 파동(고점↔저점 한 구간)마다 → 하루마다(넓게 보면 한 주) → 끔 · 이름표를 누르면 고점·저점 선 · Bybit 선물 기준 · 일봉 이상에서는 숨김' },
       h('span', { class: 'dot', 'aria-hidden': 'true' }),
       '거래 터진 곳',
       volPeakPeriod,
@@ -1943,7 +1950,7 @@ export class App {
       );
       pane.setSymbols(this.symbols);
       pane.setStructure(this.structureOn ? STRUCTURE_BARS : null);
-      pane.setVolumePeaks(this.volPeakOn);
+      pane.setVolumePeaks(this.volPeakMode !== 'off', this.volPeakMode === 'wave' ? VOL_PEAK_WAVE_BARS : null);
       e.panes.append(pane.root);
       this.viewPanes.push(pane);
       void pane.load(this.split.panes[i]);
@@ -2098,18 +2105,21 @@ export class App {
     }
   }
 
-  private loadVolPeakOn(): boolean {
+  private loadVolPeakMode(): VolPeakMode {
     try {
-      return this.d.storage.getItem(VOL_PEAK_KEY) !== 'off';
+      const v = this.d.storage.getItem(VOL_PEAK_KEY);
+      // 예전 값 'on' = 켜 둔 사람 → 새 기본(파동)
+      return v === 'off' || v === 'cal' ? v : 'wave';
     } catch {
-      return true;
+      return 'wave';
     }
   }
 
+  /** 누를 때마다 파동 → 하루/한 주 → 끔 */
   private toggleVolPeak(): void {
-    this.volPeakOn = !this.volPeakOn;
+    this.volPeakMode = this.volPeakMode === 'wave' ? 'cal' : this.volPeakMode === 'cal' ? 'off' : 'wave';
     try {
-      this.d.storage.setItem(VOL_PEAK_KEY, this.volPeakOn ? 'on' : 'off');
+      this.d.storage.setItem(VOL_PEAK_KEY, this.volPeakMode);
     } catch {
       // 저장 못 해도 이번 화면에는 적용
     }
@@ -2117,14 +2127,24 @@ export class App {
   }
 
   private applyVolPeak(): void {
-    this.chart?.setVolumePeaks(this.volPeakOn);
-    for (const p of this.viewPanes) p.setVolumePeaks(this.volPeakOn);
+    const on = this.volPeakMode !== 'off';
+    const wave = this.volPeakMode === 'wave' ? VOL_PEAK_WAVE_BARS : null;
+    this.chart?.setVolumePeaks(on, wave);
+    for (const p of this.viewPanes) p.setVolumePeaks(on, wave);
+    this.renderVolPeakBtn();
+  }
+
+  private renderVolPeakBtn(): void {
     const btn = this.el?.volPeakBtn;
-    if (btn) {
-      btn.setAttribute('aria-pressed', String(this.volPeakOn));
-      btn.classList.toggle('on', this.volPeakOn);
-      btn.setAttribute('aria-label', `거래 터진 곳 표시 ${this.volPeakOn ? '끄기' : '켜기'}`);
-    }
+    if (!btn || !this.el) return;
+    const on = this.volPeakMode !== 'off';
+    const what = this.volPeakMode === 'wave' ? '파동' : this.volPeakPeriod === 'week' ? '한 주' : '하루';
+    setText(this.el.volPeakPeriod, on ? ` · ${what}` : '');
+    btn.setAttribute('aria-pressed', String(on));
+    btn.dataset.mode = this.volPeakMode;
+    btn.classList.toggle('on', on);
+    const next = this.volPeakMode === 'wave' ? '하루/한 주 기준으로' : this.volPeakMode === 'cal' ? '끄기' : '파동 기준으로 켜기';
+    btn.setAttribute('aria-label', `거래 터진 곳 (${on ? `${what}마다` : '꺼짐'}) · 누르면 ${next}`);
   }
 
   private toggleStructure(): void {

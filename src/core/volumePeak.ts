@@ -79,6 +79,54 @@ export function volumePeaks(candles: readonly Candle[], tfMs: number, period: Pe
   return out;
 }
 
+/**
+ * 파동 기준 (2026-11-12 시안): 다우 구조의 스윙 고점·저점 사이 한 구간(파동)마다 거래대금이 가장 큰 캔들 하나.
+ * 시간봉이 바뀌면 스윙이 달라지니 파동도 시간봉마다 다르다. 마지막 스윙 뒤(진행 중인 파동)도 한 구간으로 친다.
+ * pivots = 시간순 스윙 지점의 캔들 번호. 파동 i = (pivots[i], pivots[i+1]] — 끝 지점 캔들은 그 파동에 넣는다
+ */
+/** 스윙 목록 → 파동 경계 (고점·저점이 번갈아 나오게: 같은 종류가 이어지면 더 높은 고점·더 낮은 저점만) */
+export function wavePivots(swings: readonly { kind: 'high' | 'low'; index: number; price: number }[]): number[] {
+  const out: { kind: 'high' | 'low'; index: number; price: number }[] = [];
+  for (const s of [...swings].sort((a, b) => a.index - b.index)) {
+    const last = out[out.length - 1];
+    if (last && last.kind === s.kind) {
+      if (s.kind === 'high' ? s.price > last.price : s.price < last.price) out[out.length - 1] = s;
+    } else out.push(s);
+  }
+  return out.map((s) => s.index);
+}
+
+export function wavePeaks(candles: readonly Candle[], pivots: readonly number[]): VolumePeak[] {
+  const out: VolumePeak[] = [];
+  const cuts = [...new Set(pivots)].filter((i) => i >= 0 && i < candles.length).sort((a, b) => a - b);
+  if (!cuts.length) return out;
+  const far = Number.MAX_SAFE_INTEGER;
+  const sum: number[] = []; // 앞 20봉 평균용 누적은 아래에서 직접 센다
+  const usdAt = candles.map((c) => usdOf(c));
+  for (let w = 0; w < cuts.length; w++) {
+    const from = cuts[w] + 1;
+    const to = w + 1 < cuts.length ? cuts[w + 1] : candles.length - 1;
+    let best = -1;
+    for (let i = from; i <= to; i++) {
+      const v = usdAt[i];
+      if (v && (best < 0 || v.usd > usdAt[best]!.usd)) best = i;
+    }
+    if (best < 0) continue;
+    sum.length = 0;
+    for (let i = best - 1; i >= 0 && sum.length < RATIO_BARS; i--) {
+      const v = usdAt[i];
+      if (v) sum.push(v.usd);
+    }
+    const avg = sum.length >= RATIO_MIN_BARS ? sum.reduce((a, b) => a + b, 0) / sum.length : 0;
+    const c = candles[best];
+    const v = usdAt[best]!;
+    // 가격 구간 선은 다음 파동이 끝날 때까지
+    const endIdx = w + 2 < cuts.length ? cuts[w + 2] : -1;
+    out.push({ time: c.time, high: c.high, low: c.low, usd: v.usd, approx: v.approx, ratio: avg > 0 ? v.usd / avg : null, bandEnd: endIdx >= 0 ? candles[endIdx].time : far });
+  }
+  return out;
+}
+
 /** 4.23 → '4.2배', 12.6 → '13배' */
 export function fmtRatio(r: number): string {
   return `${r >= 10 ? Math.round(r) : r.toFixed(1)}배`;

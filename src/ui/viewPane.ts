@@ -105,8 +105,8 @@ export class ViewPane {
     this.symbols = list;
   }
 
-  setVolumePeaks(on: boolean): void {
-    this.chart.setVolumePeaks(on);
+  setVolumePeaks(on: boolean, waveBars: number | null = null): void {
+    this.chart.setVolumePeaks(on, waveBars);
   }
 
   setStructure(bars: number | null): void {

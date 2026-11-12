@@ -28,7 +28,8 @@ import { hitTestPreset, type AvgLine, type BoxGeometry, type SplitLine } from '.
 import { RRBoxPrimitive, type OverlayModel } from './rrPrimitive';
 import { StructurePrimitive } from './structurePrimitive';
 import { VolumePeakPrimitive, type VolumePeakBox } from './volumePeakPrimitive';
-import { peakPeriodFor, volumePeaks, type PeakPeriod } from '../core/volumePeak';
+import { peakPeriodFor, volumePeaks, wavePeaks, wavePivots, type PeakPeriod } from '../core/volumePeak';
+import { findSwings } from '../core/swing';
 import { marketStructure, type MarketStructure } from '../core/structure';
 import { THEME } from './theme';
 
@@ -115,6 +116,9 @@ export class ChartView {
   private readonly volPrim: VolumePeakPrimitive;
   private volPeakOn = false;
   private volPeakPeriod: PeakPeriod = 'day';
+  /** 파동 기준일 때 스윙 좌우 봉 수 (null이면 달력 기준 = 하루/한 주) */
+  private volPeakWave: number | null = null;
+  private wavePivotCache: { n: number; bars: number; pivots: number[] } | null = null;
   private volPeakPeriodCb: ((p: PeakPeriod) => void) | null = null;
   /** 박스 몸통을 잡으면 통째로 위아래·과거까지 (2026-11-06: 모드 없이 늘 — 트레이딩뷰 포지션 도구처럼) */
   private freeMode = true;
@@ -174,7 +178,14 @@ export class ChartView {
     );
     this.structPrim = new StructurePrimitive(() => this.drawMapper());
     this.series.attachPrimitive(this.structPrim);
-    this.volPrim = new VolumePeakPrimitive(() => this.drawMapper());
+    this.volPrim = new VolumePeakPrimitive(
+      () => this.drawMapper(),
+      // 왼쪽 위 범례(시고저종·MA·버튼) 자리는 피한다
+      () => Array.from(this.legendBox.children, (el) => {
+        const e = el as HTMLElement;
+        return { x: this.legendBox.offsetLeft + e.offsetLeft, y: this.legendBox.offsetTop + e.offsetTop, w: e.offsetWidth, h: e.offsetHeight };
+      }),
+    );
     this.series.attachPrimitive(this.volPrim);
     // 확대·축소로 하루 폭이 달라지면 표시 기준(하루 ↔ 한 주)을 다시 고른다
     this.chart.timeScale().subscribeVisibleLogicalRangeChange(() => {
@@ -322,8 +333,9 @@ export class ChartView {
   }
 
   /** 하루 중 거래대금이 가장 큰 캔들 표시 켜기/끄기 */
-  setVolumePeaks(on: boolean): void {
+  setVolumePeaks(on: boolean, waveBars: number | null = null): void {
     this.volPeakOn = on;
+    this.volPeakWave = waveBars;
     this.rebuildVolumePeaks();
   }
 
@@ -353,6 +365,15 @@ export class ChartView {
     if (period !== this.volPeakPeriod) {
       this.volPeakPeriod = period;
       this.volPeakPeriodCb?.(period);
+    }
+    if (this.volPeakOn && this.volPeakWave !== null && this.tfMs < 86_400_000) {
+      // 스윙은 봉이 새로 생길 때만 다시 찾는다 (시세가 올 때마다 하지 않게)
+      const n = this.candles.length;
+      if (!this.wavePivotCache || this.wavePivotCache.n !== n || this.wavePivotCache.bars !== this.volPeakWave) {
+        this.wavePivotCache = { n, bars: this.volPeakWave, pivots: wavePivots(findSwings(this.candles as Candle[], this.volPeakWave)) };
+      }
+      this.volPrim.set(wavePeaks(this.candles, this.wavePivotCache.pivots));
+      return;
     }
     this.volPrim.set(this.volPeakOn ? volumePeaks(this.candles, this.tfMs, period) : []);
   }

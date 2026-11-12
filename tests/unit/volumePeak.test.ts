@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Candle } from '../../src/core/types';
-import { DAY_MS, fmtRatio, fmtUsdShort, peakPeriodFor, volumePeaks } from '../../src/core/volumePeak';
+import { DAY_MS, fmtRatio, fmtUsdShort, peakPeriodFor, volumePeaks, wavePeaks } from '../../src/core/volumePeak';
 
 const H = 3_600_000;
 const D0 = Date.UTC(2026, 10, 10); // UTC 자정 = 한국 시간 오전 9시
@@ -98,5 +98,22 @@ describe('peakPeriodFor: 하루 폭이 이름표보다 좁으면 한 주로', ()
   it('값이 이상하면 하루', () => {
     expect(peakPeriodFor(Number.NaN, H)).toBe('day');
     expect(peakPeriodFor(8, 0)).toBe('day');
+  });
+});
+
+describe('wavePeaks: 스윙 사이 한 파동마다 거래대금이 가장 큰 캔들', () => {
+  const list = [3, 9, 4, 2, 8, 5, 1, 6, 7, 2].map((u, i) => c(D0 + i * H, u));
+  it('파동마다 하나, 끝 지점 캔들은 그 파동에, 마지막 스윙 뒤도 한 파동', () => {
+    // 스윙: 0번, 3번, 6번 → 파동 (0,3] (3,6] (6,끝]
+    expect(wavePeaks(list, [0, 3, 6]).map((p) => p.usd)).toEqual([9, 8, 7]);
+  });
+  it('가격 구간 선은 다음 파동 끝까지, 마지막 둘은 오른쪽 끝까지', () => {
+    const out = wavePeaks(list, [0, 3, 6]);
+    expect(out[0].bandEnd).toBe(D0 + 6 * H);
+    expect(out[2].bandEnd).toBeGreaterThan(D0 + 100 * DAY_MS);
+  });
+  it('스윙이 없으면 빈 목록, 순서가 섞여도 같다', () => {
+    expect(wavePeaks(list, [])).toEqual([]);
+    expect(wavePeaks(list, [6, 0, 3, 3]).map((p) => p.usd)).toEqual([9, 8, 7]);
   });
 });

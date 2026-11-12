@@ -43,7 +43,11 @@ export class VolumePeakPrimitive implements ISeriesPrimitive<Time> {
   private readonly opened = new Set<number>();
   private readonly views: readonly IPrimitivePaneView[];
 
-  constructor(private readonly mapper: () => DrawMapper | null) {
+  constructor(
+    private readonly mapper: () => DrawMapper | null,
+    /** 이름표가 덮으면 안 되는 자리 (범례·버튼) */
+    private readonly avoid: () => readonly { x: number; y: number; w: number; h: number }[] = () => [],
+  ) {
     const renderer: IPrimitivePaneRenderer = { draw: (t) => this.draw(t) };
     this.views = [{ zOrder: () => 'normal', renderer: () => renderer }];
   }
@@ -97,6 +101,7 @@ export class VolumePeakPrimitive implements ISeriesPrimitive<Time> {
       // 1) 자리 계산. 이름표끼리 겹치면 거래대금이 큰 쪽만 남긴다 (넓게 봐도 캔들을 덮지 않게)
       type Item = { p: VolumePeak; x: number; yHigh: number; yLow: number; text: string; w: number; left: number; top: number; above: boolean; bx1: number; bx2: number; yTop: number; yBottom: number };
       const items: Item[] = [];
+      const blocked = this.avoid();
       for (const p of this.peaks) {
         const x = m.toX(p.time);
         const yHigh = m.toY(p.high);
@@ -107,11 +112,14 @@ export class VolumePeakPrimitive implements ISeriesPrimitive<Time> {
         if (x + w / 2 < 0 || x - w / 2 > m.width) continue;
         // 가격 구간: 캔들부터 다음 날(주) 끝까지 (화면 밖은 자른다)
         const xEnd = m.toX(p.bandEnd);
-        const above = yHigh - GAP - LABEL_H >= 2;
+        const left = Math.round(x - w / 2);
+        const topAbove = Math.round(yHigh - GAP - LABEL_H);
+        const covers = (top: number) => blocked.some((r) => left < r.x + r.w + 4 && r.x - 4 < left + w && top < r.y + r.h + 4 && r.y - 4 < top + LABEL_H);
+        // 위에 자리가 없거나 범례를 덮으면 캔들 아래로
+        const above = topAbove >= 2 && !covers(topAbove);
         items.push({
-          p, x, yHigh, yLow, text, w, above,
-          left: Math.round(x - w / 2),
-          top: Math.round(above ? yHigh - GAP - LABEL_H : yLow + GAP),
+          p, x, yHigh, yLow, text, w, above, left,
+          top: above ? topAbove : Math.round(yLow + GAP),
           bx1: Math.max(0, x),
           bx2: Math.min(m.width, xEnd ?? m.width),
           yTop: Math.min(yHigh, yLow),
