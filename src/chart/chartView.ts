@@ -366,7 +366,8 @@ export class ChartView {
       this.volPeakPeriod = period;
       this.volPeakPeriodCb?.(period);
     }
-    if (this.volPeakOn && this.volPeakWave !== null && this.tfMs < 86_400_000) {
+    // 파동 기준은 일봉·주봉·월봉에서도 그린다 (하루/한 주 기준만 일봉 이상에서 숨김)
+    if (this.volPeakOn && this.volPeakWave !== null) {
       // 스윙은 봉이 새로 생길 때만 다시 찾는다 (시세가 올 때마다 하지 않게)
       const n = this.candles.length;
       if (!this.wavePivotCache || this.wavePivotCache.n !== n || this.wavePivotCache.bars !== this.volPeakWave) {

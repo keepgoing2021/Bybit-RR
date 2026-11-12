@@ -855,7 +855,7 @@ export class App {
     const volPeakPeriod = h('span', { class: 'volpeak-period', 'data-testid': 'volpeak-period' }, ' · 파동');
     const volPeakBtn = h(
       'button',
-      { type: 'button', class: 'struct-toggle', 'data-testid': 'volpeak-toggle', title: '거래대금이 가장 큰 캔들과 그 금액(USDT) · 누를 때마다 기준이 바뀜: 파동(고점↔저점 한 구간)마다 → 하루마다(넓게 보면 한 주) → 끔 · 이름표를 누르면 고점·저점 선 · Bybit 선물 기준 · 일봉 이상에서는 숨김' },
+      { type: 'button', class: 'struct-toggle', 'data-testid': 'volpeak-toggle', title: '거래대금이 가장 큰 캔들과 그 금액(USDT) · 누를 때마다 기준이 바뀜: 파동(고점↔저점 한 구간)마다 → 하루마다(넓게 보면 한 주) → 끔 · 이름표를 누르면 고점·저점 선 · Bybit 선물 기준 · 하루 기준은 일봉 이상에서 숨김' },
       h('span', { class: 'dot', 'aria-hidden': 'true' }),
       '거래 터진 곳',
       volPeakPeriod,

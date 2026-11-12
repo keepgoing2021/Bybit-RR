@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
 // 거래대금이 가장 큰 캔들 표시: 「🔥 $… · N배」 이름표 (누르면 고가·저가 점선).
-// 버튼을 누를 때마다 파동마다(기본) → 하루마다(넓게 보면 한 주) → 끔. 일봉에서는 숨김
+// 버튼을 누를 때마다 파동마다(기본) → 하루마다(넓게 보면 한 주) → 끔. 하루 기준은 일봉 이상에서 숨김 (파동 기준은 일·주·월봉에서도 보인다)
 
 type Box = { time: number; usd: number; text: string; x: number; y: number; w: number; h: number; above: boolean; open: boolean; band: { x1: number; x2: number; yTop: number; yBottom: number } };
 const boxes = (page: Page) => page.evaluate(() => (window as unknown as { __rrDebug: { getVolumePeakBoxes(): Box[] } }).__rrDebug.getVolumePeakBoxes());
@@ -84,10 +84,17 @@ test('버튼을 누를 때마다 파동 → 하루 → 끔 → 파동, 새로고
   await expect.poll(async () => (await boxes(page)).length).toBeGreaterThan(0);
 });
 
-test('일봉에서는 표시하지 않는다', async ({ page }) => {
+test('파동 기준은 일봉·주봉·월봉에서도 보이고, 하루 기준은 일봉 이상에서 숨긴다', async ({ page }) => {
   await openCalc(page);
   await expect.poll(async () => (await boxes(page)).length).toBeGreaterThan(0);
+  for (const tf of ['D', 'W', 'M']) {
+    await page.getByTestId('tf').selectOption(tf);
+    await expect.poll(async () => (await boxes(page)).length, { message: tf }).toBeGreaterThan(0);
+    noOverlap(await boxes(page));
+    if (process.env.SHOT) await page.screenshot({ path: `${process.env.SHOT}/vol-wave-${tf}.png` });
+  }
   await page.getByTestId('tf').selectOption('D');
+  await page.getByTestId('volpeak-toggle').click();
   await expect.poll(async () => (await boxes(page)).length).toBe(0);
 });
 
