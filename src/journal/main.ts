@@ -14,7 +14,7 @@ import { h, setText } from '../ui/dom';
 import { siteNav } from '../ui/siteNav';
 import { loadJournal, saveJournal } from '../ui/journalForm';
 import { renderCalendar, type CalView } from './calendar';
-import { chipRow, renderOpen } from './closeCard';
+import { chipRow, noteEditor, renderOpen } from './closeCard';
 import type { Ctx } from './ctx';
 import { renderCurve } from './curve';
 import { fmtDay, fmtElapsed, fmtHold, fmtPct, fmtR, fmtTime, fmtUsd, sign } from './format';
@@ -78,6 +78,11 @@ const ctx: Ctx = {
     return journal;
   },
   persist,
+  save: () => {
+    const ok = saveJournal(storage, journal);
+    if (!ok) alertBox('저장하지 못했어요 (브라우저 저장소가 막혀 있어요).');
+    return ok;
+  },
   rerender: () => render(),
   toast: alertBox,
   now: () => Date.now(),
@@ -236,29 +241,38 @@ function renderClosed(): HTMLElement {
     const chips = [t.closeRule ? CLOSE_RULE_LABEL[t.closeRule] : null, t.mood ? MOOD_LABEL[t.mood] : null].filter(Boolean).join(' · ');
     const auto = t.auto ? h('span', { class: 'j-auto', 'data-testid': `j-auto-${t.id}` }, AUTO_LABEL[t.auto]) : null;
     const fill = h('button', { type: 'button', class: 'link', 'data-testid': `j-fill-${t.id}`, 'aria-expanded': String(fillId === t.id) }, chips || '채우기');
-    fill.addEventListener('click', () => {
+    const toggleFill = () => {
       fillId = fillId === t.id ? null : t.id;
       render();
-    });
+    };
+    fill.addEventListener('click', toggleFill);
+    // 근거 칸 = 펼치는 버튼 (비어 있으면 「＋ 근거 쓰기」). 2026-11-12: 근거를 적을 곳이 없었다
+    const note = h('button', { type: 'button', class: 'link j-note-btn', 'data-testid': `j-note-${t.id}`, 'aria-expanded': String(fillId === t.id), 'data-empty': String(!t.reason), title: t.reason || '셋업 · 진입 규칙 · 근거 쓰기' }, t.reason || '＋ 근거 쓰기');
+    note.addEventListener('click', toggleFill);
+    const setupCell = h('td', { 'data-testid': `j-setupcell-${t.id}` }, t.setup || '—');
     const row = h(
       'tr',
       { 'data-outcome': res?.outcome ?? '' },
       h('td', { class: 'num' }, t.closedAt ? fmtTime(t.closedAt) : ''),
       h('td', {}, h('b', { 'data-side': t.side }, `${t.symbol.replace(/USDT$/, '')} ${t.side === 'LONG' ? '롱' : '숏'}`)),
-      h('td', {}, t.setup || '—'),
+      setupCell,
       h('td', { 'data-q': t.quality }, QUALITY_LABEL[t.quality]),
       h('td', {}, sessionOf(t.openedAt)),
       h('td', { class: 'num', 'data-testid': `j-hold-${t.id}` }, fmtHold(t.closedAt !== null ? Math.max(0, t.closedAt - t.openedAt) : null)),
       h('td', { class: 'num', 'data-sign': sign(res?.r ?? null) }, fmtR(res?.r ?? null)),
       h('td', { class: 'num', 'data-sign': sign(res?.pnl ?? null) }, res?.pnl != null ? fmtUsd(res.pnl) : '—'),
       h('td', {}, auto, fill),
-      h('td', { class: 'j-reason-cell', title: t.reason }, t.reason),
+      h('td', { class: 'j-reason-cell' }, note),
       h('td', {}, deleteBtn(t)),
     );
     if (fillId !== t.id) return [row];
     // 누르면 바로 저장 (다시 그리지 않아 두 줄을 이어서 고를 수 있다)
-    const store = () => {
-      if (!saveJournal(storage, journal)) alertBox('저장하지 못했어요 (브라우저 저장소가 막혀 있어요).');
+    const store = () => void ctx.save();
+    const showNote = () => {
+      setText(setupCell, t.setup || '—');
+      setText(note, t.reason || '＋ 근거 쓰기');
+      note.title = t.reason || '셋업 · 진입 규칙 · 근거 쓰기';
+      note.dataset.empty = String(!t.reason);
     };
     const editor = h(
       'td',
@@ -273,6 +287,7 @@ function renderClosed(): HTMLElement {
         else delete t.mood;
         store();
       }, `j-mood-${t.id}`),
+      noteEditor(ctx, t, showNote),
     );
     return [row, h('tr', {}, editor)];
   });

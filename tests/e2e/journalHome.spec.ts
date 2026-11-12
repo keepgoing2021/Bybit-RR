@@ -136,3 +136,47 @@ test('로고를 누르면 차트(계산기) 화면으로 간다', async ({ page 
   await page.getByTestId('j-brand').click();
   await expect(page.getByTestId('brand')).toHaveAttribute('href', '/');
 });
+
+// 2026-11-12: 「진입 기록」 한 번으로 바꾼 뒤 근거·셋업·진입 규칙을 적을 곳이 없었다
+test('거래 목록: 근거 칸을 누르면 펼쳐져 셋업 · 진입 규칙 · 근거를 적고, 줄에 바로 보인다', async ({ page }) => {
+  await seed(page, [trade('a', 104, Date.now() - 3600_000, { setup: '' })]);
+  const note = page.getByTestId('j-note-a');
+  await expect(note).toHaveText('＋ 근거 쓰기');
+  await note.click();
+  await page.getByTestId('j-reason-a').fill('  4시간 지지에서 스윕 후 반등  ');
+  await page.getByTestId('j-reason-save-a').click();
+  await expect(page.getByTestId('j-reason-state-a')).toHaveText('저장됨');
+  await expect(note).toHaveText('4시간 지지에서 스윕 후 반등');
+  await page.getByTestId('j-setup-a-스윕 반전').click();
+  await expect(page.getByTestId('j-setupcell-a')).toHaveText('스윕 반전');
+  await page.getByTestId('j-erule-a-0').click();
+  await page.getByTestId('j-erule-a-2').click();
+  await page.getByTestId('j-erule-a-0').click(); // 다시 누르면 해제
+  let tr = (await stored(page)).trades[0];
+  expect(tr.reason).toBe('4시간 지지에서 스윕 후 반등');
+  expect(tr.setup).toBe('스윕 반전');
+  expect(tr.rules).toEqual(['확인 신호가 나왔다']);
+  // 글 상자를 벗어나기만 해도 저장된다 (버튼을 안 눌러도)
+  await page.getByTestId('j-reason-a').fill('고쳐 쓴 근거');
+  await page.getByTestId('j-reason-a').blur();
+  await page.reload();
+  await expect(page.getByTestId('j-note-a')).toHaveText('고쳐 쓴 근거');
+  tr = (await stored(page)).trades[0];
+  expect(tr.reason).toBe('고쳐 쓴 근거');
+});
+
+test('진행 중 카드: 셋업 · 근거를 적어도 넣어 둔 청산가가 지워지지 않는다', async ({ page }) => {
+  await seed(page, [trade('b', null, null, { setup: '' })]);
+  await page.getByTestId('j-exit-b').fill('104');
+  await page.getByTestId('j-notes-b').locator('summary').click();
+  await page.getByTestId('j-setup-b-추세 지속 돌파').click();
+  await page.getByTestId('j-reason-b').fill('돌파 후 눌림');
+  await page.getByTestId('j-reason-save-b').click();
+  await expect(page.getByTestId('j-reason-state-b')).toHaveText('저장됨');
+  await expect(page.getByTestId('j-exit-b')).toHaveValue('104');
+  await expect(page.getByTestId('j-open-row')).toContainText('추세 지속 돌파');
+  const tr = (await stored(page)).trades[0];
+  expect(tr.setup).toBe('추세 지속 돌파');
+  expect(tr.reason).toBe('돌파 후 눌림');
+  expect(tr.exit).toBeNull();
+});

@@ -5,6 +5,8 @@ export interface Ctx {
   readonly journal: Journal;
   /** 저장하고 다시 그린다 */
   persist(): void;
+  /** 저장만 한다 (다시 그리지 않는다 — 입력 중인 칸이 지워지지 않게). 실패하면 알리고 false */
+  save(): boolean;
   rerender(): void;
   toast(msg: string): void;
   now(): number;

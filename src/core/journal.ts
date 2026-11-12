@@ -103,6 +103,7 @@ export interface Journal {
 }
 
 export const MAX_RULES = 8;
+export const REASON_MAX_CHARS = 200;
 export const MIN_GROUP_TRADES = 10;
 
 export const DEFAULT_JOURNAL_SETTINGS: JournalSettings = {
@@ -331,7 +332,7 @@ function parseTrade(v: unknown): Trade | null {
     exit: (r.exit as number | null) ?? null,
     setup: str(r.setup, 40),
     quality,
-    reason: str(r.reason, 200),
+    reason: str(r.reason, REASON_MAX_CHARS),
     rules: Array.isArray(r.rules) ? r.rules.filter((x): x is string => typeof x === 'string').map((x) => x.slice(0, 60)).slice(0, MAX_RULES) : [],
     feeRate: isNum(r.feeRate) && r.feeRate >= 0 && r.feeRate < 0.01 ? r.feeRate : 0.00055,
   };

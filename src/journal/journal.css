@@ -1183,3 +1183,76 @@ body {
     line-height: 3.3;
   }
 }
+
+/* ---------- 셋업 · 진입 규칙 · 근거 나중에 적기 (2026-11-12) ---------- */
+.j-note {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.j-notes > summary {
+  width: fit-content;
+  padding: 6px 0;
+  color: var(--entry);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.j-reason[hidden] {
+  display: none;
+}
+
+.j-reason-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.j-reason-input {
+  width: 100%;
+  max-width: 620px;
+  min-height: 58px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--well);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.j-reason-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.j-reason-state {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.j-note-btn {
+  display: block;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+
+@media (max-width: 760px) {
+  .j-reason-input {
+    font-size: 16px; /* iOS가 입력할 때 화면을 확대하지 않게 */
+  }
+}
+
+.j-note-btn[data-empty='false'] {
+  color: var(--muted);
+  text-decoration: none;
+}
