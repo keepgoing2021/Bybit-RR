@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 
-// 가상 거래 (2026-11-11): 차트 박스 옆 「진입」 한 번 → 저널 진행 중 → 손절·목표에 닿으면 자동 청산
+// 가상 거래 (2026-11-11): 계산 칸 아래 「진입 기록」 한 번 → 저널 진행 중 → 손절·목표에 닿으면 자동 청산
 const MIN = 60_000;
 const journal = (page: Page) => page.evaluate(() => JSON.parse(localStorage.getItem('rrtool.v1.journal') ?? '{"trades":[]}'));
 const scenarioId = (page: Page) => page.evaluate(() => JSON.parse(localStorage.getItem('rrtool.v1.state') ?? '{}').scenario?.id ?? null);
@@ -24,10 +24,19 @@ for (const [name, size] of [['PC', { width: 1280, height: 800 }], ['폰', { widt
     const enter = page.getByTestId('vt-enter');
     await expect(enter).toBeVisible();
     await expect(enter).toBeEnabled();
-    // 차트 안에 온전히 보인다
+    await expect(enter).toHaveText('롱 진입 기록');
+    // 늘 같은 자리: 화면 안에 온전히 보이고 차트를 가리지 않는다 (PC = 차트 오른쪽 패널, 폰 = LONG/SHORT 바로 위)
     const box = (await enter.boundingBox())!;
+    const chart = (await page.locator('.chart-wrap').boundingBox())!;
+    const long = (await page.getByTestId('btn-long').boundingBox())!;
     expect(box.x).toBeGreaterThanOrEqual(0);
     expect(box.x + box.width).toBeLessThanOrEqual(size.width);
+    expect(box.y + box.height).toBeLessThanOrEqual(size.height);
+    if (size.width > 640) expect(box.x).toBeGreaterThanOrEqual(chart.x + chart.width);
+    else {
+      expect(box.y).toBeGreaterThanOrEqual(chart.y + chart.height);
+      expect(box.y + box.height).toBeLessThanOrEqual(long.y);
+    }
     await enter.click();
     await expect(page.getByTestId('undo-link')).toBeVisible();
     // 페이지 탭: 폰에서도 보이고, 진행 중 거래 수가 배지로 붙는다

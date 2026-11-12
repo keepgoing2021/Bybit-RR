@@ -29,7 +29,7 @@ export function saveJournal(storage: StorageLike, j: Journal): boolean {
 }
 
 /**
- * 차트 박스 옆 「진입」 버튼 (2026-11-11, 예전 「📒 저널에 기록」 폼을 대신한다).
+ * 계산 칸 맨 아래 「롱/숏 진입 기록」 버튼 (2026-11-12: 차트 박스 위에 떠 있던 「진입」을 늘 같은 자리로 옮겼다).
  * 한 번 누르면 계산기 값 그대로 가상 거래가 저널 「진행 중」에 올라간다 — 진입 때는 아무것도 묻지 않는다
  * (셋업·근거·칩은 나중에 저널에서). 같은 계산(시나리오 id)은 한 번만. 직후 5초 되돌리기.
  * 그 뒤 손절·목표에 닿았는지는 data/virtualTracker.ts가 따라간다.
@@ -46,14 +46,10 @@ export class EntryButton {
     private readonly toast: (msg: string) => void,
     private readonly offerUndo: (message: string, run: () => void) => void,
   ) {
-    this.enter = h('button', { type: 'button', class: 'entry-btn', 'data-testid': 'vt-enter' }, '진입');
+    this.enter = h('button', { type: 'button', class: 'entry-btn', 'data-testid': 'vt-enter' }, '진입 기록');
     this.enter.addEventListener('click', () => this.doEnter());
     this.open = h('a', { class: 'entry-open', href: '/journal', 'data-testid': 'vt-open', title: '가상 거래 진행 중 — 손절·목표에 닿으면 자동 청산돼요. 누르면 매매일지로', hidden: true }, '✓ 진행 중');
     this.root = h('div', { class: 'entry-action', 'data-testid': 'vt-action', hidden: true }, this.enter, this.open);
-    // 차트 위에 떠 있다: 누름이 차트(진입가 찍기·박스 끌기)로 새지 않게
-    for (const type of ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'click', 'dblclick', 'touchstart', 'touchend', 'contextmenu'] as const) {
-      this.root.addEventListener(type, (e) => e.stopPropagation());
-    }
   }
 
   /** 계산이 바뀔 때마다: 계산이 없으면 숨김, 이미 진입한 계산이면 「✓ 진행 중」 */
@@ -63,7 +59,8 @@ export class EntryButton {
     const mine = loadJournal(this.storage).trades.find((t) => t.id === scenario.id);
     show(this.enter, !mine);
     show(this.open, !!mine);
-    if (mine) setText(this.open, mine.exit === null ? '✓ 진행 중' : '✓ 청산됨');
+    setText(this.enter, `${scenario.side === 'LONG' ? '롱' : '숏'} 진입 기록`);
+    if (mine) setText(this.open, mine.exit === null ? '✓ 진행 중 · 매매일지에서 보기 ›' : '✓ 청산됨 · 매매일지에서 보기 ›');
     const noSl = scenario.applied.sl === null;
     this.enter.disabled = noSl;
     this.enter.title = noSl ? '손절가가 있어야 진입할 수 있어요 (R을 계산하려고)' : '가상 진입 — 매매일지에 올리고 손절·목표에 닿으면 자동 청산';

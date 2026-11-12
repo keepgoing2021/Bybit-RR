@@ -356,7 +356,8 @@ test('a slow click on an order-table number still copies: the table is not rebui
   await expect(qty).toHaveAttribute('data-mark', 'same');
   // 0.7초 동안 눌렀다 떼도 복사된다 (누르는 사이 버튼이 바뀌면 클릭이 사라진다)
   const text = (await qty.textContent())!;
-  await qty.scrollIntoViewIfNeeded();
+  // 패널 아래에 붙은 「진입 기록」 줄에 가리지 않게 가운데로
+  await qty.evaluate((el) => el.scrollIntoView({ block: 'center' }));
   const b = (await qty.boundingBox())!;
   await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
   await page.mouse.down();

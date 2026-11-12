@@ -102,6 +102,6 @@ export function renderOpen(ctx: Ctx, deleteBtn: (t: Trade) => HTMLElement): HTML
     h('h2', {}, `진행 중 ${open.length}`),
     open.length
       ? h('div', { class: 'j-open' }, ...open.map((t) => card(ctx, t, deleteBtn)), h('p', { class: 'muted small' }, '손절·목표에 닿으면 자동으로 청산돼요 (가상 체결 · Bybit 1분 캔들 기준, 실제 체결가와 다를 수 있어요).'))
-      : h('p', { class: 'muted' }, '계산기 차트에서 LONG/SHORT 계산 후 박스 옆 「진입」을 누르면 여기 나와요.'),
+      : h('p', { class: 'muted' }, '계산기 차트에서 LONG/SHORT 계산 후 아래쪽 「진입 기록」을 누르면 여기 나와요.'),
   );
 }

@@ -323,7 +323,6 @@ export class App {
     window.addEventListener('storage', (ev) => {
       if (ev.key === JOURNAL_KEY) this.journalChanged();
     });
-    this.chart.attachBoxAction(this.el.journalForm.root);
     window.setInterval(() => this.renderJournal(), 60_000);
     this.setWatchOpen(this.loadWatchOpen(), false);
     try {
@@ -1025,7 +1024,8 @@ export class App {
     // 지금 목표가 (손익비 카드 머리의 초록 알약)
     const rrTp = h('span', { class: 'tag profit num', 'data-testid': 'rr-tp', title: '지금 목표가 (TP)' });
     const rrProfitNote = h('p', { class: 'rr-profit-note', 'data-testid': 'rr-profit-note', hidden: true }, '칩 아래 = 분할 전부 체결 후 그 자리 수익 (USDT)');
-    // 가상 진입 (2026-11-11): 차트 박스 옆 「진입」 한 번 → 저널 「진행 중」 + 자동 추적
+    // 가상 진입: 계산 칸 맨 아래에 붙어 있는 「롱/숏 진입 기록」 한 번 → 매매일지 「진행 중」 + 자동 추적
+    // (2026-11-12: 차트 박스 위에 떠 있던 것을 늘 같은 자리로 — PC는 패널 아래, 폰은 LONG/SHORT 바로 위)
     const journalForm = new EntryButton(
       this.d.storage,
       () => {
@@ -1115,7 +1115,7 @@ export class App {
 
     // 진입 전 경고 (저널의 하루 운영 규칙·손실 한도) — 들어가기 전에 보이게 패널 맨 위
     const journalWarn = h('div', { class: 'journal-warn', role: 'status', 'data-testid': 'journal-warn', hidden: true });
-    const panel = h('aside', { class: 'panel' }, journalWarn, h('section', { class: 'scenario' }, empty, card), settings);
+    const panel = h('aside', { class: 'panel' }, journalWarn, h('section', { class: 'scenario' }, empty, card, journalForm.root), settings);
     const tools = this.buildDrawTools();
     const chartWrap = h('section', { class: 'chart-wrap', 'data-tools': tools.open ? 'open' : 'closed' }, tools.bar, chart, tools.hint, tools.edit.bar);
     tools.toggle.addEventListener('click', () => {

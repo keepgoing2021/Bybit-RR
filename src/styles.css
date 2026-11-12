@@ -486,6 +486,8 @@ button.link {
   border-left: 1px solid var(--line);
   background: var(--panel);
   overflow-y: auto;
+  /* 아래에 붙은 「진입 기록」 줄 밑으로 칸이 숨지 않게 (탭 이동·안내 스크롤) */
+  scroll-padding-bottom: 72px;
   padding: 16px 14px 28px;
   display: flex;
   flex-direction: column;
@@ -3653,14 +3655,16 @@ a.watch-nodata:not(.has-quote) .watch-price {
   cursor: not-allowed;
 }
 
-/* ---------- 가상 진입 버튼 (2026-11-11): 차트 박스 옆에 떠 있다 ---------- */
+/* ---------- 가상 진입 버튼 (2026-11-12): 늘 같은 자리 — PC는 계산 칸 맨 아래에 붙고, 폰은 LONG/SHORT 바로 위 ---------- */
 .entry-action {
-  position: absolute;
-  left: 0;
-  top: 0;
-  z-index: 4;
+  position: sticky;
+  bottom: -28px; /* 패널 아래 여백(28px)만큼 내려 패널 바닥에 붙인다 */
+  z-index: 3;
   display: flex;
-  will-change: transform;
+  margin: 12px -14px 0;
+  padding: 10px 14px;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
 }
 
 .entry-action[hidden] {
@@ -3669,20 +3673,21 @@ a.watch-nodata:not(.has-quote) .watch-price {
 
 .entry-btn,
 .entry-open {
+  flex: 1;
   display: inline-flex;
   align-items: center;
-  min-height: 36px;
+  justify-content: center;
+  min-height: 44px;
   padding: 0 16px;
-  border-radius: 999px;
+  border-radius: 8px;
   border: 1px solid var(--entry);
   background: var(--entry);
   color: #111;
   font: inherit;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 800;
   text-decoration: none;
   cursor: pointer;
-  box-shadow: 0 2px 8px rgb(0 0 0 / 35%);
   touch-action: manipulation;
 }
 
@@ -3704,9 +3709,25 @@ a.watch-nodata:not(.has-quote) .watch-price {
 }
 
 @media (max-width: 640px) {
+  /* 진입 줄이 보일 때만 아래 고정 영역이 한 줄(60px) 늘어난다 */
+  :root:has(.entry-action:not([hidden])) {
+    --bottom-bar: calc(68px + 60px + var(--site-nav-h) + env(safe-area-inset-bottom));
+  }
+
+  .entry-action {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: calc(68px + var(--site-nav-h) + env(safe-area-inset-bottom));
+    z-index: 40;
+    margin: 0;
+    padding: 8px 12px 0;
+    background: var(--overlay);
+    backdrop-filter: blur(6px);
+  }
+
   .entry-btn,
   .entry-open {
-    min-height: 42px;
-    padding: 0 18px;
+    min-height: 44px;
   }
 }
