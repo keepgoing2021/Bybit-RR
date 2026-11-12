@@ -1,5 +1,5 @@
 import type { IPrimitivePaneRenderer, IPrimitivePaneView, ISeriesPrimitive, SeriesAttachedParameter, Time } from 'lightweight-charts';
-import { fmtUsdShort, type VolumePeak } from '../core/volumePeak';
+import { fmtRatio, fmtUsdShort, type VolumePeak } from '../core/volumePeak';
 import type { DrawMapper } from './drawingGeometry';
 import { THEME } from './theme';
 
@@ -16,6 +16,8 @@ export interface VolumePeakBox {
   h: number;
   /** 캔들 위쪽에 붙였는지 (자리가 없으면 아래) */
   above: boolean;
+  /** 가격 구간 띠 (고가~저가를 오른쪽으로 늘린 것) */
+  band: { x1: number; x2: number; yTop: number; yBottom: number };
 }
 
 const LABEL_H = 17;
@@ -23,7 +25,8 @@ const GAP = 7;
 
 /**
  * 하루 중 거래대금이 가장 큰 캔들에 「🔥 $35.2M」 이름표 (2026-11-11).
- * 캔들 고가 위에 붙이고, 위에 자리가 없으면 저가 아래. 손익비 박스·작도보다 아래에 깐다
+ * 캔들 고가 위에 붙이고, 위에 자리가 없으면 저가 아래. 손익비 박스·작도보다 아래에 깐다.
+ * 그 캔들의 고가~저가는 옅은 띠로 오른쪽(다음 날 끝까지)으로 늘린다 — 거래가 몰린 가격대라 손절·목표의 기준이 된다
  */
 export class VolumePeakPrimitive implements ISeriesPrimitive<Time> {
   private requestUpdate: (() => void) | null = null;
@@ -77,8 +80,30 @@ export class VolumePeakPrimitive implements ISeriesPrimitive<Time> {
         const yHigh = m.toY(p.high);
         const yLow = m.toY(p.low);
         if (x === null || yHigh === null || yLow === null) continue;
-        const text = `🔥 ${p.approx ? '≈' : ''}${fmtUsdShort(p.usd)}`;
+        const text = `🔥 ${p.approx ? '≈' : ''}${fmtUsdShort(p.usd)}${p.ratio !== null && p.ratio >= 1.05 ? ` · ${fmtRatio(p.ratio)}` : ''}`;
         const w = Math.ceil(ctx.measureText(text).width) + 12;
+        // 가격 구간 띠: 캔들부터 다음 날 끝까지 (화면 밖은 자른다)
+        const xEnd = m.toX(p.bandEnd);
+        const bx1 = Math.max(0, x);
+        const bx2 = Math.min(m.width, xEnd ?? m.width);
+        const yTop = Math.min(yHigh, yLow);
+        const yBottom = Math.max(yHigh, yLow);
+        if (bx2 > bx1) {
+          ctx.globalAlpha = 0.09;
+          ctx.fillStyle = THEME.entry;
+          ctx.fillRect(bx1, yTop, bx2 - bx1, Math.max(1, yBottom - yTop));
+          ctx.globalAlpha = 0.45;
+          ctx.strokeStyle = THEME.entry;
+          ctx.lineWidth = 1;
+          ctx.setLineDash([3, 4]);
+          ctx.beginPath();
+          ctx.moveTo(bx1, Math.round(yTop) + 0.5);
+          ctx.lineTo(bx2, Math.round(yTop) + 0.5);
+          ctx.moveTo(bx1, Math.round(yBottom) + 0.5);
+          ctx.lineTo(bx2, Math.round(yBottom) + 0.5);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
         if (x + w / 2 < 0 || x - w / 2 > m.width) continue;
         const above = yHigh - GAP - LABEL_H >= 2;
         const top = above ? yHigh - GAP - LABEL_H : yLow + GAP;
@@ -100,7 +125,7 @@ export class VolumePeakPrimitive implements ISeriesPrimitive<Time> {
         ctx.globalAlpha = 1;
         ctx.fillStyle = '#14161a';
         ctx.fillText(text, left + w / 2, Math.round(top) + LABEL_H / 2 + 0.5);
-        boxes.push({ time: p.time, usd: p.usd, text, x: left, y: Math.round(top), w, h: LABEL_H, above });
+        boxes.push({ time: p.time, usd: p.usd, text, x: left, y: Math.round(top), w, h: LABEL_H, above, band: { x1: bx1, x2: bx2, yTop, yBottom } });
       }
       ctx.restore();
       this.boxes = boxes;

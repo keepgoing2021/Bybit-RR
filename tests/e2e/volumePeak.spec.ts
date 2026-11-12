@@ -1,8 +1,8 @@
 import { expect, test, type Page } from '@playwright/test';
 
-// 하루 중 거래대금이 가장 큰 캔들 표시 (2026-11-11): 「🔥 $…」 이름표, 켜고 끄기, 일봉에서는 숨김
+// 하루 중 거래대금이 가장 큰 캔들 표시 (2026-11-11): 「🔥 $… · N배」 이름표 + 가격 구간 띠, 켜고 끄기, 일봉에서는 숨김
 
-type Box = { time: number; usd: number; text: string; x: number; y: number; w: number; h: number; above: boolean };
+type Box = { time: number; usd: number; text: string; x: number; y: number; w: number; h: number; above: boolean; band: { x1: number; x2: number; yTop: number; yBottom: number } };
 const boxes = (page: Page) => page.evaluate(() => (window as unknown as { __rrDebug: { getVolumePeakBoxes(): Box[] } }).__rrDebug.getVolumePeakBoxes());
 
 async function openCalc(page: Page) {
@@ -23,7 +23,11 @@ test('하루마다 하나씩 이름표가 붙고, 버튼으로 끄면 사라지�
   const days = list.map((b) => Math.floor(b.time / 86_400_000));
   expect(new Set(days).size).toBe(days.length);
   for (const b of list) {
-    expect(b.text).toMatch(/^🔥 ≈?\$[\d.]+[KMB]?$/);
+    // 금액 + 평소(앞 20봉 평균) 대비 배수
+    expect(b.text).toMatch(/^🔥 ≈?\$[\d.]+[KMB]?( · [\d.]+배)?$/);
+    // 가격 구간 띠: 캔들에서 오른쪽으로, 두께는 그 캔들의 고가~저가
+    expect(b.band.x2).toBeGreaterThan(b.band.x1);
+    expect(b.band.yBottom).toBeGreaterThan(b.band.yTop);
     expect(b.usd).toBeGreaterThan(0);
   }
   if (process.env.SHOT) await page.screenshot({ path: `${process.env.SHOT}/vol-pc.png` });
