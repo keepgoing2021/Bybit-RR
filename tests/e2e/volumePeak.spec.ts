@@ -1,8 +1,8 @@
 import { expect, test, type Page } from '@playwright/test';
 
-// 하루 중 거래대금이 가장 큰 캔들 표시 (2026-11-11): 「🔥 $… · N배」 이름표 + 가격 구간 띠, 켜고 끄기, 일봉에서는 숨김
+// 하루 중 거래대금이 가장 큰 캔들 표시 (2026-11-11): 「🔥 $… · N배」 이름표 (누르면 고가·저가 점선), 켜고 끄기, 일봉에서는 숨김
 
-type Box = { time: number; usd: number; text: string; x: number; y: number; w: number; h: number; above: boolean; band: { x1: number; x2: number; yTop: number; yBottom: number } };
+type Box = { time: number; usd: number; text: string; x: number; y: number; w: number; h: number; above: boolean; open: boolean; band: { x1: number; x2: number; yTop: number; yBottom: number } };
 const boxes = (page: Page) => page.evaluate(() => (window as unknown as { __rrDebug: { getVolumePeakBoxes(): Box[] } }).__rrDebug.getVolumePeakBoxes());
 
 async function openCalc(page: Page) {
@@ -25,12 +25,24 @@ test('하루마다 하나씩 이름표가 붙고, 버튼으로 끄면 사라지�
   for (const b of list) {
     // 금액 + 평소(앞 20봉 평균) 대비 배수
     expect(b.text).toMatch(/^🔥 ≈?\$[\d.]+[KMB]?( · [\d.]+배)?$/);
-    // 가격 구간 띠: 캔들에서 오른쪽으로, 두께는 그 캔들의 고가~저가
+    // 평소에는 이름표만 (가격 구간 선은 접혀 있다)
+    expect(b.open).toBe(false);
     expect(b.band.x2).toBeGreaterThan(b.band.x1);
     expect(b.band.yBottom).toBeGreaterThan(b.band.yTop);
     expect(b.usd).toBeGreaterThan(0);
   }
   if (process.env.SHOT) await page.screenshot({ path: `${process.env.SHOT}/vol-pc.png` });
+  // 이름표를 누르면 그 캔들만 선이 펼쳐지고, 다시 누르면 접힌다. 계산(박스)은 생기지 않는다
+  const chart = (await page.locator('.chart-wrap .chart').boundingBox())!;
+  const target = list[list.length - 1];
+  const tap = () => page.mouse.click(chart.x + target.x + target.w / 2, chart.y + target.y + target.h / 2);
+  const openTimes = async () => (await boxes(page)).filter((b) => b.open).map((b) => b.time);
+  await tap();
+  await expect.poll(openTimes).toEqual([target.time]);
+  if (process.env.SHOT) await page.screenshot({ path: `${process.env.SHOT}/vol-pc-open.png` });
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('rrtool.v1.state') ?? '{}').scenario ?? null)).toBeNull();
+  await tap();
+  await expect.poll(openTimes).toEqual([]);
   await toggle.click();
   await expect(toggle).toHaveAttribute('aria-pressed', 'false');
   await expect.poll(async () => (await boxes(page)).length).toBe(0);

@@ -16,22 +16,29 @@ export interface VolumePeakBox {
   h: number;
   /** 캔들 위쪽에 붙였는지 (자리가 없으면 아래) */
   above: boolean;
-  /** 가격 구간 띠 (고가~저가를 오른쪽으로 늘린 것) */
+  /** 이름표를 눌러 가격 구간 선(고가·저가 점선)을 펼쳤는지 */
+  open: boolean;
+  /** 가격 구간 (고가~저가를 오른쪽으로 늘린 자리). 선은 open일 때만 그린다 */
   band: { x1: number; x2: number; yTop: number; yBottom: number };
 }
 
 const LABEL_H = 17;
 const GAP = 7;
+/** 이름표 누름 범위 여유 (손가락으로도 눌리게) */
+const HIT_PAD = 8;
 
 /**
  * 하루 중 거래대금이 가장 큰 캔들에 「🔥 $35.2M」 이름표 (2026-11-11).
  * 캔들 고가 위에 붙이고, 위에 자리가 없으면 저가 아래. 손익비 박스·작도보다 아래에 깐다.
- * 그 캔들의 고가~저가는 옅은 띠로 오른쪽(다음 날 끝까지)으로 늘린다 — 거래가 몰린 가격대라 손절·목표의 기준이 된다
+ * 평소에는 이름표만 (2026-11-12: 늘 깔리던 옅은 띠가 거슬려서 뺐다). 이름표를 누르면 그 캔들의 고가·저가에
+ * 점선 2줄이 오른쪽(다음 날 끝까지)으로 나오고, 다시 누르면 꺼진다 — 거래가 몰린 가격대라 손절·목표의 기준이 된다
  */
 export class VolumePeakPrimitive implements ISeriesPrimitive<Time> {
   private requestUpdate: (() => void) | null = null;
   private peaks: readonly VolumePeak[] = [];
   private boxes: VolumePeakBox[] = [];
+  /** 가격 구간 선을 펼친 캔들 (시각) */
+  private readonly opened = new Set<number>();
   private readonly views: readonly IPrimitivePaneView[];
 
   constructor(private readonly mapper: () => DrawMapper | null) {
@@ -50,6 +57,7 @@ export class VolumePeakPrimitive implements ISeriesPrimitive<Time> {
   set(peaks: readonly VolumePeak[]): void {
     this.peaks = peaks;
     if (!peaks.length) this.boxes = [];
+    for (const t of this.opened) if (!peaks.some((p) => p.time === t)) this.opened.delete(t);
     this.requestUpdate?.();
   }
 
@@ -60,6 +68,15 @@ export class VolumePeakPrimitive implements ISeriesPrimitive<Time> {
   /** 마지막으로 그린 이름표 자리 */
   drawn(): readonly VolumePeakBox[] {
     return this.boxes;
+  }
+
+  /** (x, y)가 이름표 위면 그 캔들의 가격 구간 선을 켜고 끈다. 이름표를 눌렀으면 true */
+  toggleAt(x: number, y: number): boolean {
+    const b = this.boxes.find((q) => x >= q.x - HIT_PAD && x <= q.x + q.w + HIT_PAD && y >= q.y - HIT_PAD && y <= q.y + q.h + HIT_PAD);
+    if (!b) return false;
+    if (!this.opened.delete(b.time)) this.opened.add(b.time);
+    this.requestUpdate?.();
+    return true;
   }
 
   paneViews(): readonly IPrimitivePaneView[] {
@@ -82,17 +99,15 @@ export class VolumePeakPrimitive implements ISeriesPrimitive<Time> {
         if (x === null || yHigh === null || yLow === null) continue;
         const text = `🔥 ${p.approx ? '≈' : ''}${fmtUsdShort(p.usd)}${p.ratio !== null && p.ratio >= 1.05 ? ` · ${fmtRatio(p.ratio)}` : ''}`;
         const w = Math.ceil(ctx.measureText(text).width) + 12;
-        // 가격 구간 띠: 캔들부터 다음 날 끝까지 (화면 밖은 자른다)
+        // 가격 구간: 캔들부터 다음 날 끝까지 (화면 밖은 자른다). 이름표를 눌러 펼친 것만 점선 2줄
         const xEnd = m.toX(p.bandEnd);
         const bx1 = Math.max(0, x);
         const bx2 = Math.min(m.width, xEnd ?? m.width);
         const yTop = Math.min(yHigh, yLow);
         const yBottom = Math.max(yHigh, yLow);
-        if (bx2 > bx1) {
-          ctx.globalAlpha = 0.09;
-          ctx.fillStyle = THEME.entry;
-          ctx.fillRect(bx1, yTop, bx2 - bx1, Math.max(1, yBottom - yTop));
-          ctx.globalAlpha = 0.45;
+        const open = this.opened.has(p.time);
+        if (open && bx2 > bx1) {
+          ctx.globalAlpha = 0.7;
           ctx.strokeStyle = THEME.entry;
           ctx.lineWidth = 1;
           ctx.setLineDash([3, 4]);
@@ -125,7 +140,7 @@ export class VolumePeakPrimitive implements ISeriesPrimitive<Time> {
         ctx.globalAlpha = 1;
         ctx.fillStyle = '#14161a';
         ctx.fillText(text, left + w / 2, Math.round(top) + LABEL_H / 2 + 0.5);
-        boxes.push({ time: p.time, usd: p.usd, text, x: left, y: Math.round(top), w, h: LABEL_H, above, band: { x1: bx1, x2: bx2, yTop, yBottom } });
+        boxes.push({ time: p.time, usd: p.usd, text, x: left, y: Math.round(top), w, h: LABEL_H, above, open, band: { x1: bx1, x2: bx2, yTop, yBottom } });
       }
       ctx.restore();
       this.boxes = boxes;

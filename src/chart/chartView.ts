@@ -831,6 +831,13 @@ export class ChartView {
         this.placePoint(x, y);
         return;
       }
+      // 「🔥 거래 터진 곳」 이름표: 누르면 그 캔들의 고가·저가 선을 켜고 끈다 (차트·박스는 그대로)
+      if (!this.drag.hover(x, y) && this.volPrim.toggleAt(x, y)) {
+        e.preventDefault();
+        e.stopPropagation();
+        this.swallowPointer = true;
+        return;
+      }
       // 작도 위(SL·TP 선이 아닌 곳): 선택하고 끝점·몸통 끌기 시작
       const hit = this.drag.hover(x, y) ? null : this.drawingAt(x, y);
       if (hit) {
