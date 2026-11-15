@@ -39,7 +39,7 @@ import {
   type SizingPlan,
   type SizingSettings,
 } from '../core/sizing';
-import { barEnd, defaultSlTf, TIMEFRAMES, tfMs } from '../core/timeframe';
+import { barEnd, defaultSlTf, TIMEFRAMES, tfLabel, tfMs } from '../core/timeframe';
 import type { Candle, PriceTick, Side, SymbolInfo, Timeframe } from '../core/types';
 import type { SocketState } from '../data/bybit/socket';
 import { CandleStore } from '../data/candleStore';
@@ -321,8 +321,8 @@ export class App {
       formatTime: (ms) => formatTime(ms),
     });
     this.chart.setDefaultDrawColor(this.loadDrawColor());
-    this.chart.addLegendControl(this.el.structBtn);
-    this.chart.addLegendControl(this.el.volPeakBtn);
+    this.placeControls();
+    PHONE.addEventListener?.('change', () => this.placeControls());
     this.chart.onVolumePeakPeriod((p) => {
       this.volPeakPeriod = p;
       this.renderVolPeakBtn();
@@ -381,9 +381,11 @@ export class App {
       },
       {
         // 폰에서는 주문 설정이 접혀 있어 그 버튼을 비춘다
-        target: () => (e.sizing.bar.getClientRects().length ? e.sizing.bar : e.sizing.fold),
+        target: () => (e.sizing.bar.getClientRects().length ? e.sizing.bar : e.sizing.fold.getClientRects().length ? e.sizing.fold : e.moreBtn),
         title: '총 자산과 투입금',
-        body: '총 자산과 이번에 넣을 돈(투입금, 또는 손절 시 잃을 자산 %)을 적으면 분할 주문표가 계산됩니다. 분할 수·비중도 여기서 정합니다.',
+        body: PHONE.matches
+          ? '⋯ 를 누르면 총 자산과 이번에 넣을 돈(투입금, 또는 손절 시 잃을 자산 %), 분할 수·비중, SL 기준을 정할 수 있어요. 적으면 분할 주문표가 계산됩니다.'
+          : '총 자산과 이번에 넣을 돈(투입금, 또는 손절 시 잃을 자산 %)을 적으면 분할 주문표가 계산됩니다. 분할 수·비중도 여기서 정합니다.',
       },
       {
         target: () => e.chart.closest('.chart-wrap'),
@@ -902,6 +904,17 @@ export class App {
     watchBtn.addEventListener('click', () => this.setWatchOpen(!this.watchOpen));
     const field = (label: string, control: HTMLElement) => h('label', { class: 'field' }, h('span', {}, label), control);
     const sizing = this.buildSizing(field);
+    // 폰 (2026-11-15 「차트 우선」): 위는 종목 한 줄 + 시간봉 칩 한 줄. 나머지(시간봉 전체·SL 기준·주문 설정·
+    // 안내·테마·차트 표시 켜고 끄기)는 ⋯ 안으로. PC에서는 셋 다 숨김
+    const moreBtn = h('button', { type: 'button', class: 'more-toggle', 'data-testid': 'more-toggle', 'aria-expanded': 'false', 'aria-label': '설정 더 보기' }, '⋯');
+    const morePanel = h('div', { class: 'more-panel', 'data-testid': 'more-panel' });
+    const tfChips = h('div', { class: 'tf-chips', role: 'group', 'aria-label': '시간봉', 'data-testid': 'tf-chips' });
+    tfChips.addEventListener('click', (ev) => {
+      const b = (ev.target as Element).closest<HTMLButtonElement>('button[data-tf]');
+      if (!b || b.dataset.tf === tf.value) return;
+      tf.value = b.dataset.tf!;
+      tf.dispatchEvent(new Event('change'));
+    });
     const topbar = h(
       'header',
       { class: 'topbar' },
@@ -920,7 +933,15 @@ export class App {
       sizing.fold,
       sizing.bar,
       flow.root,
+      moreBtn,
+      tfChips,
+      morePanel,
     );
+    // 「종목 · 차트 · SL 기준」 칸을 폰 CSS에서 따로 놓으려고 이름을 붙인다
+    picker.root.closest('.field')?.classList.add('field-symbol');
+    tf.closest('.field')?.classList.add('field-tf');
+    sltf.closest('.field')?.classList.add('field-sltf');
+    moreBtn.addEventListener('click', () => this.setMoreOpen(topbar.dataset.more !== 'open'));
 
     const loadError = h('div', { class: 'banner error', 'data-testid': 'load-error', hidden: true });
 
@@ -1163,7 +1184,15 @@ export class App {
     // 칸을 나누면 왼쪽에 「계산기 칸」이 어느 것인지 (노란 테두리 칸)
     const mainLabel = h('span', { class: 'chart-head-main', 'data-testid': 'split-main-label' });
     // 「안내」·「라이트」는 자주 안 누르니 차트 위 줄 오른쪽 끝으로 (2026-11-06: 위쪽 줄은 거래에 쓰는 것만)
-    const chartHead = h('div', { class: 'chart-head' }, mainLabel, splitGroup, h('div', { class: 'chart-head-tools' }, tourBtn, themeBtn));
+    const chartHeadTools = h('div', { class: 'chart-head-tools' }, tourBtn, themeBtn);
+    const chartHead = h('div', { class: 'chart-head' }, mainLabel, splitGroup, chartHeadTools);
+    // 차트만 크게 (2026-11-15): ⤢ 를 누르면 차트가 화면 전체, 다시 누르면(또는 Esc) 원래대로
+    const fullBtn = h('button', { type: 'button', class: 'chart-full-btn', 'data-testid': 'chart-full', 'aria-pressed': 'false', 'aria-label': '차트만 크게 보기', title: '차트만 크게 보기 (Esc로 돌아오기)' }, '⤢');
+    fullBtn.addEventListener('click', () => this.setChartFull(document.documentElement.dataset.chartFull !== 'true'));
+    document.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Escape' && document.documentElement.dataset.chartFull === 'true') this.setChartFull(false);
+    });
+    chartWrap.append(fullBtn);
     const symbolList = h('datalist', { id: 'pane-symbols' });
     const panes = h('div', { class: 'panes', 'data-split': '1' }, chartWrap);
     const chartArea = h('section', { class: 'chart-area' }, chartHead, panes, symbolList);
@@ -1258,6 +1287,7 @@ export class App {
       picker, tf, sltf, long, short, status, statusReason, themeBtn, structBtn, volPeakBtn, volPeakPeriod,
       loadError, chart, empty, card, sideChip, title, entry, times, planOld, rr, rrInput, rrLabel, rrChips, rrTp, rrProfitNote, reasons, bufferInput, bufferChips, bufferNote,
       sl, tp, slWhy, sizing, restore, del, settingsInputs, settingRows, modeHelp, settingsSummaryEl, toast, undo, tools, tour, flow, watch, watchBtn, watchHandle, layout, panes, splitBtns, symbolList, mainLabel, journalForm, journalWarn, nav,
+      topbar, moreBtn, morePanel, tfChips, chartHeadTools, tourBtn, fullBtn,
     };
   }
 
@@ -1894,6 +1924,50 @@ export class App {
     this.renderJournal();
   }
 
+  /** 폰 시간봉 칩: 자주 쓰는 것 + (그 밖의 것을 고른 경우) 지금 시간봉 */
+  private renderTfChips(): void {
+    const e = this.el;
+    const list: Timeframe[] = (['1', '5', '15', '60', '240', 'D', 'W'] as Timeframe[]).slice();
+    if (!list.includes(this.ui.timeframe)) list.push(this.ui.timeframe);
+    const key = list.join(',') + '|' + this.ui.timeframe;
+    if (e.tfChips.dataset.key === key) return;
+    e.tfChips.dataset.key = key;
+    e.tfChips.replaceChildren(
+      ...list.map((t) => h('button', { type: 'button', class: 'tf-chip', 'data-tf': t, 'data-testid': `tf-chip-${t}`, 'aria-pressed': String(t === this.ui.timeframe) }, tfLabel(t))),
+    );
+  }
+
+  /** 폰이면 안내·테마·차트 표시 버튼을 ⋯ 안으로, PC면 원래 자리(차트 위 줄 · 차트 범례)로 */
+  private placeControls(): void {
+    const e = this.el;
+    if (PHONE.matches) {
+      e.morePanel.append(e.structBtn, e.volPeakBtn, e.tourBtn, e.themeBtn);
+    } else {
+      this.chart.addLegendControl(e.structBtn);
+      this.chart.addLegendControl(e.volPeakBtn);
+      e.chartHeadTools.append(e.tourBtn, e.themeBtn);
+      this.setMoreOpen(false);
+    }
+  }
+
+  private setMoreOpen(open: boolean): void {
+    const e = this.el;
+    e.topbar.dataset.more = open ? 'open' : 'closed';
+    e.moreBtn.setAttribute('aria-expanded', String(open));
+    e.moreBtn.setAttribute('aria-label', open ? '설정 닫기' : '설정 더 보기');
+    setText(e.moreBtn, open ? '✕' : '⋯');
+  }
+
+  private setChartFull(on: boolean): void {
+    const e = this.el;
+    document.documentElement.dataset.chartFull = String(on);
+    e.fullBtn.setAttribute('aria-pressed', String(on));
+    e.fullBtn.setAttribute('aria-label', on ? '원래 화면으로' : '차트만 크게 보기');
+    e.fullBtn.title = on ? '원래 화면으로 (Esc)' : '차트만 크게 보기 (Esc로 돌아오기)';
+    setText(e.fullBtn, on ? '⤡' : '⤢');
+    if (on) this.setMoreOpen(false);
+  }
+
   private renderTopbar(): void {
     const e = this.el;
     e.picker.setValue(this.ui.symbol);
@@ -1902,6 +1976,7 @@ export class App {
     setText(e.mainLabel, this.split.n > 1 && !PHONE.matches ? `노란 테두리 = 계산기 칸 · ${this.ui.symbol} ${tfName(this.ui.timeframe)} · 다른 칸은 차트를 클릭하면 계산기 칸이 돼요` : '');
     this.renderPaneBadges();
     e.tf.value = this.ui.timeframe;
+    this.renderTfChips();
     // SL 기준: 모든 SL 방식에서 고를 수 있다. 차트와 같은 시간봉에는 '(차트)' 표시
     // 폰은 칸이 좁아 차트와 같은 시간봉을 '차트와 같음'으로 짧게 (옆 칸이 차트 시간봉)
     const chartMark = (t: Timeframe) => (PHONE.matches ? '차트와 같음' : `${tfName(t)} (차트)`);

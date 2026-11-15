@@ -9,7 +9,7 @@ async function openCalc(page: Page) {
   await page.goto('/tests/harness/index.html?speed=1');
   await page.evaluate(() => localStorage.clear());
   await page.reload();
-  await page.getByTestId('tf').selectOption('15');
+  await page.getByTestId('tf').selectOption('15', { force: true }); // 폰에서는 ⋯ 안에 숨어 있다
   await expect(page.getByTestId('btn-long')).toBeEnabled({ timeout: 20_000 });
 }
 
@@ -34,8 +34,10 @@ for (const [name, size] of [['PC', { width: 1280, height: 800 }], ['폰', { widt
     expect(box.y + box.height).toBeLessThanOrEqual(size.height);
     if (size.width > 640) expect(box.x).toBeGreaterThanOrEqual(chart.x + chart.width);
     else {
+      // 폰: LONG/SHORT와 같은 줄 오른쪽 (2026-11-15), 차트 아래
       expect(box.y).toBeGreaterThanOrEqual(chart.y + chart.height);
-      expect(box.y + box.height).toBeLessThanOrEqual(long.y);
+      expect(Math.abs(box.y - long.y)).toBeLessThanOrEqual(2);
+      expect(box.x).toBeGreaterThan(long.x + long.width);
     }
     await enter.click();
     await expect(page.getByTestId('undo-link')).toBeVisible();

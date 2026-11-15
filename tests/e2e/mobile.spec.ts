@@ -56,6 +56,9 @@ test('phone: chart on the first screen, big LONG/SHORT fixed at the bottom, no s
 
 test('phone: order settings fold into one summary line; tap to open, edits update the summary', async ({ page }) => {
   await open(page);
+  // 2026-11-15: 주문 설정은 ⋯ 안으로
+  await expect(page.getByTestId('sizing-toggle')).toBeHidden();
+  await page.getByTestId('more-toggle').tap();
   const fold = page.getByTestId('sizing-toggle');
   await expect(fold).toBeVisible();
   await expect(fold).toHaveText('운영자산 입력 · 1% · 3분할 1:2:3');
@@ -91,13 +94,14 @@ test('phone: order settings fold into one summary line; tap to open, edits updat
   expect(toast.bottom).toBeLessThanOrEqual(barTop);
 });
 
-test('phone: theme switch is an icon button (chart head strip) and works by tap', async ({ page }) => {
+test('phone: theme switch sits in the ⋯ menu and works by tap', async ({ page }) => {
   await open(page);
   const toggle = page.getByTestId('theme-toggle');
+  await expect(toggle).toBeHidden();
+  await page.getByTestId('more-toggle').tap();
   const r = await rect(page, 'theme-toggle');
   expect(r.right).toBeLessThanOrEqual(390);
-  expect(r.width).toBeGreaterThanOrEqual(32);
-  await expect(toggle.locator('.label')).toBeHidden();
+  expect(r.height).toBeGreaterThanOrEqual(32);
   await toggle.tap();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
   const barBg = await page.locator('.topbar > .sides').evaluate((el) => getComputedStyle(el).backgroundColor);
@@ -137,7 +141,7 @@ test('phone: the first-use tour fits the screen at every step; the fold button s
   const targets = [
     '.topbar .field:has([data-testid=symbol])',
     '.topbar .sides',
-    '[data-testid=sizing-toggle]',
+    '[data-testid=more-toggle]',
     '.chart-wrap',
     '.panel .scenario',
   ];
@@ -169,10 +173,11 @@ test('phone: the first-use tour fits the screen at every step; the fold button s
     await page.getByTestId('tour-next').tap();
   }
   await expect(page.getByTestId('tour')).toBeHidden();
+  // 「?」 안내는 ⋯ 안에서 다시 열 수 있다
+  await page.getByTestId('more-toggle').tap();
   const q = await rect(page, 'tour-open');
-  expect(q.width).toBeGreaterThanOrEqual(32);
-  expect(q.right).toBeLessThanOrEqual((await rect(page, 'theme-toggle')).left);
-  await expect(page.getByTestId('tour-open').locator('.label')).toBeHidden();
+  expect(q.height).toBeGreaterThanOrEqual(32);
+  expect(q.right).toBeLessThanOrEqual(390);
 });
 
 test('phone: panel RR chips sit in one row inside the screen, big enough to tap, and move TP', async ({ page }) => {
@@ -198,6 +203,7 @@ test('phone: panel RR chips sit in one row inside the screen, big enough to tap,
 
 test('phone: fee tier buttons fit one row, big enough to tap, and change the fee', async ({ page }) => {
   await open(page);
+  await page.getByTestId('more-toggle').tap();
   await page.getByTestId('sizing-toggle').tap();
   await page.getByTestId('sizing-capital').fill('10000');
   await page.getByTestId('sizing-capital').press('Enter');
@@ -223,7 +229,7 @@ test('phone: fee tier buttons fit one row, big enough to tap, and change the fee
 
 test('phone: the stop-hunting zone label stays clear of the SL / target / RR labels', async ({ page }) => {
   await open(page);
-  await page.getByTestId('tf').selectOption('D');
+  await page.getByTestId('tf-chip-D').tap();
   await expect(page.getByTestId('feed-status')).toHaveAttribute('data-state', 'live', { timeout: 20_000 });
   await page.getByTestId('btn-long').tap();
   await expect.poll(() => page.evaluate(() => (window as unknown as W).__rrDebug.getScenario())).not.toBeNull();
@@ -273,4 +279,55 @@ test('phone: 스탑 털림 방지 row under the SL row fits the screen with tapp
 test('phone: no 5-minute board (top right is for wide screens only)', async ({ page }) => {
   await open(page);
   await expect(page.getByTestId('flow')).toBeHidden();
+});
+
+// 2026-11-15 「차트 우선」: 위 두 줄 + 아래 버튼 한 줄, 나머지는 ⋯ 안, 차트만 크게
+test('phone: chart takes most of the screen; time-frame chips switch the chart; ⋯ opens the rest', async ({ page }) => {
+  await open(page);
+  const chart = await rect(page, 'chart');
+  expect(chart.top).toBeLessThan(100); // 위는 종목 줄 + 시간봉 칩 줄
+  const long = await rect(page, 'btn-long');
+  expect(chart.bottom).toBeGreaterThan(long.top - 80); // 차트가 아래 버튼 줄 가까이까지
+  expect(chart.height).toBeGreaterThanOrEqual(400);
+  for (const id of ['tf', 'sltf', 'sizing-toggle', 'theme-toggle', 'tour-open', 'structure-toggle', 'volpeak-toggle']) await expect(page.getByTestId(id), id).toBeHidden();
+  await page.getByTestId('tf-chip-60').tap();
+  await expect(page.getByTestId('tf-chip-60')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('tf')).toHaveValue('60');
+  await page.getByTestId('more-toggle').tap();
+  for (const id of ['tf', 'sltf', 'sizing-toggle', 'theme-toggle', 'tour-open', 'structure-toggle', 'volpeak-toggle']) await expect(page.getByTestId(id), id).toBeVisible();
+  // ⋯ 의 시간봉 칸에서 칩에 없는 시간봉(30분)을 고르면 칩 줄에도 나온다
+  await page.getByTestId('tf').selectOption('30');
+  await expect(page.getByTestId('tf-chip-30')).toHaveAttribute('aria-pressed', 'true');
+  await page.getByTestId('more-toggle').tap();
+  await expect(page.getByTestId('sltf')).toBeHidden();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+});
+
+test('phone: 진입 기록 sits in the LONG/SHORT row (no extra row)', async ({ page }) => {
+  await open(page);
+  const before = await rect(page, 'chart');
+  await page.getByTestId('btn-long').tap();
+  const enter = page.getByTestId('vt-enter');
+  await expect(enter).toBeVisible();
+  const e = await rect(page, 'vt-enter');
+  const s = await rect(page, 'btn-short');
+  expect(Math.abs(e.top - s.top)).toBeLessThanOrEqual(2);
+  expect(e.left).toBeGreaterThanOrEqual(s.right);
+  expect(e.right).toBeLessThanOrEqual(390);
+  expect((await rect(page, 'chart')).height).toBeGreaterThanOrEqual(before.height - 1); // 차트가 줄지 않는다
+});
+
+test('phone: ⤢ shows only the chart (full screen); tapping again brings everything back', async ({ page }) => {
+  await open(page);
+  const full = page.getByTestId('chart-full');
+  await full.tap();
+  await expect(full).toHaveAttribute('aria-pressed', 'true');
+  const c = await rect(page, 'chart');
+  expect(c.top).toBeLessThanOrEqual(1);
+  expect(c.height).toBeGreaterThanOrEqual(640);
+  await expect(page.getByTestId('btn-long')).toBeHidden();
+  await expect(page.getByTestId('site-nav')).toBeHidden();
+  await full.tap();
+  await expect(page.getByTestId('btn-long')).toBeVisible();
+  expect((await rect(page, 'chart')).top).toBeGreaterThan(40);
 });

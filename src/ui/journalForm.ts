@@ -60,7 +60,11 @@ export class EntryButton {
     show(this.enter, !mine);
     show(this.open, !!mine);
     setText(this.enter, `${scenario.side === 'LONG' ? '롱' : '숏'} 진입 기록`);
-    if (mine) setText(this.open, mine.exit === null ? '✓ 진행 중 · 매매일지에서 보기 ›' : '✓ 청산됨 · 매매일지에서 보기 ›');
+    // 폰은 LONG/SHORT 옆 좁은 칸이라 뒤쪽 설명(.entry-more)을 CSS로 숨긴다
+    if (mine && this.open.dataset.state !== String(mine.exit === null)) {
+      this.open.dataset.state = String(mine.exit === null);
+      this.open.replaceChildren(mine.exit === null ? '✓ 진행 중' : '✓ 청산됨', h('span', { class: 'entry-more' }, ' · 매매일지에서 보기'), ' ›');
+    }
     const noSl = scenario.applied.sl === null;
     this.enter.disabled = noSl;
     this.enter.title = noSl ? '손절가가 있어야 진입할 수 있어요 (R을 계산하려고)' : '가상 진입 — 매매일지에 올리고 손절·목표에 닿으면 자동 청산';

@@ -10,7 +10,7 @@ async function openCalc(page: Page) {
   await page.goto('/tests/harness/index.html?speed=1');
   await page.evaluate(() => localStorage.clear());
   await page.reload();
-  await page.getByTestId('tf').selectOption('15');
+  await page.getByTestId('tf').selectOption('15', { force: true }); // 폰에서는 ⋯ 안에 숨어 있다
   await expect(page.getByTestId('btn-long')).toBeEnabled({ timeout: 20_000 });
 }
 
@@ -109,7 +109,7 @@ test('하루 기준: 넓게 보면(4시간봉) 한 주에 하나로 바뀌고 �
   const weeks = list.map((b) => Math.floor((b.time / 86_400_000 - 4) / 7));
   expect(new Set(weeks).size).toBe(weeks.length);
   noOverlap(list);
-  await page.getByTestId('tf').selectOption('15');
+  await page.getByTestId('tf').selectOption('15', { force: true }); // 폰에서는 ⋯ 안에 숨어 있다
   await expect(period(page)).toHaveText(' · 하루');
 });
 
