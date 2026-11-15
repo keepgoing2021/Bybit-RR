@@ -331,3 +331,34 @@ test('phone: ⤢ shows only the chart (full screen); tapping again brings everyt
   await expect(page.getByTestId('btn-long')).toBeVisible();
   expect((await rect(page, 'chart')).top).toBeGreaterThan(40);
 });
+
+test('phone: tapping a drawing shows the edit bar with a big 🗑 button that deletes it (no Delete key on phones)', async ({ page }) => {
+  type DD = { getDrawings(): { drawings: { id: string; kind: string }[]; handles: Record<string, { x: number; y: number }[]> }; chartClientRect(): DOMRect };
+  const dbg = () => page.evaluate(() => (window as unknown as { __rrDebug: DD }).__rrDebug.getDrawings());
+  const cr = () => page.evaluate(() => (window as unknown as { __rrDebug: DD }).__rrDebug.chartClientRect());
+  // 가로 화면에서 수평선 하나 그리기
+  await page.setViewportSize({ width: 844, height: 390 });
+  await open(page);
+  await page.getByTestId('draw-toggle').tap();
+  await page.getByTestId('draw-hline').tap();
+  let r = await cr();
+  await page.touchscreen.tap(r.left + r.width * 0.5, r.top + r.height * 0.4);
+  await expect.poll(async () => (await dbg()).drawings.length).toBe(1);
+  // 세로로 돌려서 선을 누르면 편집 막대 + 지우기
+  await page.setViewportSize({ width: 390, height: 664 });
+  await page.waitForTimeout(300);
+  const d = await dbg();
+  const hs = d.handles[d.drawings[0].id];
+  r = await cr();
+  await page.touchscreen.tap(r.left + r.width * 0.35, r.top + hs[0].y);
+  const bar = page.getByTestId('draw-edit');
+  await expect(bar).toBeVisible();
+  const del = await rect(page, 'draw-delete');
+  expect(del.width).toBeGreaterThanOrEqual(36);
+  const b = await bar.evaluate((el) => el.getBoundingClientRect().toJSON() as DOMRect);
+  expect(b.left).toBeGreaterThanOrEqual(0);
+  expect(b.right).toBeLessThanOrEqual(390);
+  await page.getByTestId('draw-delete').tap();
+  await expect.poll(async () => (await dbg()).drawings.length).toBe(0);
+  await expect(bar).toBeHidden();
+});

@@ -1819,9 +1819,26 @@ button.weights-preset.active {
   }
 
   .draw-toolbar,
-  .draw-hint,
-  .draw-edit {
+  .draw-hint {
     display: none !important;
+  }
+
+  /* 선택한 작도 편집 막대: 폰엔 Delete 키가 없어 🗑 버튼이 유일한 지우기 수단 → 크게, 차트 위쪽 가운데 */
+  .draw-edit {
+    top: 6px;
+    max-width: calc(100% - 16px);
+    gap: 5px;
+    padding: 4px 6px;
+  }
+
+  .draw-edit .swatch-custom,
+  .draw-edit [data-testid='draw-color-reset'] {
+    display: none;
+  }
+
+  .draw-edit .draw-tool {
+    width: 40px;
+    height: 34px;
   }
 
   .chart-wrap .chart,
