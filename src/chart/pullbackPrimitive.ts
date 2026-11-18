@@ -1,5 +1,5 @@
 import type { IPrimitivePaneRenderer, IPrimitivePaneView, ISeriesPrimitive, SeriesAttachedParameter, Time } from 'lightweight-charts';
-import type { PullbackSignal } from '../core/pullback';
+import { TURN_NAME, type PullbackSignal } from '../core/pullback';
 import type { DrawMapper } from './drawingGeometry';
 import { THEME } from './theme';
 
@@ -57,19 +57,23 @@ export class PullbackPrimitive implements ISeriesPrimitive<Time> {
         const right = Math.round(x2 + 6) + 0.5;
         const top = Math.round(yTop - 5) + 0.5;
         const bottom = Math.round(yBot + 5) + 0.5;
-        ctx.globalAlpha = 0.08;
+        // 1차(이른 신호)는 점선 + 흐리게, 2차(확인)는 실선 + 진하게
+        const early = s.kind === 'aggr';
+        ctx.globalAlpha = early ? 0.05 : 0.1;
         ctx.fillStyle = color;
         ctx.fillRect(left, top, right - left, bottom - top);
-        ctx.globalAlpha = 0.95;
+        ctx.globalAlpha = early ? 0.75 : 0.95;
         ctx.strokeStyle = color;
-        ctx.lineWidth = 1.5;
+        ctx.lineWidth = early ? 1.25 : 2;
+        ctx.setLineDash(early ? [4, 3] : []);
         ctx.beginPath();
         ctx.roundRect(left, top, right - left, bottom - top, 4);
         ctx.stroke();
+        ctx.setLineDash([]);
         // 이름표: 매수는 상자 아래, 매도는 상자 위
         ctx.fillStyle = color;
         ctx.textBaseline = long ? 'top' : 'bottom';
-        ctx.fillText(long ? '변곡? ▲' : '변곡? ▼', (left + right) / 2, long ? bottom + 3 : top - 3);
+        ctx.fillText(`변곡? ${TURN_NAME[s.kind]} ${long ? '▲' : '▼'}`, (left + right) / 2, long ? bottom + 3 : top - 3);
       }
       ctx.restore();
     });

@@ -1,94 +1,81 @@
 import { describe, expect, it } from 'vitest';
-import { detectPullbacks, haCandles, heikinAshi, pullbackSignals, type PullbackBar } from '../../src/core/pullback';
+import { detectTurns, haCandles, heikinAshi, pullbackSignals, type TurnBar } from '../../src/core/pullback';
 import type { Candle } from '../../src/core/types';
 
-// 'U' = 정배열 양봉, 'u' = 정배열 음봉, 'D' = 역배열 음봉, 'd' = 역배열 양봉, '-' = MA 없음(초반)
-function bars(code: string): PullbackBar[] {
-  return [...code].map((ch, i) => ({
-    time: i * 60_000,
-    green: ch === 'U' || ch === 'd',
-    side: ch === '-' ? null : ch === 'U' || ch === 'u' ? 'up' : 'down',
-  }));
+// 봉 한 글자 = 하이킨아시 색 + 종가와 MA20(f)·MA100(s) 위치 (롱 기준)
+//  역배열 MA(f 90 < s 100):  R 음봉 종가 80(두 MA 아래)  g 양봉 85(MA20 아래)  G 양봉 95(MA20 위)  p 음봉 92(MA20 위)  x 음봉 85(MA20 아래로 마감)
+//  정배열 MA(f 110 > s 100): U 양봉 115(둘 다 위)  q 음봉 112(MA20 위)  y 음봉 105(MA20 아래로 마감)
+const CODE: Record<string, [boolean, number, number, number]> = {
+  R: [false, 80, 90, 100],
+  g: [true, 85, 90, 100],
+  G: [true, 95, 90, 100],
+  p: [false, 92, 90, 100],
+  x: [false, 85, 90, 100],
+  U: [true, 115, 110, 100],
+  q: [false, 112, 110, 100],
+  y: [false, 105, 110, 100],
+};
+function bars(code: string): TurnBar[] {
+  return [...code].map((ch, i) => {
+    const [green, close, f, s] = CODE[ch];
+    return { time: i * 60_000, green, close, f, s };
+  });
 }
-const at = (code: string, minWave = 3) => detectPullbacks(bars(code), minWave).map((s) => `${s.dir}@${s.index}`);
+const at = (code: string) => detectTurns(bars(code), { wave: 3, pull: 2, maxBars: 15 }).map((s) => `${s.kind}@${s.index}`);
 
-describe('detectPullbacks — 역배열 음봉 파동 → 양봉 파동 → 정배열 → 음봉 눌림 → 다시 양봉 (교집합)', () => {
-  it('음봉 3 → 양봉 3(전환) → 음봉 3 → 양봉 = 롱 신호 (그 양봉 자리)', () => {
-    expect(at('DDDUUUuuuU')).toEqual(['long@9']);
+describe('detectTurns — 「변곡? 공격」 역배열 바닥 근처 (노랑)', () => {
+  it('역배열 음봉 3 → 양봉이 MA20 위로 → MA20 위 음봉 2 → 양봉 = 공격 신호', () => {
+    expect(at('RRRgGGppG')).toEqual(['aggr@8']);
   });
 
-  it('숏은 정반대', () => {
-    expect(at('UUUDDDdddD')).toEqual(['short@9']);
+  it('상자는 눌림 첫 봉부터 신호 봉까지', () => {
+    const [s] = detectTurns(bars('RRRgGGppG'), { wave: 3, pull: 2, maxBars: 15 });
+    expect([s.fromIndex, s.index]).toEqual([6, 8]);
   });
 
-  it('음봉 파동이 역배열 안에서(두 MA가 캔들 위) 3개+ 나와야 한다 — 역배열이 아닌 음봉은 안 셈 (사용자 지적)', () => {
-    // 음봉 파동 4개 중 역배열 상태는 1개뿐 (나머지는 MA 사이 = '-')
-    expect(at('U---DUUUuuuU')).toEqual([]);
-    expect(at('UDDDUUUuuuU')).toEqual(['long@10']);
+  it('역배열 음봉 파동이 3개 미만이면 시작 안 함', () => {
+    expect(at('RRgGGppG')).toEqual([]);
   });
 
-  it('전환 앞에 강한 음봉 파동(3개+)이 없으면 신호 없음', () => {
-    expect(at('DDUUUuuuU')).toEqual([]);
-    expect(at('DdddUuuuU')).toEqual([]);
+  it('눌림 음봉이 1개뿐이면 신호 없음 (다시 MA20 위 파동으로)', () => {
+    expect(at('RRRGGpG')).toEqual([]);
+    expect(at('RRRGGpGppG')).toEqual(['aggr@9']);
   });
 
-  it('첫 양봉 파동이 3개 미만이면 신호 없음', () => {
-    expect(at('DDDUUuuuU')).toEqual([]);
+  it('눌림 중 MA20 아래로 마감하면 무효 → MA20 위로 다시 올라서는 것부터 기다림', () => {
+    expect(at('RRRGGpxpG')).toEqual([]);
+    expect(at('RRRGGpxGppG')).toEqual(['aggr@10']);
   });
 
-  it('음봉 눌림이 3개 미만이면 그 양봉부터 첫 파동을 다시 센다', () => {
-    expect(at('DDDUUUuuUuuuU')).toEqual([]);
-    expect(at('DDDUUUuuUUUuuuU')).toEqual(['long@14']);
-  });
-
-  it('첫 양봉 파동이 역배열 때부터 이어져 와도 된다 (전환 순간에 거꾸로 센다)', () => {
-    expect(at('DDDdddUuuuU')).toEqual(['long@10']);
-  });
-
-  it('첫 파동이 끝나고 눌림 중에 전환해도 된다 (그 앞 음봉 파동도 필요)', () => {
-    expect(at('DDDddduuuU')).toEqual(['long@9']);
-    expect(at('DddduuuU')).toEqual([]);
-  });
-
-  it('매수 변곡은 짧은 MA가 긴 MA 위에 있을 때만 — 눌림 중 MA 순서가 뒤집히면 무효 (가격이 MA 사이여도)', () => {
-    const b = bars('DDDUUUuuuU');
-    b[7] = { ...b[7], side: null, maUp: false };
-    expect(detectPullbacks(b, 3)).toEqual([]);
-    const ok = bars('DDDUUUuuuU');
-    ok[7] = { ...ok[7], side: null, maUp: true };
-    expect(detectPullbacks(ok, 3).map((x) => x.index)).toEqual([9]);
-  });
-
-  it('음봉 눌림 중 역배열로 돌아가면 무효', () => {
-    expect(at('DDDUUUuuDdU')).toEqual([]);
-  });
-
-  it('신호는 전환 한 번에 한 번만', () => {
-    expect(at('DDDUUUuuuUUUuuuU')).toEqual(['long@9']);
-  });
-
-  it('처음부터 정배열이면(전환을 못 봤으면) 신호 없음', () => {
-    expect(at('UUUuuuU')).toEqual([]);
-    expect(at('--UUUuuuU')).toEqual([]);
-  });
-
-  it('파동 개수를 바꿀 수 있다 (2개)', () => {
-    expect(at('DDUUuuU', 2)).toEqual(['long@6']);
-  });
-
-  it('테두리 상자는 눌림 파동 첫 봉부터 신호 봉까지', () => {
-    const [s] = detectPullbacks(bars('DDDUUUuuuU'), 3);
-    expect([s.fromIndex, s.index]).toEqual([6, 9]);
-    const [r] = detectPullbacks(bars('DDDUUUuuUUUuuuU'), 3);
-    expect(r.fromIndex).toBe(11);
+  it('바닥 하나에 공격은 한 번만', () => {
+    expect(at('RRRGGppGppG')).toEqual(['aggr@7']);
   });
 });
 
-describe('detectPullbacks — 전환 후 기한', () => {
-  it('전환 후 maxBars봉 안에 완성될 때만 신호 (늦게 완성되면 버림)', () => {
-    // 전환 3번 봉 → 신호 9번 봉: 6봉 뒤
-    expect(detectPullbacks(bars('DDDUUUuuuU'), 3, 6).map((x) => x.index)).toEqual([9]);
-    expect(detectPullbacks(bars('DDDUUUuuuU'), 3, 5)).toEqual([]);
+describe('detectTurns — 「변곡? 안정」 정배열 후 MA20 지지 (주황)', () => {
+  it('역배열 음봉 3 → 정배열(MA20 > MA100, 가격 둘 다 위) → MA20 위 음봉 2 → 양봉 = 안정 신호', () => {
+    expect(at('RRRgGGUUqqU')).toEqual(['stable@10']);
+  });
+
+  it('공격 → 안정 둘 다 나올 수 있다', () => {
+    expect(at('RRRGGppGUUqqU')).toEqual(['aggr@7', 'stable@12']);
+  });
+
+  it('눌림 중 MA20 아래로 마감하면 무효', () => {
+    expect(at('RRRUUqyU')).toEqual([]);
+  });
+
+  it('정배열 전환 후 15봉 넘어서 시작한 눌림은 안 셈 (한참 오른 뒤 금지)', () => {
+    expect(at(`RRR${'U'.repeat(17)}qqU`)).toEqual([]);
+    expect(at(`RRR${'U'.repeat(10)}qqU`)).toEqual(['stable@15']);
+  });
+
+  it('바닥(역배열 음봉 파동) 없이 처음부터 정배열이면 신호 없음', () => {
+    expect(at('UUUqqU')).toEqual([]);
+  });
+
+  it('바닥 하나에 안정도 한 번만', () => {
+    expect(at('RRRUUqqUqqU')).toEqual(['stable@7']);
   });
 });
 
@@ -110,55 +97,51 @@ describe('heikinAshi', () => {
     ];
     const ha = heikinAshi(c);
     expect(ha[0]).toMatchObject({ open: 11, close: 11 });
-    expect(ha[1].open).toBe(11);
-    expect(ha[1].close).toBe(13.5);
-    expect(ha[1].high).toBe(16);
-    expect(ha[1].low).toBe(11);
+    expect(ha[1]).toMatchObject({ open: 11, close: 13.5, high: 16, low: 11 });
   });
 });
 
-describe('pullbackSignals — MA20이 MA100 위 + 가격이 둘 다 위 = 정배열 (실제 캔들로)', () => {
+describe('pullbackSignals — 실제 캔들 (매수·매도 대칭, 마감 봉만)', () => {
   function path(closes: number[]): Candle[] {
     return closes.map((c, i) => {
       const o = i === 0 ? c : closes[i - 1];
       return { time: i * 60_000, open: o, close: c, high: Math.max(o, c), low: Math.min(o, c), volume: 1, confirmed: true };
     });
   }
-  // 120봉 하락 → rally봉 급등(+3) → 5봉 눌림(−2) → 4봉 반등(+3). 급등 25봉이면 MA20이 MA100을 넘어 정배열이 되는 건 140번 봉
-  // (급등은 120번부터 — 첫 양봉 파동이 역배열 때 시작)
-  function closes(rally: number): number[] {
+  // 120봉 하락 → 25봉 급등 → 5봉 눌림 → 4봉 반등
+  const up = (() => {
     const a = Array.from({ length: 120 }, (_, i) => 200 - i * 0.8);
     let p = a[a.length - 1];
-    for (let i = 0; i < rally; i++) a.push((p += 3));
+    for (let i = 0; i < 25; i++) a.push((p += 3));
     for (let i = 0; i < 5; i++) a.push((p -= 2));
     for (let i = 0; i < 4; i++) a.push((p += 3));
     return a;
-  }
+  })();
 
-  it('역배열에서 시작한 양봉 파동 → 정배열 → 눌림 → 반등이면 매수 신호 하나, 상자는 눌림 첫 봉부터', () => {
-    // 상자 범위·화살표 가격은 하이킨아시 값 (변곡 모드 차트에 보이는 봉)
-    const c = haCandles(path(closes(25)));
-    const s = pullbackSignals(path(closes(25)), 20, 100, 3, 15);
-    expect(s.map((x) => `${x.dir}@${x.index}`)).toEqual(['long@151']);
-    expect(s[0].index - 140).toBeLessThanOrEqual(15);
-    const span = c.slice(s[0].fromIndex, s[0].index + 1);
-    expect(s[0].high).toBe(Math.max(...span.map((x) => x.high)));
-    expect(s[0].low).toBe(Math.min(...span.map((x) => x.low)));
-    expect(s[0].price).toBe(c[s[0].index].low);
+  it('하락 뒤 반등·눌림이면 매수 신호가 나오고, 거울 모양이면 같은 자리에 매도 신호', () => {
+    const longs = pullbackSignals(path(up));
+    expect(longs.length).toBeGreaterThan(0);
+    expect(longs.every((s) => s.dir === 'long')).toBe(true);
+    const shorts = pullbackSignals(path(up.map((x) => 400 - x)));
+    expect(shorts.map((s) => `${s.kind}@${s.index}`)).toEqual(longs.map((s) => `${s.kind}@${s.index}`));
+    expect(shorts.every((s) => s.dir === 'short')).toBe(true);
   });
 
-  it('한참 오른 뒤(전환 후 15봉 넘어서) 눌림은 신호 없음 — 고점에서 매수 변곡? 금지 (사용자 지적)', () => {
-    expect(pullbackSignals(path(closes(35)), 20, 100, 3, 15)).toEqual([]);
+  it('상자 범위는 하이킨아시 고가·저가', () => {
+    const ha = haCandles(path(up));
+    for (const s of pullbackSignals(path(up))) {
+      const span = ha.slice(s.fromIndex, s.index + 1);
+      expect(s.high).toBe(Math.max(...span.map((x) => x.high)));
+      expect(s.low).toBe(Math.min(...span.map((x) => x.low)));
+    }
   });
 
-  it('가격이 두 선 위로 올라가도 MA20이 아직 MA100 아래면 정배열이 아니다 — 신호 없음 (사용자 지적)', () => {
-    expect(pullbackSignals(path(closes(15)), 20, 100, 3, 15)).toEqual([]);
-  });
-
-  it('신호 계산에는 마감된 봉만 쓴다 (진행 중인 봉 제외)', () => {
-    const upTo = path(closes(25)).slice(0, 152);
-    expect(pullbackSignals(upTo, 20, 100, 3, 15)).toHaveLength(1);
+  it('진행 중인 봉으로는 신호를 만들지 않는다', () => {
+    const all = pullbackSignals(path(up));
+    const last = all[all.length - 1];
+    const upTo = path(up).slice(0, last.index + 1);
+    expect(pullbackSignals(upTo).some((s) => s.index === last.index)).toBe(true);
     upTo[upTo.length - 1] = { ...upTo[upTo.length - 1], confirmed: false };
-    expect(pullbackSignals(upTo, 20, 100, 3, 15)).toEqual([]);
+    expect(pullbackSignals(upTo).some((s) => s.index === last.index)).toBe(false);
   });
 });

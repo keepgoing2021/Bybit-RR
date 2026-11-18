@@ -1,16 +1,15 @@
 import type { Candle } from './types';
 
 /**
- * 눌림 알림 (2026-11-18 사용자 로직). 급락·추세전환(PRZ) 구간에서 단기 엔트리를 "보기 시작할" 자리를 잡는다.
- * 변곡 모드에서는 차트도 하이킨아시 봉으로 바꿔 그린다 — 보이는 봉·MA와 계산이 같아야 한다 (2026-11-18 사용자).
- * MA도 하이킨아시 종가로 (트레이딩뷰에서 하이킨아시 차트에 MA를 얹은 것과 같음).
+ * 변곡? (2026-11-18~19 사용자 로직). 급락 뒤 추세가 바뀌는지 "보기 시작할" 자리를 두 단계로 잡는다.
+ * 변곡 모드에서는 차트도 하이킨아시 봉으로 그린다 — 보이는 봉·MA와 계산이 같아야 한다. MA도 하이킨아시 종가로.
  *
- * 정배열 = MA20이 MA100 위에 올라타 있고 하이킨아시 가격이 둘 다 위, 역배열 = 정반대 (2026-11-19 사용자 정의 확정)
- * 롱: 역배열에서 강한 음봉 파동 N개+ → 하이킨아시 양봉 N개+ 파동 → 그 파동 중·직후 정배열 전환
- *     → 음봉 N개 이상 연속 (눌림. 다시 역배열이 되면 무효)
- *     → 다시 첫 양봉(두 번째 양봉 파동) = 신호. 전환 한 번에 한 번만, 전환 후 maxBars봉 안에 완성될 때만.
- * (2026-11-18 수정 이력: 가격 vs MA20 하나·기한 없음 → 고점에서도 뜸, MA20×MA100 크로스 → 사용자 정의와 다름)
- * 숏: 정반대.
+ * 공통 바닥: 확실한 역배열(두 MA가 캔들 위 + MA20 < MA100)에서 하이킨아시 음봉 파동 wave개+ → 이 바닥에서 출발
+ * 「변곡? 공격」 (최저점 근처, 다소 공격적): MA20 < MA100인 동안 양봉이 MA20 위로 올라섬
+ *     → MA20 아래로 마감하지 않는 음봉 눌림 pull개+ → 다시 양봉. (MA20 아래 마감 = 무효, 다시 올라서기부터)
+ * 「변곡? 안정」 (제법 올랐지만 보수적): MA20이 MA100 위 + 가격이 둘 다 위 (정배열)
+ *     → maxBars봉 안에 MA20 위에서 버티는 음봉 눌림 pull개+ → 다시 양봉.
+ * 바닥 하나에 공격·안정 각 한 번. 매도는 전부 정반대 (값을 뒤집어 같은 계산).
  */
 
 export interface HaBar {
@@ -40,123 +39,142 @@ export function haCandles(candles: readonly Candle[]): Candle[] {
 }
 
 export type PullbackDir = 'long' | 'short';
-/** 매수(롱)·매도(숏) 눌림을 따로 켜고 끈다 */
+/** 매수(롱)·매도(숏)를 따로 켜고 끈다 */
 export type PullbackDirs = Record<PullbackDir, boolean>;
+/** aggr = 「변곡? 공격」(역배열 바닥 근처), stable = 「변곡? 안정」(정배열 후 MA20 지지) */
+export type TurnKind = 'aggr' | 'stable';
+/** 화면·알림에 쓰는 이름 (한 곳에서 바꾼다) */
+export const TURN_NAME: Record<TurnKind, string> = { aggr: '1차', stable: '2차' };
 
-export interface PullbackBar {
+/** 롱 기준으로 본 봉 하나 (매도는 값을 뒤집어 넣는다) */
+export interface TurnBar {
   time: number;
-  /** 하이킨아시 양봉 (종가 ≥ 시가) */
+  /** 하이킨아시 양봉 */
   green: boolean;
-  /** 정배열(up: MA20 > MA100, 가격이 둘 다 위)/역배열(down: 반대). 그 밖이거나 MA가 아직 없으면 null */
-  side: 'up' | 'down' | null;
-  /** MA20이 MA100 위(true)/아래(false). MA가 아직 없으면 null. 생략하면 side로 판단 */
-  maUp?: boolean | null;
+  /** 하이킨아시 종가 */
+  close: number;
+  /** MA20 · MA100 (없으면 null) */
+  f: number | null;
+  s: number | null;
+}
+
+export interface TurnHit {
+  kind: TurnKind;
+  index: number;
+  /** 눌림 첫 봉 — 테두리 상자의 왼쪽 */
+  fromIndex: number;
 }
 
 export interface PullbackSignal {
   time: number;
   index: number;
   dir: PullbackDir;
-  /** 화살표 기준 가격: 롱은 그 봉 저가, 숏은 고가 (detectPullbacks만 쓰면 0) */
+  kind: TurnKind;
+  /** 화살표 기준 가격: 롱은 그 봉 저가, 숏은 고가 (하이킨아시) */
   price: number;
-  /** 눌림 구간 시작 (음봉 파동 첫 봉, 숏은 양봉 파동 첫 봉) — 테두리 상자의 왼쪽 */
   fromIndex: number;
   fromTime: number;
-  /** 눌림 구간 ~ 신호 봉의 실제 고가·저가 (상자 위아래. detectPullbacks만 쓰면 0) */
+  /** 눌림 구간 ~ 신호 봉의 하이킨아시 고가·저가 (상자 위아래) */
   high: number;
   low: number;
 }
 
-type Phase = 'wave' | 'pull' | 'done';
+export interface TurnOptions {
+  /** 바닥 음봉 파동 최소 봉 수 */
+  wave: number;
+  /** 눌림 음봉 최소 연속 봉 수 */
+  pull: number;
+  /** 정배열 전환 후 이 봉 수 안에 눌림이 시작돼야 안정 신호 (공격은 MA20 돌파 후) */
+  maxBars: number;
+}
 
-/** 파동 상태 기계. 순수 함수라 테스트하기 쉽다.
- *  첫 파동은 전환 전(역배열)부터 이어져 와도 된다 — 전환 순간에 지금까지 이어진 봉 수를 거꾸로 세서 시작한다 (2026-11-18 사용자 구조) */
-export function detectPullbacks(bars: readonly PullbackBar[], minWave: number, maxBars = Infinity): PullbackSignal[] {
-  const out: PullbackSignal[] = [];
-  let dir: PullbackDir | null = null;
-  let phase: Phase = 'done';
-  let waveRun = 0;
-  let pullRun = 0;
-  let pullFrom = 0;
-  let flipAt = 0;
-  let prevSide: 'up' | 'down' | null = null;
-  // 같은 색이 이어진 봉 수 (지금 봉 포함)와 그 직전 반대색 묶음의 봉 수
-  let run = 0;
-  let prevRun = 0;
-  // 각 묶음 안에서 확실한 역배열(down)·정배열(up) 상태였던 봉 수 — 반대 파동이 "역배열 안에서" 나왔는지 본다
-  type Cnt = { up: number; down: number };
-  let cnt: Cnt = { up: 0, down: 0 };
-  let prevCnt: Cnt = { up: 0, down: 0 };
-  let prevPrevCnt: Cnt = { up: 0, down: 0 };
+type AggrState = 'off' | 'wait' | 'above' | 'pull' | 'done';
+type StableState = 'off' | 'wait' | 'up' | 'pull' | 'done';
+
+/** 롱 기준 상태 기계. 순수 함수라 테스트하기 쉽다 */
+export function detectTurns(bars: readonly TurnBar[], o: TurnOptions): TurnHit[] {
+  const out: TurnHit[] = [];
+  let aggr: AggrState = 'off';
+  let stable: StableState = 'off';
+  let aggrRun = 0;
+  let aggrFrom = 0;
+  let aggrAt = 0;
+  let stRun = 0;
+  let stFrom = 0;
+  let crossAt = 0;
+  // 지금 음봉 묶음 안에서 확실한 역배열이었던 봉 수
+  let downInRun = 0;
 
   for (let i = 0; i < bars.length; i++) {
     const b = bars[i];
-    if (i > 0 && bars[i - 1].green === b.green) run++;
-    else {
-      prevRun = run;
-      run = 1;
-      prevPrevCnt = prevCnt;
-      prevCnt = cnt;
-      cnt = { up: 0, down: 0 };
-    }
-    if (b.side) cnt[b.side]++;
-    const side = b.side ?? prevSide;
-    const flipped = side !== null && prevSide !== null && side !== prevSide;
-    if (b.side !== null) prevSide = b.side;
+    const { f, s, close: c } = b;
+    if (f === null || s === null) continue;
+    const strictDown = f < s && c < f;
 
-    if (flipped) {
-      // 배열이 바뀌면 그 방향으로 새로 센다 (반대쪽 진행 중이던 건 무효)
-      dir = side === 'up' ? 'long' : 'short';
-      flipAt = i;
-      const withTrend = dir === 'long' ? b.green : !b.green;
-      // 모든 조건의 교집합일 때만 (2026-11-19 사용자): 역배열에서 강한 반대 파동 → 첫 파동 → 정배열 전환 → 눌림 → 다시 첫 봉.
-      // 전환 앞에 반대 파동(롱이면 음봉 파동)이 없으면 이번 전환은 버린다
-      // 반대 파동은 확실한 반대 배열 안에서 minWave봉 이상 (롱: 두 MA가 캔들 위 + MA20 < MA100 상태의 음봉 3개+)
-      const against = dir === 'long' ? 'down' : 'up';
-      if (withTrend && prevCnt[against] >= minWave) {
-        // 첫 파동 진행 중에 전환 — 전환 전부터 이어진 봉까지 센다. 그 앞이 음봉 파동
-        phase = 'wave';
-        waveRun = run;
-      } else if (!withTrend && prevRun >= minWave && prevPrevCnt[against] >= minWave) {
-        // 첫 파동이 끝나고 눌림이 시작된 뒤 전환. 첫 파동 앞이 음봉 파동
-        phase = 'pull';
-        pullRun = run;
-        pullFrom = i - run + 1;
-      } else phase = 'done';
-      continue;
-    }
-    if (!dir || phase === 'done') continue;
-    // 매수 변곡은 짧은 MA가 긴 MA 위에 있는 동안만 (매도는 아래). 눌림 중에 MA 순서가 뒤집히면 무효 (2026-11-19 사용자)
-    const maUp = b.maUp ?? (b.side === null ? null : b.side === 'up');
-    if (maUp !== null && maUp !== (dir === 'long')) {
-      phase = 'done';
-      continue;
-    }
-    // 전환에서 너무 멀어지면 버린다 — 이미 벌어진 추세 한가운데에서 뜨지 않게
-    if (i - flipAt > maxBars) {
-      phase = 'done';
-      continue;
+    // 바닥: 확실한 역배열 음봉이 wave개 이상 이어지면 이 바닥에서 새로 출발
+    if (b.green) downInRun = 0;
+    else if (strictDown) {
+      downInRun++;
+      if (downInRun >= o.wave) {
+        aggr = 'wait';
+        stable = 'wait';
+        continue;
+      }
     }
 
-    // 롱: 진행 방향 봉 = 양봉, 눌림 봉 = 음봉. 숏은 반대
-    const withTrend = dir === 'long' ? b.green : !b.green;
-    if (phase === 'wave') {
-      if (withTrend) waveRun++;
-      else if (waveRun >= minWave) {
-        phase = 'pull';
-        pullRun = 1;
-        pullFrom = i;
-      } else waveRun = 0;
-    } else if (phase === 'pull') {
-      if (!withTrend) pullRun++;
-      else if (pullRun >= minWave) {
-        out.push({ time: b.time, index: i, dir, price: 0, fromIndex: pullFrom, fromTime: bars[pullFrom].time, high: 0, low: 0 });
-        phase = 'done';
-      } else {
-        // 눌림이 짧았다 → 이 봉부터 첫 파동을 다시 센다
-        phase = 'wave';
-        waveRun = 1;
-        pullRun = 0;
+    // 공격: MA20 < MA100 동안만
+    if (aggr !== 'off' && aggr !== 'done') {
+      if (f >= s) aggr = 'done';
+      else if (aggr === 'wait') {
+        if (b.green && c > f) {
+          aggr = 'above';
+          aggrAt = i;
+        }
+      } else if (i - aggrAt > o.maxBars) aggr = 'done';
+      else if (aggr === 'above') {
+        if (!b.green) {
+          if (c >= f) {
+            aggr = 'pull';
+            aggrRun = 1;
+            aggrFrom = i;
+          } else aggr = 'wait';
+        }
+      } else if (aggr === 'pull') {
+        if (!b.green) {
+          if (c >= f) aggrRun++;
+          else aggr = 'wait';
+        } else if (aggrRun >= o.pull && c >= f) {
+          out.push({ kind: 'aggr', index: i, fromIndex: aggrFrom });
+          aggr = 'done';
+        } else aggr = 'above';
+      }
+    }
+
+    // 안정: 정배열 (MA20 > MA100 + 가격이 둘 다 위)
+    if (stable !== 'off' && stable !== 'done') {
+      if (stable === 'wait') {
+        if (f > s && c > f) {
+          stable = 'up';
+          crossAt = i;
+        }
+      } else if (f <= s) stable = 'wait';
+      else if (stable === 'up') {
+        if (i - crossAt > o.maxBars) stable = 'done';
+        else if (!b.green) {
+          if (c >= f) {
+            stable = 'pull';
+            stRun = 1;
+            stFrom = i;
+          } else stable = 'wait';
+        }
+      } else if (stable === 'pull') {
+        if (!b.green) {
+          if (c >= f) stRun++;
+          else stable = 'wait';
+        } else if (stRun >= o.pull && c >= f) {
+          out.push({ kind: 'stable', index: i, fromIndex: stFrom });
+          stable = 'done';
+        } else stable = 'up';
       }
     }
   }
@@ -170,30 +188,42 @@ const smaAtIndex = (c: readonly Candle[], i: number, p: number): number | null =
   return sum / p;
 };
 
-/** 마감된 봉만으로 신호를 찾는다 — 진행 중인 봉으로 미리 잡으면 표시·알림이 생겼다 사라진다.
- *  MA·상자 범위 모두 하이킨아시 값 (변곡 모드 차트에 보이는 그대로) */
-export function pullbackSignals(candles: readonly Candle[], fast = 20, slow = 100, minWave = 3, maxBars = 15): PullbackSignal[] {
+/** 마감된 봉만으로 신호를 찾는다 — 진행 중인 봉으로 미리 잡으면 표시·알림이 생겼다 사라진다 */
+export function pullbackSignals(
+  candles: readonly Candle[],
+  fast = 20,
+  slow = 100,
+  opts: TurnOptions = { wave: 3, pull: 2, maxBars: 15 },
+): PullbackSignal[] {
   const last = candles[candles.length - 1];
-  const closed = haCandles(last && !last.confirmed ? candles.slice(0, -1) : candles);
-  const bars: PullbackBar[] = closed.map((c, i) => {
-    const f = smaAtIndex(closed, i, fast);
-    const sl = smaAtIndex(closed, i, slow);
-    return {
+  const ha = haCandles(last && !last.confirmed ? candles.slice(0, -1) : candles);
+  const f = ha.map((_, i) => smaAtIndex(ha, i, fast));
+  const s = ha.map((_, i) => smaAtIndex(ha, i, slow));
+  const out: PullbackSignal[] = [];
+  for (const dir of ['long', 'short'] as const) {
+    // 매도는 값을 뒤집어(음수) 롱과 같은 계산
+    const k = dir === 'long' ? 1 : -1;
+    const bars: TurnBar[] = ha.map((c, i) => ({
       time: c.time,
-      green: c.close >= c.open,
-      // 정배열 = MA20이 MA100 위 + 하이킨아시 종가가 둘 다 위, 역배열 = MA20이 MA100 아래 + 종가가 둘 다 아래.
-      // 그 밖(선 사이에 끼거나 선 순서와 가격이 엇갈림)은 직전 상태 유지 (2026-11-19 사용자: 짧은 MA가 긴 MA 위에 올라탄 게 진짜 정배열)
-      side: f === null || sl === null ? null : f > sl && c.close > f ? 'up' : f < sl && c.close < f ? 'down' : null,
-      maUp: f === null || sl === null || f === sl ? null : f > sl,
-    };
-  });
-  return detectPullbacks(bars, minWave, maxBars).map((s) => {
-    const span = closed.slice(s.fromIndex, s.index + 1);
-    return {
-      ...s,
-      price: s.dir === 'long' ? closed[s.index].low : closed[s.index].high,
-      high: Math.max(...span.map((c) => c.high)),
-      low: Math.min(...span.map((c) => c.low)),
-    };
-  });
+      green: dir === 'long' ? c.close >= c.open : c.close <= c.open,
+      close: k * c.close,
+      f: f[i] === null ? null : k * f[i]!,
+      s: s[i] === null ? null : k * s[i]!,
+    }));
+    for (const h of detectTurns(bars, opts)) {
+      const span = ha.slice(h.fromIndex, h.index + 1);
+      out.push({
+        time: ha[h.index].time,
+        index: h.index,
+        dir,
+        kind: h.kind,
+        price: dir === 'long' ? ha[h.index].low : ha[h.index].high,
+        fromIndex: h.fromIndex,
+        fromTime: ha[h.fromIndex].time,
+        high: Math.max(...span.map((x) => x.high)),
+        low: Math.min(...span.map((x) => x.low)),
+      });
+    }
+  }
+  return out.sort((a, b) => a.index - b.index);
 }

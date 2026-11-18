@@ -6,7 +6,7 @@ import { analyzeAutoLevels, type AutoSL } from '../core/analysis';
 import { captureEntry, evaluateFreshness, type FeedSnapshot, type Freshness } from '../core/freshness';
 import { barRemainingMs, formatCountdown } from '../core/countdown';
 import { applyTrade } from '../core/liveCandle';
-import type { PullbackSignal } from '../core/pullback';
+import { TURN_NAME, type PullbackSignal } from '../core/pullback';
 import { parseRR, rrLevels, tpForRR } from '../core/presets';
 import { computeMetrics, formatRR, type Metrics } from '../core/metrics';
 import {
@@ -2271,12 +2271,12 @@ export class App {
   /** 새 눌림 신호: 화면 안내 + 윈도우 알림 (탭이 뒤에 있어도, 창이 최소화돼도 뜬다) */
   private notifyPullback(sig: PullbackSignal): void {
     const side = sig.dir === 'long' ? '▲ (매수)' : '▼ (매도)';
-    const title = `${this.ui.symbol} ${tfName(this.ui.timeframe)} · 변곡? ${side}`;
+    const title = `${this.ui.symbol} ${tfName(this.ui.timeframe)} · 변곡? ${TURN_NAME[sig.kind]} ${side}`;
     this.toast(`🔔 ${title}`);
     const N = globalThis.Notification;
     if (N?.permission !== 'granted') return;
     try {
-      const n = new N(title, { body: sig.dir === 'long' ? '음봉 파동 뒤 첫 하이킨아시 양봉 — 추정일 뿐, 차트를 확인하세요' : '양봉 파동 뒤 첫 하이킨아시 음봉 — 추정일 뿐, 차트를 확인하세요', tag: `pullback-${this.ui.symbol}-${this.ui.timeframe}` });
+      const n = new N(title, { body: sig.kind === 'aggr' ? `${sig.dir === 'long' ? '바닥' : '천장'} 근처 이른 신호 — 추정일 뿐, 차트를 확인하세요` : `${sig.dir === 'long' ? '정배열' : '역배열'} 뒤 MA20 ${sig.dir === 'long' ? '지지' : '저항'} 확인 — 추정일 뿐, 차트를 확인하세요`, tag: `pullback-${this.ui.symbol}-${this.ui.timeframe}` });
       n.onclick = () => {
         window.focus();
         n.close();
