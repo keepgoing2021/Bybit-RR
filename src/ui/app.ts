@@ -6,6 +6,7 @@ import { analyzeAutoLevels, type AutoSL } from '../core/analysis';
 import { captureEntry, evaluateFreshness, type FeedSnapshot, type Freshness } from '../core/freshness';
 import { barRemainingMs, formatCountdown } from '../core/countdown';
 import { applyTrade } from '../core/liveCandle';
+import type { PullbackSignal } from '../core/pullback';
 import { parseRR, rrLevels, tpForRR } from '../core/presets';
 import { computeMetrics, formatRR, type Metrics } from '../core/metrics';
 import {
@@ -154,6 +155,8 @@ const DRAW_TOOLS_KEY = 'rrtool.v1.drawtools';
 /** 다우 이론 구조 표시 (HH·HL·LH·LL, BOS·CHoCH) 켜짐 여부. 기본 켜짐, 끄면 'off' */
 export const STRUCTURE_KEY = 'rrtool.v1.structure';
 export const VOL_PEAK_KEY = 'rrtool.v1.volPeak';
+/** 눌림 알림 (하이킨아시 + MA20 + 파동 3) 켜짐 여부. 기본 꺼짐, 켜면 'on' */
+export const PULLBACK_KEY = 'rrtool.v1.pullback';
 export type VolPeakMode = 'wave' | 'cal' | 'off';
 /** 파동 기준: 다우 구조(5봉)보다 넓게 잡아 큰 파동만 (2026-11-12 사용자 선택 「파동 크게」) */
 export const VOL_PEAK_WAVE_BARS = 10;
@@ -201,6 +204,7 @@ export class App {
   /** 멀티차트: 계산기 칸이 아닌 칸에 맡겨 둔 계산 (종목별) */
   private stash = new Map<string, Scenario>();
   private structureOn = true;
+  private pullbackOn = false;
   /** 거래 터진 곳: 파동마다 / 하루·한 주마다 / 끔 */
   private volPeakMode: VolPeakMode = 'wave';
   private volPeakPeriod: 'day' | 'week' = 'day';
@@ -270,6 +274,7 @@ export class App {
       },
       onDrawState: (st) => this.renderDrawTools(st),
       onDrawingSelect: (d) => this.renderDrawEdit(d),
+      onPullbackSignal: (sig) => this.notifyPullback(sig),
       onDrag: (which, price) => {
         this.dragging = true;
         if (!this.scenario) return;
@@ -341,6 +346,8 @@ export class App {
       // 기본 1칸
     }
     this.structureOn = this.loadStructureOn();
+    this.pullbackOn = this.loadPullbackOn();
+    this.applyPullback();
     this.volPeakMode = this.loadVolPeakMode();
     this.applyStructure();
     this.applyVolPeak();
@@ -863,6 +870,14 @@ export class App {
       volPeakPeriod,
     );
     volPeakBtn.addEventListener('click', () => this.toggleVolPeak());
+    // 눌림 알림 (2026-11-18): MA20 정배열 전환 → 하이킨아시 양봉 3+ → 음봉 3+ → 다시 양봉에 ▲ + 윈도우 알림. 숏은 반대
+    const pullbackBtn = h(
+      'button',
+      { type: 'button', class: 'struct-toggle', 'data-testid': 'pullback-toggle', title: '눌림 알림: MA20 위로 전환 → 하이킨아시 양봉 3개+ → 음봉 3개+ → 다시 양봉이면 ▲ 표시와 윈도우 알림 (숏은 반대) · 마감된 봉 기준 · 1RC 탭이 열려 있을 때만' },
+      h('span', { class: 'dot', 'aria-hidden': 'true' }),
+      '눌림 알림',
+    );
+    pullbackBtn.addEventListener('click', () => this.togglePullback());
 
     // 사용 안내 다시 보기 (처음 한 번은 저절로 뜬다)
     const tourBtn = h(
@@ -1284,7 +1299,7 @@ export class App {
     });
 
     return {
-      picker, tf, sltf, long, short, status, statusReason, themeBtn, structBtn, volPeakBtn, volPeakPeriod,
+      picker, tf, sltf, long, short, status, statusReason, themeBtn, structBtn, volPeakBtn, pullbackBtn, volPeakPeriod,
       loadError, chart, empty, card, sideChip, title, entry, times, planOld, rr, rrInput, rrLabel, rrChips, rrTp, rrProfitNote, reasons, bufferInput, bufferChips, bufferNote,
       sl, tp, slWhy, sizing, restore, del, settingsInputs, settingRows, modeHelp, settingsSummaryEl, toast, undo, tools, tour, flow, watch, watchBtn, watchHandle, layout, panes, splitBtns, symbolList, mainLabel, journalForm, journalWarn, nav,
       topbar, moreBtn, morePanel, tfChips, chartHeadTools, tourBtn, fullBtn,
@@ -1941,10 +1956,11 @@ export class App {
   private placeControls(): void {
     const e = this.el;
     if (PHONE.matches) {
-      e.morePanel.append(e.structBtn, e.volPeakBtn, e.tourBtn, e.themeBtn);
+      e.morePanel.append(e.structBtn, e.volPeakBtn, e.pullbackBtn, e.tourBtn, e.themeBtn);
     } else {
       this.chart.addLegendControl(e.structBtn);
       this.chart.addLegendControl(e.volPeakBtn);
+      this.chart.addLegendControl(e.pullbackBtn);
       e.chartHeadTools.append(e.tourBtn, e.themeBtn);
       this.setMoreOpen(false);
     }
@@ -2220,6 +2236,58 @@ export class App {
     btn.classList.toggle('on', on);
     const next = this.volPeakMode === 'wave' ? '하루/한 주 기준으로' : this.volPeakMode === 'cal' ? '끄기' : '파동 기준으로 켜기';
     btn.setAttribute('aria-label', `거래 터진 곳 (${on ? `${what}마다` : '꺼짐'}) · 누르면 ${next}`);
+  }
+
+  private loadPullbackOn(): boolean {
+    try {
+      return this.d.storage.getItem(PULLBACK_KEY) === 'on';
+    } catch {
+      return false;
+    }
+  }
+
+  private togglePullback(): void {
+    this.pullbackOn = !this.pullbackOn;
+    try {
+      this.d.storage.setItem(PULLBACK_KEY, this.pullbackOn ? 'on' : 'off');
+    } catch {
+      // 저장 못 해도 이번 화면에는 적용
+    }
+    this.applyPullback();
+    if (!this.pullbackOn) return;
+    // 윈도우 알림 허락은 버튼을 누른 순간에만 물을 수 있다 (브라우저 규칙)
+    const N = globalThis.Notification;
+    if (!N) this.toast('이 브라우저는 알림을 지원하지 않습니다. 화면 표시만 됩니다.');
+    else if (N.permission === 'default') void N.requestPermission().then((p) => p !== 'granted' && this.toast('알림을 허락하지 않아 화면 표시만 됩니다.'));
+    else if (N.permission === 'denied') this.toast('브라우저에서 알림이 막혀 있습니다. 주소창 왼쪽 자물쇠 → 알림 허용');
+  }
+
+  private applyPullback(): void {
+    this.chart?.setPullback(this.pullbackOn);
+    const btn = this.el?.pullbackBtn;
+    if (btn) {
+      btn.setAttribute('aria-pressed', String(this.pullbackOn));
+      btn.classList.toggle('on', this.pullbackOn);
+      btn.setAttribute('aria-label', `눌림 알림 ${this.pullbackOn ? '끄기' : '켜기'}`);
+    }
+  }
+
+  /** 새 눌림 신호: 화면 안내 + 윈도우 알림 (탭이 뒤에 있어도, 창이 최소화돼도 뜬다) */
+  private notifyPullback(sig: PullbackSignal): void {
+    const side = sig.dir === 'long' ? '롱 ▲' : '숏 ▼';
+    const title = `${this.ui.symbol} ${tfName(this.ui.timeframe)} 눌림 ${side}`;
+    this.toast(`🔔 ${title}`);
+    const N = globalThis.Notification;
+    if (N?.permission !== 'granted') return;
+    try {
+      const n = new N(title, { body: '음봉 파동 뒤 첫 하이킨아시 양봉 — 차트를 확인하세요', tag: `pullback-${this.ui.symbol}-${this.ui.timeframe}` });
+      n.onclick = () => {
+        window.focus();
+        n.close();
+      };
+    } catch {
+      // 알림을 못 띄워도 화면 안내는 남는다
+    }
   }
 
   private toggleStructure(): void {

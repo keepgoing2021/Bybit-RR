@@ -27,6 +27,8 @@ import type { PresetLevel } from '../core/presets';
 import { hitTestPreset, type AvgLine, type BoxGeometry, type SplitLine } from './geometry';
 import { RRBoxPrimitive, type OverlayModel } from './rrPrimitive';
 import { StructurePrimitive } from './structurePrimitive';
+import { PullbackPrimitive } from './pullbackPrimitive';
+import { pullbackSignals, type PullbackSignal } from '../core/pullback';
 import { VolumePeakPrimitive, type VolumePeakBox } from './volumePeakPrimitive';
 import { peakPeriodFor, volumePeaks, wavePeaks, wavePivots, type PeakPeriod } from '../core/volumePeak';
 import { findSwings } from '../core/swing';
@@ -75,7 +77,12 @@ export interface ChartViewCallbacks {
   onDrawState(state: { tool: DrawingKind | null; placed: number }): void;
   /** 선택한 작도가 바뀜 (편집 막대 표시용). null = 선택 없음 */
   onDrawingSelect(d: Drawing | null): void;
+  /** 눌림 알림: 실시간으로 방금 마감된 봉에 새 신호가 생김 (처음 불러올 때·종목 바꿀 때는 안 부름) */
+  onPullbackSignal?(s: PullbackSignal): void;
 }
+
+/** 눌림 알림 파동 조건: 양봉·음봉 각각 이만큼 연속 (2026-11-18 사용자 지정) */
+const PULLBACK_WAVE = 3;
 
 const toBar = (c: Candle) => ({
   time: (c.time / 1000) as UTCTimestamp,
@@ -113,6 +120,10 @@ export class ChartView {
   // 다우 이론 구조 (HH·HL·LH·LL, BOS·CHoCH). null이면 끔, 숫자면 스윙 좌우 봉 수
   private readonly structPrim: StructurePrimitive;
   private structureBars: number | null = null;
+  // 눌림 알림 (하이킨아시 + MA20 + 파동). 켜면 화살표 표시 + 새 신호 콜백
+  private readonly pullPrim: PullbackPrimitive;
+  private pullbackOn = false;
+  private pullbackNotified: number | null = null;
   private readonly volPrim: VolumePeakPrimitive;
   private volPeakOn = false;
   private volPeakPeriod: PeakPeriod = 'day';
@@ -178,6 +189,8 @@ export class ChartView {
     );
     this.structPrim = new StructurePrimitive(() => this.drawMapper());
     this.series.attachPrimitive(this.structPrim);
+    this.pullPrim = new PullbackPrimitive(() => this.drawMapper());
+    this.series.attachPrimitive(this.pullPrim);
     this.volPrim = new VolumePeakPrimitive(
       () => this.drawMapper(),
       // 왼쪽 위 범례(시고저종·MA·버튼) 자리는 피한다
@@ -279,6 +292,7 @@ export class ChartView {
     this.series.setData(candles.map(toBar));
     this.setMaData();
     this.rebuildStructure();
+    this.rebuildPullback(false);
     this.rebuildVolumePeaks();
     if (resetView) this.resetView();
     this.rebuildOverlay();
@@ -308,6 +322,7 @@ export class ChartView {
     }
     if (kind !== 'update') {
       this.rebuildStructure();
+      this.rebuildPullback(true);
       this.rebuildOverlay();
     }
     // 진행 중인 봉의 거래대금이 커지면 오늘 표시가 그 봉으로 옮겨 간다
@@ -325,6 +340,38 @@ export class ChartView {
     const p = this.series.coordinateToPrice(y);
     if (p !== null && Number.isFinite(p)) this.cb.onBoxPrice?.(p - this.freeStartPrice, done);
     if (done) this.freeStartPrice = null;
+  }
+
+  /** 눌림 알림 표시 켜기/끄기 */
+  setPullback(on: boolean): void {
+    this.pullbackOn = on;
+    this.rebuildPullback(false);
+  }
+
+  getPullback(): readonly PullbackSignal[] {
+    return this.pullPrim.get();
+  }
+
+  /** live: 실시간 봉 마감으로 다시 계산할 때만 새 신호를 알린다 (같은 봉은 한 번만) */
+  private rebuildPullback(live: boolean): void {
+    if (!this.pullbackOn || !this.candles.length) {
+      this.pullPrim.set([]);
+      return;
+    }
+    const signals = pullbackSignals(this.candles, MA_LINES[0].period, PULLBACK_WAVE);
+    this.pullPrim.set(signals);
+    const last = this.candles[this.candles.length - 1];
+    const lastClosed = this.candles.length - (last.confirmed ? 1 : 2);
+    const s = signals[signals.length - 1];
+    if (!live) {
+      // 처음 불러온 신호는 알리지 않는다 — 그 봉을 이미 알린 것으로 둔다
+      this.pullbackNotified = s && s.index === lastClosed ? s.time : null;
+      return;
+    }
+    if (s && s.index === lastClosed && s.time !== this.pullbackNotified) {
+      this.pullbackNotified = s.time;
+      this.cb.onPullbackSignal?.(s);
+    }
   }
 
   setStructure(bars: number | null): void {
