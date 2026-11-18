@@ -155,8 +155,7 @@ const DRAW_TOOLS_KEY = 'rrtool.v1.drawtools';
 /** 다우 이론 구조 표시 (HH·HL·LH·LL, BOS·CHoCH) 켜짐 여부. 기본 켜짐, 끄면 'off' */
 export const STRUCTURE_KEY = 'rrtool.v1.structure';
 export const VOL_PEAK_KEY = 'rrtool.v1.volPeak';
-/** 눌림 알림 (하이킨아시 + MA20 + 파동 3): 'long' · 'short' · 'off'(기본). 단방향만 (사용자: 동시 감시 안 함) */
-export const PULLBACK_KEY = 'rrtool.v1.pullback';
+/** 변곡? 알림 (하이킨아시 + MA20 + 파동 3). 단방향만 (사용자: 동시 감시 안 함). 저장하지 않는다 — 창을 열 때마다 꺼짐 (2026-11-18 사용자 요청) */
 type PullbackMode = 'off' | 'long' | 'short';
 export type VolPeakMode = 'wave' | 'cal' | 'off';
 /** 파동 기준: 다우 구조(5봉)보다 넓게 잡아 큰 파동만 (2026-11-12 사용자 선택 「파동 크게」) */
@@ -347,7 +346,6 @@ export class App {
       // 기본 1칸
     }
     this.structureOn = this.loadStructureOn();
-    this.pullback = this.loadPullback();
     this.applyPullback();
     this.volPeakMode = this.loadVolPeakMode();
     this.applyStructure();
@@ -2241,23 +2239,9 @@ export class App {
     btn.setAttribute('aria-label', `거래 터진 곳 (${on ? `${what}마다` : '꺼짐'}) · 누르면 ${next}`);
   }
 
-  private loadPullback(): PullbackMode {
-    try {
-      const v = this.d.storage.getItem(PULLBACK_KEY);
-      return v === 'long' || v === 'short' ? v : 'off';
-    } catch {
-      return 'off';
-    }
-  }
-
   /** 끔 → 매수 → 매도 → 끔 */
   private togglePullback(): void {
     this.pullback = this.pullback === 'off' ? 'long' : this.pullback === 'long' ? 'short' : 'off';
-    try {
-      this.d.storage.setItem(PULLBACK_KEY, this.pullback);
-    } catch {
-      // 저장 못 해도 이번 화면에는 적용
-    }
     this.applyPullback();
     if (this.pullback !== 'long') return;
     // 윈도우 알림 허락은 버튼을 누른 순간에만 물을 수 있다 (브라우저 규칙). 처음 켤 때(매수) 한 번 묻는다
