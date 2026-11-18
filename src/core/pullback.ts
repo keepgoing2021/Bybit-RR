@@ -5,8 +5,8 @@ import type { Candle } from './types';
  * 변곡 모드에서는 차트도 하이킨아시 봉으로 그린다 — 보이는 봉·MA와 계산이 같아야 한다. MA도 하이킨아시 종가로.
  *
  * 공통 바닥: 확실한 역배열(두 MA가 캔들 위 + MA20 < MA100)에서 하이킨아시 음봉 파동 wave개+ → 이 바닥에서 출발
- * 「변곡? 공격」 (최저점 근처, 다소 공격적): MA20 < MA100인 동안 양봉이 MA20 위로 올라섬
- *     → MA20 아래로 마감하지 않는 음봉 눌림 pull개+ → 다시 양봉. (MA20 아래 마감 = 무효, 다시 올라서기부터)
+ * 1차 (최저점 근처, 다소 공격적. 2026-11-19 사용자 정의): 급락으로 "많이" 역배열 — MA100 − MA20 간격이 평균 봉 크기의 gapK배 이상 —
+ *     인 상태의 음봉 파동 wave개+ → 하이킨아시 양봉 파동 wave개+ → 음봉 파동 pull개+ → 다시 양봉. 바닥에서 maxBars봉 안. MA20이 MA100을 넘으면 1차는 끝
  * 「변곡? 안정」 (제법 올랐지만 보수적): MA20이 MA100 위 + 가격이 둘 다 위 (정배열)
  *     → maxBars봉 안에 MA20 위에서 버티는 음봉 눌림 pull개+ → 다시 양봉.
  * 바닥 하나에 공격·안정 각 한 번. 매도는 전부 정반대 (값을 뒤집어 같은 계산).
@@ -56,6 +56,8 @@ export interface TurnBar {
   /** MA20 · MA100 (없으면 null) */
   f: number | null;
   s: number | null;
+  /** 최근 평균 봉 크기 (고가−저가). 없으면 1차 판단 안 함 */
+  ar?: number | null;
 }
 
 export interface TurnHit {
@@ -84,11 +86,13 @@ export interface TurnOptions {
   wave: number;
   /** 눌림 음봉 최소 연속 봉 수 */
   pull: number;
-  /** 정배열 전환 후 이 봉 수 안에 눌림이 시작돼야 안정 신호 (공격은 MA20 돌파 후) */
+  /** 정배열 전환 후 이 봉 수 안에 눌림이 시작돼야 2차 신호 */
   maxBars: number;
+  /** 1차: MA100 − MA20 간격이 평균 봉 크기의 몇 배 이상이어야 "많이 역배열"인지 */
+  gapK: number;
 }
 
-type AggrState = 'off' | 'wait' | 'above' | 'pull' | 'done';
+type AggrState = 'off' | 'wave' | 'pull' | 'done';
 type StableState = 'off' | 'wait' | 'up' | 'pull' | 'done';
 
 /** 롱 기준 상태 기계. 순수 함수라 테스트하기 쉽다 */
@@ -96,14 +100,16 @@ export function detectTurns(bars: readonly TurnBar[], o: TurnOptions): TurnHit[]
   const out: TurnHit[] = [];
   let aggr: AggrState = 'off';
   let stable: StableState = 'off';
+  let aggrWave = 0;
+  let aggrAt = 0;
   let aggrRun = 0;
   let aggrFrom = 0;
-  let aggrAt = 0;
   let stRun = 0;
   let stFrom = 0;
   let crossAt = 0;
-  // 지금 음봉 묶음 안에서 확실한 역배열이었던 봉 수
+  // 지금 음봉 묶음 안에서 확실한 역배열이었던 봉 수 / 그중 "많이" 역배열(간격 큼)이었던 봉 수
   let downInRun = 0;
+  let deepInRun = 0;
 
   for (let i = 0; i < bars.length; i++) {
     const b = bars[i];
@@ -111,42 +117,45 @@ export function detectTurns(bars: readonly TurnBar[], o: TurnOptions): TurnHit[]
     if (f === null || s === null) continue;
     const strictDown = f < s && c < f;
 
-    // 바닥: 확실한 역배열 음봉이 wave개 이상 이어지면 이 바닥에서 새로 출발
-    if (b.green) downInRun = 0;
-    else if (strictDown) {
+    // 바닥: 확실한 역배열 음봉이 wave개 이상 이어지면 이 바닥에서 새로 출발 (2차용)
+    // 그중 MA 간격이 크게 벌어진(급락) 음봉이 wave개 이상이면 1차도 출발
+    const deep = strictDown && b.ar != null && b.ar > 0 && s - f >= o.gapK * b.ar;
+    if (b.green) {
+      downInRun = 0;
+      deepInRun = 0;
+    } else if (strictDown) {
       downInRun++;
+      if (deep) deepInRun++;
+      if (deepInRun >= o.wave) {
+        aggr = 'wave';
+        aggrWave = 0;
+        aggrAt = i;
+      }
       if (downInRun >= o.wave) {
-        aggr = 'wait';
         stable = 'wait';
         continue;
       }
     }
 
-    // 공격: MA20 < MA100 동안만
-    if (aggr !== 'off' && aggr !== 'done') {
-      if (f >= s) aggr = 'done';
-      else if (aggr === 'wait') {
-        if (b.green && c > f) {
-          aggr = 'above';
-          aggrAt = i;
-        }
-      } else if (i - aggrAt > o.maxBars) aggr = 'done';
-      else if (aggr === 'above') {
-        if (!b.green) {
-          if (c >= f) {
-            aggr = 'pull';
-            aggrRun = 1;
-            aggrFrom = i;
-          } else aggr = 'wait';
-        }
-      } else if (aggr === 'pull') {
-        if (!b.green) {
-          if (c >= f) aggrRun++;
-          else aggr = 'wait';
-        } else if (aggrRun >= o.pull && c >= f) {
-          out.push({ kind: 'aggr', index: i, fromIndex: aggrFrom });
-          aggr = 'done';
-        } else aggr = 'above';
+    // 1차: MA20 < MA100 동안만. 음봉 파동(바닥) → 양봉 파동 → 음봉 파동 → 다시 양봉
+    if (aggr === 'wave' || aggr === 'pull') {
+      // 바닥(마지막 급락 음봉)에서 maxBars봉 안에 끝나야 "최저점 근처"
+      if (f >= s || i - aggrAt > o.maxBars) aggr = 'done';
+      else if (aggr === 'wave') {
+        if (b.green) aggrWave++;
+        else if (aggrWave >= o.wave) {
+          aggr = 'pull';
+          aggrRun = 1;
+          aggrFrom = i;
+        } else aggrWave = 0;
+      } else if (!b.green) aggrRun++;
+      else if (aggrRun >= o.pull) {
+        out.push({ kind: 'aggr', index: i, fromIndex: aggrFrom });
+        aggr = 'done';
+      } else {
+        // 음봉 파동이 짧았다 → 이 봉부터 양봉 파동을 다시 센다
+        aggr = 'wave';
+        aggrWave = 1;
       }
     }
 
@@ -193,12 +202,15 @@ export function pullbackSignals(
   candles: readonly Candle[],
   fast = 20,
   slow = 100,
-  opts: TurnOptions = { wave: 3, pull: 2, maxBars: 15 },
+  opts: TurnOptions = { wave: 3, pull: 2, maxBars: 15, gapK: 2 },
 ): PullbackSignal[] {
   const last = candles[candles.length - 1];
   const ha = haCandles(last && !last.confirmed ? candles.slice(0, -1) : candles);
   const f = ha.map((_, i) => smaAtIndex(ha, i, fast));
   const s = ha.map((_, i) => smaAtIndex(ha, i, slow));
+  // 평균 봉 크기: 하이킨아시 고가−저가의 최근 20봉 평균
+  const ranges = ha.map((c) => ({ close: c.high - c.low }) as Candle);
+  const ar = ha.map((_, i) => smaAtIndex(ranges, i, 20));
   const out: PullbackSignal[] = [];
   for (const dir of ['long', 'short'] as const) {
     // 매도는 값을 뒤집어(음수) 롱과 같은 계산
@@ -209,6 +221,7 @@ export function pullbackSignals(
       close: k * c.close,
       f: f[i] === null ? null : k * f[i]!,
       s: s[i] === null ? null : k * s[i]!,
+      ar: ar[i],
     }));
     for (const h of detectTurns(bars, opts)) {
       const span = ha.slice(h.fromIndex, h.index + 1);

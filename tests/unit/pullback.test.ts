@@ -2,15 +2,17 @@ import { describe, expect, it } from 'vitest';
 import { detectTurns, haCandles, heikinAshi, pullbackSignals, type TurnBar } from '../../src/core/pullback';
 import type { Candle } from '../../src/core/types';
 
-// 봉 한 글자 = 하이킨아시 색 + 종가와 MA20(f)·MA100(s) 위치 (롱 기준)
-//  역배열 MA(f 90 < s 100):  R 음봉 종가 80(두 MA 아래)  g 양봉 85(MA20 아래)  G 양봉 95(MA20 위)  p 음봉 92(MA20 위)  x 음봉 85(MA20 아래로 마감)
-//  정배열 MA(f 110 > s 100): U 양봉 115(둘 다 위)  q 음봉 112(MA20 위)  y 음봉 105(MA20 아래로 마감)
+// 봉 한 글자 = 하이킨아시 색 + 종가와 MA20(f)·MA100(s) 위치 (롱 기준). 평균 봉 크기는 1
+//  많이 역배열(f 90 < s 100, 간격 10 ≥ 2×1): R 음봉 80(급락)  g 양봉 85  r 음봉 84
+//  살짝 역배열(f 99 < s 100, 간격 1 < 2):   W 음봉 90(두 MA 아래지만 간격 작음)  w 양봉 95  v 음봉 94
+//  정배열(f 110 > s 100): U 양봉 115(둘 다 위)  q 음봉 112(MA20 위)  y 음봉 105(MA20 아래로 마감)
 const CODE: Record<string, [boolean, number, number, number]> = {
   R: [false, 80, 90, 100],
   g: [true, 85, 90, 100],
-  G: [true, 95, 90, 100],
-  p: [false, 92, 90, 100],
-  x: [false, 85, 90, 100],
+  r: [false, 84, 90, 100],
+  W: [false, 90, 99, 100],
+  w: [true, 95, 99, 100],
+  v: [false, 94, 99, 100],
   U: [true, 115, 110, 100],
   q: [false, 112, 110, 100],
   y: [false, 105, 110, 100],
@@ -18,47 +20,56 @@ const CODE: Record<string, [boolean, number, number, number]> = {
 function bars(code: string): TurnBar[] {
   return [...code].map((ch, i) => {
     const [green, close, f, s] = CODE[ch];
-    return { time: i * 60_000, green, close, f, s };
+    return { time: i * 60_000, green, close, f, s, ar: 1 };
   });
 }
-const at = (code: string) => detectTurns(bars(code), { wave: 3, pull: 2, maxBars: 15 }).map((s) => `${s.kind}@${s.index}`);
+const OPT = { wave: 3, pull: 2, maxBars: 15, gapK: 2 };
+const at = (code: string) => detectTurns(bars(code), OPT).map((s) => `${s.kind}@${s.index}`);
 
-describe('detectTurns — 「변곡? 공격」 역배열 바닥 근처 (노랑)', () => {
-  it('역배열 음봉 3 → 양봉이 MA20 위로 → MA20 위 음봉 2 → 양봉 = 공격 신호', () => {
-    expect(at('RRRgGGppG')).toEqual(['aggr@8']);
+describe('detectTurns — 1차 (급락으로 많이 역배열 → 양봉 파동 → 음봉 파동 → 다시 양봉)', () => {
+  it('급락 음봉 3 → 양봉 3 → 음봉 2 → 양봉 = 1차', () => {
+    expect(at('RRRgggrrg')).toEqual(['aggr@8']);
   });
 
-  it('상자는 눌림 첫 봉부터 신호 봉까지', () => {
-    const [s] = detectTurns(bars('RRRgGGppG'), { wave: 3, pull: 2, maxBars: 15 });
+  it('상자는 음봉 파동 첫 봉부터 신호 봉까지', () => {
+    const [s] = detectTurns(bars('RRRgggrrg'), OPT);
     expect([s.fromIndex, s.index]).toEqual([6, 8]);
   });
 
-  it('역배열 음봉 파동이 3개 미만이면 시작 안 함', () => {
-    expect(at('RRgGGppG')).toEqual([]);
+  it('MA 간격이 작은 역배열(급락 아님)이면 1차 없음', () => {
+    expect(at('WWWwwwvvw')).toEqual([]);
   });
 
-  it('눌림 음봉이 1개뿐이면 신호 없음 (다시 MA20 위 파동으로)', () => {
-    expect(at('RRRGGpG')).toEqual([]);
-    expect(at('RRRGGpGppG')).toEqual(['aggr@9']);
+  it('양봉 파동이 3개 미만이면 1차 없음', () => {
+    expect(at('RRRggrrg')).toEqual([]);
   });
 
-  it('눌림 중 MA20 아래로 마감하면 무효 → MA20 위로 다시 올라서는 것부터 기다림', () => {
-    expect(at('RRRGGpxpG')).toEqual([]);
-    expect(at('RRRGGpxGppG')).toEqual(['aggr@10']);
+  it('음봉 파동이 1개뿐이면 그 양봉부터 양봉 파동을 다시 센다', () => {
+    expect(at('RRRgggrg')).toEqual([]);
+    expect(at('RRRgggrgggrrg')).toEqual(['aggr@12']);
   });
 
-  it('바닥 하나에 공격은 한 번만', () => {
-    expect(at('RRRGGppGppG')).toEqual(['aggr@7']);
+  it('바닥에서 15봉 넘게 지나서 완성되면 1차 아님 (최저점 근처만)', () => {
+    expect(at(`RRR${'g'.repeat(13)}rrg`)).toEqual([]);
+    expect(at(`RRR${'g'.repeat(10)}rrg`)).toEqual(['aggr@15']);
+  });
+
+  it('바닥 하나에 1차는 한 번만', () => {
+    expect(at('RRRgggrrgggrrg')).toEqual(['aggr@8']);
+  });
+
+  it('MA20이 MA100을 넘으면 1차는 끝 (2차만 남음)', () => {
+    expect(at('RRRgggUqqU')).toEqual(['stable@9']);
+  });
+
+  it('1차 → 2차 둘 다 나올 수 있다', () => {
+    expect(at('RRRgggrrgUUqqU')).toEqual(['aggr@8', 'stable@13']);
   });
 });
 
-describe('detectTurns — 「변곡? 안정」 정배열 후 MA20 지지 (주황)', () => {
+describe('detectTurns — 2차 (정배열 후 MA20 지지)', () => {
   it('역배열 음봉 3 → 정배열(MA20 > MA100, 가격 둘 다 위) → MA20 위 음봉 2 → 양봉 = 안정 신호', () => {
-    expect(at('RRRgGGUUqqU')).toEqual(['stable@10']);
-  });
-
-  it('공격 → 안정 둘 다 나올 수 있다', () => {
-    expect(at('RRRGGppGUUqqU')).toEqual(['aggr@7', 'stable@12']);
+    expect(at('RRRgggUUqqU')).toEqual(['stable@10']);
   });
 
   it('눌림 중 MA20 아래로 마감하면 무효', () => {
