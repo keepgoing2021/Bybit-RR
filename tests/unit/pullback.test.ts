@@ -37,6 +37,13 @@ describe('detectPullbacks — MA20 정배열 전환 → 양봉 파동 → 음봉
     expect(at('DUUUuuDdU')).toEqual([]);
   });
 
+  it('테두리 상자는 눌림 파동 첫 봉부터 신호 봉까지', () => {
+    const [s] = detectPullbacks(bars('DDUUUuuuU'), 3);
+    expect([s.fromIndex, s.index]).toEqual([5, 8]);
+    const [r] = detectPullbacks(bars('DUUUuuUUUuuuU'), 3);
+    expect(r.fromIndex).toBe(9);
+  });
+
   it('신호는 정배열 전환 한 번에 한 번만', () => {
     expect(at('DUUUuuuUUUuuuU')).toEqual(['long@7']);
   });
@@ -85,7 +92,11 @@ describe('pullbackSignals — 실제 캔들로', () => {
     const s = pullbackSignals(path(closes), 20, 3);
     expect(s.map((x) => x.dir)).toEqual(['long']);
     expect(s[0].index).toBeGreaterThanOrEqual(41);
-    expect(s[0].price).toBe(Math.min(...path(closes).slice(s[0].index, s[0].index + 1).map((c) => c.low)));
+    const c = path(closes);
+    expect(s[0].price).toBe(c[s[0].index].low);
+    const span = c.slice(s[0].fromIndex, s[0].index + 1);
+    expect(s[0].high).toBe(Math.max(...span.map((x) => x.high)));
+    expect(s[0].low).toBe(Math.min(...span.map((x) => x.low)));
   });
 
   it('신호 계산에는 마감된 봉만 쓴다 (진행 중인 봉 제외)', () => {

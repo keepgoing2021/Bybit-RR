@@ -47,6 +47,12 @@ export interface PullbackSignal {
   dir: PullbackDir;
   /** 화살표 기준 가격: 롱은 그 봉 저가, 숏은 고가 (detectPullbacks만 쓰면 0) */
   price: number;
+  /** 눌림 구간 시작 (음봉 파동 첫 봉, 숏은 양봉 파동 첫 봉) — 테두리 상자의 왼쪽 */
+  fromIndex: number;
+  fromTime: number;
+  /** 눌림 구간 ~ 신호 봉의 실제 고가·저가 (상자 위아래. detectPullbacks만 쓰면 0) */
+  high: number;
+  low: number;
 }
 
 type Phase = 'wave' | 'pull' | 'done';
@@ -58,6 +64,7 @@ export function detectPullbacks(bars: readonly PullbackBar[], minWave: number): 
   let phase: Phase = 'done';
   let waveRun = 0;
   let pullRun = 0;
+  let pullFrom = 0;
   let prevSide: 'up' | 'down' | null = null;
 
   for (let i = 0; i < bars.length; i++) {
@@ -80,11 +87,12 @@ export function detectPullbacks(bars: readonly PullbackBar[], minWave: number): 
       else if (waveRun >= minWave) {
         phase = 'pull';
         pullRun = 1;
+        pullFrom = i;
       } else waveRun = 0;
     } else if (phase === 'pull') {
       if (!withTrend) pullRun++;
       else if (pullRun >= minWave) {
-        out.push({ time: b.time, index: i, dir, price: 0 });
+        out.push({ time: b.time, index: i, dir, price: 0, fromIndex: pullFrom, fromTime: bars[pullFrom].time, high: 0, low: 0 });
         phase = 'done';
       } else {
         // 눌림이 짧았다 → 이 봉부터 첫 파동을 다시 센다
@@ -116,8 +124,13 @@ export function pullbackSignals(candles: readonly Candle[], maPeriod = 20, minWa
       side: ma === null || h.close === ma ? null : h.close > ma ? 'up' : 'down',
     });
   }
-  return detectPullbacks(bars, minWave).map((s) => ({
-    ...s,
-    price: s.dir === 'long' ? closed[s.index].low : closed[s.index].high,
-  }));
+  return detectPullbacks(bars, minWave).map((s) => {
+    const span = closed.slice(s.fromIndex, s.index + 1);
+    return {
+      ...s,
+      price: s.dir === 'long' ? closed[s.index].low : closed[s.index].high,
+      high: Math.max(...span.map((c) => c.high)),
+      low: Math.min(...span.map((c) => c.low)),
+    };
+  });
 }
