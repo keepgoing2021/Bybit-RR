@@ -103,14 +103,14 @@ describe('detectPullbacks — 전환 후 기한', () => {
   });
 });
 
-describe('pullbackSignals — 가격이 MA20·MA100 둘 다 위로 (실제 캔들로)', () => {
+describe('pullbackSignals — MA20이 MA100 위 + 가격이 둘 다 위 = 정배열 (실제 캔들로)', () => {
   function path(closes: number[]): Candle[] {
     return closes.map((c, i) => {
       const o = i === 0 ? c : closes[i - 1];
       return { time: i * 60_000, open: o, close: c, high: Math.max(o, c), low: Math.min(o, c), volume: 1, confirmed: true };
     });
   }
-  // 120봉 하락 → rally봉 급등(+3) → 5봉 눌림(−2) → 4봉 반등(+3). 급등 15봉이면 하이킨아시 가격이 두 선을 다 넘는 건 131번 봉
+  // 120봉 하락 → rally봉 급등(+3) → 5봉 눌림(−2) → 4봉 반등(+3). 급등 25봉이면 MA20이 MA100을 넘어 정배열이 되는 건 140번 봉
   // (급등은 120번부터 — 첫 양봉 파동이 역배열 때 시작)
   function closes(rally: number): number[] {
     const a = Array.from({ length: 120 }, (_, i) => 200 - i * 0.8);
@@ -123,10 +123,10 @@ describe('pullbackSignals — 가격이 MA20·MA100 둘 다 위로 (실제 캔�
 
   it('역배열에서 시작한 양봉 파동 → 정배열 → 눌림 → 반등이면 매수 신호 하나, 상자는 눌림 첫 봉부터', () => {
     // 상자 범위·화살표 가격은 하이킨아시 값 (변곡 모드 차트에 보이는 봉)
-    const c = haCandles(path(closes(15)));
-    const s = pullbackSignals(path(closes(15)), 20, 100, 3, 15);
-    expect(s.map((x) => `${x.dir}@${x.index}`)).toEqual(['long@141']);
-    expect(s[0].index - 131).toBeLessThanOrEqual(15);
+    const c = haCandles(path(closes(25)));
+    const s = pullbackSignals(path(closes(25)), 20, 100, 3, 15);
+    expect(s.map((x) => `${x.dir}@${x.index}`)).toEqual(['long@151']);
+    expect(s[0].index - 140).toBeLessThanOrEqual(15);
     const span = c.slice(s[0].fromIndex, s[0].index + 1);
     expect(s[0].high).toBe(Math.max(...span.map((x) => x.high)));
     expect(s[0].low).toBe(Math.min(...span.map((x) => x.low)));
@@ -134,11 +134,15 @@ describe('pullbackSignals — 가격이 MA20·MA100 둘 다 위로 (실제 캔�
   });
 
   it('한참 오른 뒤(전환 후 15봉 넘어서) 눌림은 신호 없음 — 고점에서 매수 변곡? 금지 (사용자 지적)', () => {
-    expect(pullbackSignals(path(closes(30)), 20, 100, 3, 15)).toEqual([]);
+    expect(pullbackSignals(path(closes(35)), 20, 100, 3, 15)).toEqual([]);
+  });
+
+  it('가격이 두 선 위로 올라가도 MA20이 아직 MA100 아래면 정배열이 아니다 — 신호 없음 (사용자 지적)', () => {
+    expect(pullbackSignals(path(closes(15)), 20, 100, 3, 15)).toEqual([]);
   });
 
   it('신호 계산에는 마감된 봉만 쓴다 (진행 중인 봉 제외)', () => {
-    const upTo = path(closes(15)).slice(0, 142);
+    const upTo = path(closes(25)).slice(0, 152);
     expect(pullbackSignals(upTo, 20, 100, 3, 15)).toHaveLength(1);
     upTo[upTo.length - 1] = { ...upTo[upTo.length - 1], confirmed: false };
     expect(pullbackSignals(upTo, 20, 100, 3, 15)).toEqual([]);

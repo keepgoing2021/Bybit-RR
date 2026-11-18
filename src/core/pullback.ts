@@ -5,7 +5,7 @@ import type { Candle } from './types';
  * 변곡 모드에서는 차트도 하이킨아시 봉으로 바꿔 그린다 — 보이는 봉·MA와 계산이 같아야 한다 (2026-11-18 사용자).
  * MA도 하이킨아시 종가로 (트레이딩뷰에서 하이킨아시 차트에 MA를 얹은 것과 같음).
  *
- * 역배열 = 하이킨아시 가격이 MA20·MA100 둘 다 아래, 정배열 = 둘 다 위 (선끼리 순서가 아님 — 사용자 정의)
+ * 정배열 = MA20이 MA100 위에 올라타 있고 하이킨아시 가격이 둘 다 위, 역배열 = 정반대 (2026-11-19 사용자 정의 확정)
  * 롱: 역배열에서 하이킨아시 양봉 N개+ 파동 → 그 파동 중·직후 정배열 전환
  *     → 음봉 N개 이상 연속 (눌림. 다시 역배열이 되면 무효)
  *     → 다시 첫 양봉(두 번째 양봉 파동) = 신호. 전환 한 번에 한 번만, 전환 후 maxBars봉 안에 완성될 때만.
@@ -47,7 +47,7 @@ export interface PullbackBar {
   time: number;
   /** 하이킨아시 양봉 (종가 ≥ 시가) */
   green: boolean;
-  /** 정배열(up: 가격이 두 MA 위)/역배열(down: 두 MA 아래). 사이거나 MA가 아직 없으면 null */
+  /** 정배열(up: MA20 > MA100, 가격이 둘 다 위)/역배열(down: 반대). 그 밖이거나 MA가 아직 없으면 null */
   side: 'up' | 'down' | null;
 }
 
@@ -163,8 +163,9 @@ export function pullbackSignals(candles: readonly Candle[], fast = 20, slow = 10
     return {
       time: c.time,
       green: c.close >= c.open,
-      // 정배열 = 하이킨아시 종가가 MA20·MA100 둘 다 위, 역배열 = 둘 다 아래. 사이에 끼면 직전 상태 유지 (2026-11-18 사용자 정의)
-      side: f === null || sl === null ? null : c.close > Math.max(f, sl) ? 'up' : c.close < Math.min(f, sl) ? 'down' : null,
+      // 정배열 = MA20이 MA100 위 + 하이킨아시 종가가 둘 다 위, 역배열 = MA20이 MA100 아래 + 종가가 둘 다 아래.
+      // 그 밖(선 사이에 끼거나 선 순서와 가격이 엇갈림)은 직전 상태 유지 (2026-11-19 사용자: 짧은 MA가 긴 MA 위에 올라탄 게 진짜 정배열)
+      side: f === null || sl === null ? null : f > sl && c.close > f ? 'up' : f < sl && c.close < f ? 'down' : null,
     };
   });
   return detectPullbacks(bars, minWave, maxBars).map((s) => {
