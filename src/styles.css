@@ -2612,19 +2612,17 @@ button.flow-row.current .flow-name {
   border-color: var(--profit);
 }
 
-/* 눌림 알림 (2026-11-18): 매수 초록 테두리 · 매도 빨강 테두리, 한 줄에 나란히 */
-.pb-toggles {
-  display: flex;
-  gap: 6px;
-  pointer-events: none;
+/* 눌림 알림 (2026-11-18): 버튼 하나 — 끔은 흰 테두리, 매수 초록 테두리, 매도 빨강 테두리 */
+.struct-toggle.pb-toggle[data-mode='off'] {
+  border-color: color-mix(in srgb, var(--text) 55%, transparent);
 }
-.struct-toggle.pb-long.on {
+.struct-toggle.pb-toggle[data-mode='long'] {
   border-color: var(--profit);
 }
-.struct-toggle.pb-short.on {
+.struct-toggle.pb-toggle[data-mode='short'] {
   border-color: var(--loss);
 }
-.struct-toggle.pb-short.on .dot {
+.struct-toggle.pb-toggle[data-mode='short'] .dot {
   background: var(--loss);
   border-color: var(--loss);
 }
