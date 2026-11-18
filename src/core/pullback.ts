@@ -32,6 +32,8 @@ export function heikinAshi(candles: readonly Candle[]): HaBar[] {
 }
 
 export type PullbackDir = 'long' | 'short';
+/** 매수(롱)·매도(숏) 눌림을 따로 켜고 끈다 */
+export type PullbackDirs = Record<PullbackDir, boolean>;
 
 export interface PullbackBar {
   time: number;

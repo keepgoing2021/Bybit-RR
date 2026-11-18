@@ -28,7 +28,7 @@ import { hitTestPreset, type AvgLine, type BoxGeometry, type SplitLine } from '.
 import { RRBoxPrimitive, type OverlayModel } from './rrPrimitive';
 import { StructurePrimitive } from './structurePrimitive';
 import { PullbackPrimitive } from './pullbackPrimitive';
-import { pullbackSignals, type PullbackSignal } from '../core/pullback';
+import { pullbackSignals, type PullbackDirs, type PullbackSignal } from '../core/pullback';
 import { VolumePeakPrimitive, type VolumePeakBox } from './volumePeakPrimitive';
 import { peakPeriodFor, volumePeaks, wavePeaks, wavePivots, type PeakPeriod } from '../core/volumePeak';
 import { findSwings } from '../core/swing';
@@ -122,7 +122,7 @@ export class ChartView {
   private structureBars: number | null = null;
   // 눌림 알림 (하이킨아시 + MA20 + 파동). 켜면 화살표 표시 + 새 신호 콜백
   private readonly pullPrim: PullbackPrimitive;
-  private pullbackOn = false;
+  private pullbackDirs: PullbackDirs = { long: false, short: false };
   private pullbackNotified: number | null = null;
   private readonly volPrim: VolumePeakPrimitive;
   private volPeakOn = false;
@@ -342,9 +342,9 @@ export class ChartView {
     if (done) this.freeStartPrice = null;
   }
 
-  /** 눌림 알림 표시 켜기/끄기 */
-  setPullback(on: boolean): void {
-    this.pullbackOn = on;
+  /** 눌림 알림 표시 켜기/끄기 (매수·매도 따로) */
+  setPullback(dirs: PullbackDirs): void {
+    this.pullbackDirs = { ...dirs };
     this.rebuildPullback(false);
   }
 
@@ -354,11 +354,11 @@ export class ChartView {
 
   /** live: 실시간 봉 마감으로 다시 계산할 때만 새 신호를 알린다 (같은 봉은 한 번만) */
   private rebuildPullback(live: boolean): void {
-    if (!this.pullbackOn || !this.candles.length) {
+    if (!(this.pullbackDirs.long || this.pullbackDirs.short) || !this.candles.length) {
       this.pullPrim.set([]);
       return;
     }
-    const signals = pullbackSignals(this.candles, MA_LINES[0].period, PULLBACK_WAVE);
+    const signals = pullbackSignals(this.candles, MA_LINES[0].period, PULLBACK_WAVE).filter((x) => this.pullbackDirs[x.dir]);
     this.pullPrim.set(signals);
     const last = this.candles[this.candles.length - 1];
     const lastClosed = this.candles.length - (last.confirmed ? 1 : 2);

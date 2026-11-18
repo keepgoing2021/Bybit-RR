@@ -6,7 +6,7 @@ import { analyzeAutoLevels, type AutoSL } from '../core/analysis';
 import { captureEntry, evaluateFreshness, type FeedSnapshot, type Freshness } from '../core/freshness';
 import { barRemainingMs, formatCountdown } from '../core/countdown';
 import { applyTrade } from '../core/liveCandle';
-import type { PullbackSignal } from '../core/pullback';
+import type { PullbackDirs, PullbackSignal } from '../core/pullback';
 import { parseRR, rrLevels, tpForRR } from '../core/presets';
 import { computeMetrics, formatRR, type Metrics } from '../core/metrics';
 import {
@@ -155,7 +155,7 @@ const DRAW_TOOLS_KEY = 'rrtool.v1.drawtools';
 /** 다우 이론 구조 표시 (HH·HL·LH·LL, BOS·CHoCH) 켜짐 여부. 기본 켜짐, 끄면 'off' */
 export const STRUCTURE_KEY = 'rrtool.v1.structure';
 export const VOL_PEAK_KEY = 'rrtool.v1.volPeak';
-/** 눌림 알림 (하이킨아시 + MA20 + 파동 3) 켜짐 여부. 기본 꺼짐, 켜면 'on' */
+/** 눌림 알림 (하이킨아시 + MA20 + 파동 3): 'long' · 'short' · 'both' · 'off'(기본) */
 export const PULLBACK_KEY = 'rrtool.v1.pullback';
 export type VolPeakMode = 'wave' | 'cal' | 'off';
 /** 파동 기준: 다우 구조(5봉)보다 넓게 잡아 큰 파동만 (2026-11-12 사용자 선택 「파동 크게」) */
@@ -204,7 +204,7 @@ export class App {
   /** 멀티차트: 계산기 칸이 아닌 칸에 맡겨 둔 계산 (종목별) */
   private stash = new Map<string, Scenario>();
   private structureOn = true;
-  private pullbackOn = false;
+  private pullback: PullbackDirs = { long: false, short: false };
   /** 거래 터진 곳: 파동마다 / 하루·한 주마다 / 끔 */
   private volPeakMode: VolPeakMode = 'wave';
   private volPeakPeriod: 'day' | 'week' = 'day';
@@ -346,7 +346,7 @@ export class App {
       // 기본 1칸
     }
     this.structureOn = this.loadStructureOn();
-    this.pullbackOn = this.loadPullbackOn();
+    this.pullback = this.loadPullback();
     this.applyPullback();
     this.volPeakMode = this.loadVolPeakMode();
     this.applyStructure();
@@ -870,14 +870,14 @@ export class App {
       volPeakPeriod,
     );
     volPeakBtn.addEventListener('click', () => this.toggleVolPeak());
-    // 눌림 알림 (2026-11-18): MA20 정배열 전환 → 하이킨아시 양봉 3+ → 음봉 3+ → 다시 양봉에 ▲ + 윈도우 알림. 숏은 반대
-    const pullbackBtn = h(
-      'button',
-      { type: 'button', class: 'struct-toggle', 'data-testid': 'pullback-toggle', title: '눌림 알림: MA20 위로 전환 → 하이킨아시 양봉 3개+ → 음봉 3개+ → 다시 양봉이면 ▲ 표시와 윈도우 알림 (숏은 반대) · 마감된 봉 기준 · 1RC 탭이 열려 있을 때만' },
-      h('span', { class: 'dot', 'aria-hidden': 'true' }),
-      '눌림 알림',
-    );
-    pullbackBtn.addEventListener('click', () => this.togglePullback());
+    // 눌림 알림 (2026-11-18): MA20 전환 → 하이킨아시 파동 3+ → 반대 파동 3+ → 다시 원래 방향 봉에 테두리 + 윈도우 알림.
+    // 매수(초록 테두리)·매도(빨강 테두리) 버튼을 따로 (사용자 요청)
+    const pbTitle = (d: string) => `눌림 ${d} 알림 · MA20 전환 → 하이킨아시 파동 3개+ → 반대 파동 3개+ → 다시 원래 방향 봉이면 표시와 윈도우 알림 · 마감된 봉 기준 · 1RC 탭이 열려 있을 때만`;
+    const pbLongBtn = h('button', { type: 'button', class: 'struct-toggle pb-long', 'data-testid': 'pullback-long', title: pbTitle('매수') }, h('span', { class: 'dot', 'aria-hidden': 'true' }), '눌림 매수');
+    const pbShortBtn = h('button', { type: 'button', class: 'struct-toggle pb-short', 'data-testid': 'pullback-short', title: pbTitle('매도') }, h('span', { class: 'dot', 'aria-hidden': 'true' }), '눌림 매도');
+    pbLongBtn.addEventListener('click', () => this.togglePullback('long'));
+    pbShortBtn.addEventListener('click', () => this.togglePullback('short'));
+    const pullbackBox = h('div', { class: 'pb-toggles' }, pbLongBtn, pbShortBtn);
 
     // 사용 안내 다시 보기 (처음 한 번은 저절로 뜬다)
     const tourBtn = h(
@@ -1299,7 +1299,7 @@ export class App {
     });
 
     return {
-      picker, tf, sltf, long, short, status, statusReason, themeBtn, structBtn, volPeakBtn, pullbackBtn, volPeakPeriod,
+      picker, tf, sltf, long, short, status, statusReason, themeBtn, structBtn, volPeakBtn, pullbackBox, pbLongBtn, pbShortBtn, volPeakPeriod,
       loadError, chart, empty, card, sideChip, title, entry, times, planOld, rr, rrInput, rrLabel, rrChips, rrTp, rrProfitNote, reasons, bufferInput, bufferChips, bufferNote,
       sl, tp, slWhy, sizing, restore, del, settingsInputs, settingRows, modeHelp, settingsSummaryEl, toast, undo, tools, tour, flow, watch, watchBtn, watchHandle, layout, panes, splitBtns, symbolList, mainLabel, journalForm, journalWarn, nav,
       topbar, moreBtn, morePanel, tfChips, chartHeadTools, tourBtn, fullBtn,
@@ -1956,11 +1956,11 @@ export class App {
   private placeControls(): void {
     const e = this.el;
     if (PHONE.matches) {
-      e.morePanel.append(e.structBtn, e.volPeakBtn, e.pullbackBtn, e.tourBtn, e.themeBtn);
+      e.morePanel.append(e.structBtn, e.volPeakBtn, e.pullbackBox, e.tourBtn, e.themeBtn);
     } else {
       this.chart.addLegendControl(e.structBtn);
       this.chart.addLegendControl(e.volPeakBtn);
-      this.chart.addLegendControl(e.pullbackBtn);
+      this.chart.addLegendControl(e.pullbackBox);
       e.chartHeadTools.append(e.tourBtn, e.themeBtn);
       this.setMoreOpen(false);
     }
@@ -2238,23 +2238,26 @@ export class App {
     btn.setAttribute('aria-label', `거래 터진 곳 (${on ? `${what}마다` : '꺼짐'}) · 누르면 ${next}`);
   }
 
-  private loadPullbackOn(): boolean {
+  private loadPullback(): PullbackDirs {
     try {
-      return this.d.storage.getItem(PULLBACK_KEY) === 'on';
+      const v = this.d.storage.getItem(PULLBACK_KEY);
+      // 'on'은 매수·매도 버튼을 나누기 전 값
+      return { long: v === 'long' || v === 'both' || v === 'on', short: v === 'short' || v === 'both' || v === 'on' };
     } catch {
-      return false;
+      return { long: false, short: false };
     }
   }
 
-  private togglePullback(): void {
-    this.pullbackOn = !this.pullbackOn;
+  private togglePullback(dir: 'long' | 'short'): void {
+    this.pullback = { ...this.pullback, [dir]: !this.pullback[dir] };
+    const { long, short } = this.pullback;
     try {
-      this.d.storage.setItem(PULLBACK_KEY, this.pullbackOn ? 'on' : 'off');
+      this.d.storage.setItem(PULLBACK_KEY, long && short ? 'both' : long ? 'long' : short ? 'short' : 'off');
     } catch {
       // 저장 못 해도 이번 화면에는 적용
     }
     this.applyPullback();
-    if (!this.pullbackOn) return;
+    if (!this.pullback[dir]) return;
     // 윈도우 알림 허락은 버튼을 누른 순간에만 물을 수 있다 (브라우저 규칙)
     const N = globalThis.Notification;
     if (!N) this.toast('이 브라우저는 알림을 지원하지 않습니다. 화면 표시만 됩니다.');
@@ -2263,12 +2266,14 @@ export class App {
   }
 
   private applyPullback(): void {
-    this.chart?.setPullback(this.pullbackOn);
-    const btn = this.el?.pullbackBtn;
-    if (btn) {
-      btn.setAttribute('aria-pressed', String(this.pullbackOn));
-      btn.classList.toggle('on', this.pullbackOn);
-      btn.setAttribute('aria-label', `눌림 알림 ${this.pullbackOn ? '끄기' : '켜기'}`);
+    this.chart?.setPullback(this.pullback);
+    const e = this.el;
+    if (!e) return;
+    for (const [btn, dir, name] of [[e.pbLongBtn, 'long', '매수'], [e.pbShortBtn, 'short', '매도']] as const) {
+      const on = this.pullback[dir];
+      btn.setAttribute('aria-pressed', String(on));
+      btn.classList.toggle('on', on);
+      btn.setAttribute('aria-label', `눌림 ${name} 알림 ${on ? '끄기' : '켜기'}`);
     }
   }
 
