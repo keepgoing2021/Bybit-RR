@@ -89,6 +89,8 @@ const PULLBACK_PULL = 2;
 const PULLBACK_GAP_K = 2;
 /** 2차(정배열 후 MA20 지지)는 아직 표시·알림 안 함 (2026-11-19 사용자: 1차만 먼저) */
 const PULLBACK_STABLE_ON = false;
+/** 변곡 모드에서 차트 봉을 하이킨아시로 그릴지 (끔: 계산만 하이킨아시, 화면은 기본 캔들·기본 MA) */
+const HA_DISPLAY = false;
 /** 정배열·역배열 전환 후 이 봉 수 안에 패턴이 완성될 때만 (30은 길다 → 15, 2026-11-18 사용자) */
 const PULLBACK_MAX_BARS = 15;
 
@@ -371,8 +373,9 @@ export class ChartView {
     return this.pullbackDirs.long || this.pullbackDirs.short;
   }
 
+  /** 화면 봉: 늘 기본 캔들 (변곡 계산만 하이킨아시 — 2026-11-19 사용자). 하이킨아시 표시로 되돌리려면 HA_DISPLAY = true */
   private viewOf(candles: readonly Candle[]): readonly Candle[] {
-    return this.haMode() ? haCandles(candles) : candles;
+    return HA_DISPLAY && this.haMode() ? haCandles(candles) : candles;
   }
 
   getPullback(): readonly PullbackSignal[] {

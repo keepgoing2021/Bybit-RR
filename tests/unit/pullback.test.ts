@@ -138,10 +138,10 @@ describe('pullbackSignals — 실제 캔들 (매수·매도 대칭, 마감 봉�
     expect(shorts.every((s) => s.dir === 'short')).toBe(true);
   });
 
-  it('상자 범위는 하이킨아시 고가·저가', () => {
-    const ha = haCandles(path(up));
-    for (const s of pullbackSignals(path(up))) {
-      const span = ha.slice(s.fromIndex, s.index + 1);
+  it('상자 범위는 화면에 보이는 기본 캔들 고가·저가 (계산만 하이킨아시)', () => {
+    const c = path(up);
+    for (const s of pullbackSignals(c)) {
+      const span = c.slice(s.fromIndex, s.index + 1);
       expect(s.high).toBe(Math.max(...span.map((x) => x.high)));
       expect(s.low).toBe(Math.min(...span.map((x) => x.low)));
     }

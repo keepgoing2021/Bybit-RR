@@ -2,7 +2,7 @@ import type { Candle } from './types';
 
 /**
  * 변곡? (2026-11-18~19 사용자 로직). 급락 뒤 추세가 바뀌는지 "보기 시작할" 자리를 두 단계로 잡는다.
- * 변곡 모드에서는 차트도 하이킨아시 봉으로 그린다 — 보이는 봉·MA와 계산이 같아야 한다. MA도 하이킨아시 종가로.
+ * 계산은 하이킨아시 봉·하이킨아시 종가 MA로 한다. 화면은 기본 캔들 그대로 (2026-11-19 사용자 — 상자도 기본 캔들 고가·저가로).
  *
  * 공통 바닥: 확실한 역배열(두 MA가 캔들 위 + MA20 < MA100)에서 하이킨아시 음봉 파동 wave개+ → 이 바닥에서 출발
  * 1차 (최저점 근처, 다소 공격적. 2026-11-19 사용자 정의): 급락으로 "많이" 역배열 — MA100 − MA20 간격이 평균 봉 크기의 gapK배 이상 —
@@ -72,11 +72,11 @@ export interface PullbackSignal {
   index: number;
   dir: PullbackDir;
   kind: TurnKind;
-  /** 화살표 기준 가격: 롱은 그 봉 저가, 숏은 고가 (하이킨아시) */
+  /** 화살표 기준 가격: 롱은 그 봉 저가, 숏은 고가 (기본 캔들) */
   price: number;
   fromIndex: number;
   fromTime: number;
-  /** 눌림 구간 ~ 신호 봉의 하이킨아시 고가·저가 (상자 위아래) */
+  /** 눌림 구간 ~ 신호 봉의 기본 캔들 고가·저가 (상자 위아래) */
   high: number;
   low: number;
 }
@@ -205,7 +205,8 @@ export function pullbackSignals(
   opts: TurnOptions = { wave: 3, pull: 2, maxBars: 15, gapK: 2 },
 ): PullbackSignal[] {
   const last = candles[candles.length - 1];
-  const ha = haCandles(last && !last.confirmed ? candles.slice(0, -1) : candles);
+  const closed = last && !last.confirmed ? candles.slice(0, -1) : candles;
+  const ha = haCandles(closed);
   const f = ha.map((_, i) => smaAtIndex(ha, i, fast));
   const s = ha.map((_, i) => smaAtIndex(ha, i, slow));
   // 평균 봉 크기: 하이킨아시 고가−저가의 최근 20봉 평균
@@ -224,13 +225,14 @@ export function pullbackSignals(
       ar: ar[i],
     }));
     for (const h of detectTurns(bars, opts)) {
-      const span = ha.slice(h.fromIndex, h.index + 1);
+      // 상자·화살표는 화면에 보이는 기본 캔들 고가·저가로
+      const span = closed.slice(h.fromIndex, h.index + 1);
       out.push({
         time: ha[h.index].time,
         index: h.index,
         dir,
         kind: h.kind,
-        price: dir === 'long' ? ha[h.index].low : ha[h.index].high,
+        price: dir === 'long' ? closed[h.index].low : closed[h.index].high,
         fromIndex: h.fromIndex,
         fromTime: ha[h.fromIndex].time,
         high: Math.max(...span.map((x) => x.high)),
