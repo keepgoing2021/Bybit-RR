@@ -81,16 +81,23 @@ export function detectPullbacks(bars: readonly PullbackBar[], minWave: number, m
   // 같은 색이 이어진 봉 수 (지금 봉 포함)와 그 직전 반대색 묶음의 봉 수
   let run = 0;
   let prevRun = 0;
-  let prevPrevRun = 0;
+  // 각 묶음 안에서 확실한 역배열(down)·정배열(up) 상태였던 봉 수 — 반대 파동이 "역배열 안에서" 나왔는지 본다
+  type Cnt = { up: number; down: number };
+  let cnt: Cnt = { up: 0, down: 0 };
+  let prevCnt: Cnt = { up: 0, down: 0 };
+  let prevPrevCnt: Cnt = { up: 0, down: 0 };
 
   for (let i = 0; i < bars.length; i++) {
     const b = bars[i];
     if (i > 0 && bars[i - 1].green === b.green) run++;
     else {
-      prevPrevRun = prevRun;
       prevRun = run;
       run = 1;
+      prevPrevCnt = prevCnt;
+      prevCnt = cnt;
+      cnt = { up: 0, down: 0 };
     }
+    if (b.side) cnt[b.side]++;
     const side = b.side ?? prevSide;
     const flipped = side !== null && prevSide !== null && side !== prevSide;
     if (b.side !== null) prevSide = b.side;
@@ -102,11 +109,13 @@ export function detectPullbacks(bars: readonly PullbackBar[], minWave: number, m
       const withTrend = dir === 'long' ? b.green : !b.green;
       // 모든 조건의 교집합일 때만 (2026-11-19 사용자): 역배열에서 강한 반대 파동 → 첫 파동 → 정배열 전환 → 눌림 → 다시 첫 봉.
       // 전환 앞에 반대 파동(롱이면 음봉 파동)이 없으면 이번 전환은 버린다
-      if (withTrend && prevRun >= minWave) {
+      // 반대 파동은 확실한 반대 배열 안에서 minWave봉 이상 (롱: 두 MA가 캔들 위 + MA20 < MA100 상태의 음봉 3개+)
+      const against = dir === 'long' ? 'down' : 'up';
+      if (withTrend && prevCnt[against] >= minWave) {
         // 첫 파동 진행 중에 전환 — 전환 전부터 이어진 봉까지 센다. 그 앞이 음봉 파동
         phase = 'wave';
         waveRun = run;
-      } else if (!withTrend && prevRun >= minWave && prevPrevRun >= minWave) {
+      } else if (!withTrend && prevRun >= minWave && prevPrevCnt[against] >= minWave) {
         // 첫 파동이 끝나고 눌림이 시작된 뒤 전환. 첫 파동 앞이 음봉 파동
         phase = 'pull';
         pullRun = run;

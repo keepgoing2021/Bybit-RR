@@ -21,6 +21,12 @@ describe('detectPullbacks — 역배열 음봉 파동 → 양봉 파동 → 정�
     expect(at('UUUDDDdddD')).toEqual(['short@9']);
   });
 
+  it('음봉 파동이 역배열 안에서(두 MA가 캔들 위) 3개+ 나와야 한다 — 역배열이 아닌 음봉은 안 셈 (사용자 지적)', () => {
+    // 음봉 파동 4개 중 역배열 상태는 1개뿐 (나머지는 MA 사이 = '-')
+    expect(at('U---DUUUuuuU')).toEqual([]);
+    expect(at('UDDDUUUuuuU')).toEqual(['long@10']);
+  });
+
   it('전환 앞에 강한 음봉 파동(3개+)이 없으면 신호 없음', () => {
     expect(at('DDUUUuuuU')).toEqual([]);
     expect(at('DdddUuuuU')).toEqual([]);
