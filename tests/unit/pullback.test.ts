@@ -50,6 +50,15 @@ describe('detectPullbacks — 역배열 음봉 파동 → 양봉 파동 → 정�
     expect(at('DddduuuU')).toEqual([]);
   });
 
+  it('매수 변곡은 짧은 MA가 긴 MA 위에 있을 때만 — 눌림 중 MA 순서가 뒤집히면 무효 (가격이 MA 사이여도)', () => {
+    const b = bars('DDDUUUuuuU');
+    b[7] = { ...b[7], side: null, maUp: false };
+    expect(detectPullbacks(b, 3)).toEqual([]);
+    const ok = bars('DDDUUUuuuU');
+    ok[7] = { ...ok[7], side: null, maUp: true };
+    expect(detectPullbacks(ok, 3).map((x) => x.index)).toEqual([9]);
+  });
+
   it('음봉 눌림 중 역배열로 돌아가면 무효', () => {
     expect(at('DDDUUUuuDdU')).toEqual([]);
   });

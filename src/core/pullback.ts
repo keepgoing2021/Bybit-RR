@@ -49,6 +49,8 @@ export interface PullbackBar {
   green: boolean;
   /** 정배열(up: MA20 > MA100, 가격이 둘 다 위)/역배열(down: 반대). 그 밖이거나 MA가 아직 없으면 null */
   side: 'up' | 'down' | null;
+  /** MA20이 MA100 위(true)/아래(false). MA가 아직 없으면 null. 생략하면 side로 판단 */
+  maUp?: boolean | null;
 }
 
 export interface PullbackSignal {
@@ -124,6 +126,12 @@ export function detectPullbacks(bars: readonly PullbackBar[], minWave: number, m
       continue;
     }
     if (!dir || phase === 'done') continue;
+    // 매수 변곡은 짧은 MA가 긴 MA 위에 있는 동안만 (매도는 아래). 눌림 중에 MA 순서가 뒤집히면 무효 (2026-11-19 사용자)
+    const maUp = b.maUp ?? (b.side === null ? null : b.side === 'up');
+    if (maUp !== null && maUp !== (dir === 'long')) {
+      phase = 'done';
+      continue;
+    }
     // 전환에서 너무 멀어지면 버린다 — 이미 벌어진 추세 한가운데에서 뜨지 않게
     if (i - flipAt > maxBars) {
       phase = 'done';
@@ -176,6 +184,7 @@ export function pullbackSignals(candles: readonly Candle[], fast = 20, slow = 10
       // 정배열 = MA20이 MA100 위 + 하이킨아시 종가가 둘 다 위, 역배열 = MA20이 MA100 아래 + 종가가 둘 다 아래.
       // 그 밖(선 사이에 끼거나 선 순서와 가격이 엇갈림)은 직전 상태 유지 (2026-11-19 사용자: 짧은 MA가 긴 MA 위에 올라탄 게 진짜 정배열)
       side: f === null || sl === null ? null : f > sl && c.close > f ? 'up' : f < sl && c.close < f ? 'down' : null,
+      maUp: f === null || sl === null || f === sl ? null : f > sl,
     };
   });
   return detectPullbacks(bars, minWave, maxBars).map((s) => {
