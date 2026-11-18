@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { detectPullbacks, heikinAshi, pullbackSignals, type PullbackBar } from '../../src/core/pullback';
+import { detectPullbacks, haCandles, heikinAshi, pullbackSignals, type PullbackBar } from '../../src/core/pullback';
 import type { Candle } from '../../src/core/types';
 
 // 'U' = 정배열 양봉, 'u' = 정배열 음봉, 'D' = 역배열 음봉, 'd' = 역배열 양봉, '-' = MA 없음(초반)
@@ -58,6 +58,16 @@ describe('detectPullbacks — 정배열 전환 → 양봉 파동 → 음봉 파�
   });
 });
 
+describe('haCandles', () => {
+  it('하이킨아시 값으로 바꾸고 거래량·마감 여부는 그대로', () => {
+    const c: Candle[] = [
+      { time: 0, open: 10, high: 14, low: 8, close: 12, volume: 5, confirmed: true },
+      { time: 1, open: 12, high: 16, low: 11, close: 15, volume: 7, confirmed: false },
+    ];
+    expect(haCandles(c)[1]).toEqual({ time: 1, open: 11, high: 16, low: 11, close: 13.5, volume: 7, confirmed: false });
+  });
+});
+
 describe('heikinAshi', () => {
   it('종가 = 시고저종 평균, 시가 = 직전 하이킨아시 시가·종가 평균 (첫 봉은 실제 시가·종가 평균)', () => {
     const c: Candle[] = [
@@ -99,8 +109,9 @@ describe('pullbackSignals — MA20 × MA100 정배열 전환 (실제 캔들로)'
   }
 
   it('골든크로스 직후 눌림 → 반등이면 매수 신호 하나, 상자는 눌림 첫 봉부터', () => {
-    const c = path(closes(25));
-    const s = pullbackSignals(c, 20, 100, 3, 15);
+    // 상자 범위·화살표 가격은 하이킨아시 값 (변곡 모드 차트에 보이는 봉)
+    const c = haCandles(path(closes(25)));
+    const s = pullbackSignals(path(closes(25)), 20, 100, 3, 15);
     expect(s.map((x) => `${x.dir}@${x.index}`)).toEqual(['long@151']);
     expect(s[0].index - 140).toBeLessThanOrEqual(15);
     const span = c.slice(s[0].fromIndex, s[0].index + 1);

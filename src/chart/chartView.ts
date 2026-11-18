@@ -28,7 +28,7 @@ import { hitTestPreset, type AvgLine, type BoxGeometry, type SplitLine } from '.
 import { RRBoxPrimitive, type OverlayModel } from './rrPrimitive';
 import { StructurePrimitive } from './structurePrimitive';
 import { PullbackPrimitive } from './pullbackPrimitive';
-import { pullbackSignals, type PullbackDirs, type PullbackSignal } from '../core/pullback';
+import { haCandles, pullbackSignals, type PullbackDirs, type PullbackSignal } from '../core/pullback';
 import { VolumePeakPrimitive, type VolumePeakBox } from './volumePeakPrimitive';
 import { peakPeriodFor, volumePeaks, wavePeaks, wavePivots, type PeakPeriod } from '../core/volumePeak';
 import { findSwings } from '../core/swing';
@@ -108,6 +108,8 @@ export class ChartView {
   private readonly drag: DragController;
   private readonly mover: BoxMoveController;
   private candles: readonly Candle[] = [];
+  /** 화면에 그리는 봉: 보통은 candles 그대로, 변곡 모드에선 하이킨아시 (MA·범례도 이걸로) */
+  private view: readonly Candle[] = [];
   private tfMs = 60_000;
   private tickSize = 0.01;
   private overlay: OverlayInput | null = null;
@@ -291,7 +293,8 @@ export class ChartView {
   setCandles(candles: readonly Candle[], tfMs: number, resetView: boolean): void {
     this.candles = candles;
     this.tfMs = tfMs;
-    this.series.setData(candles.map(toBar));
+    this.view = this.viewOf(candles);
+    this.series.setData(this.view.map(toBar));
     this.setMaData();
     this.rebuildStructure();
     this.rebuildPullback(false);
@@ -315,11 +318,12 @@ export class ChartView {
   /** 캔들 저장소가 이미 반영한 값을 차트에 반영한다 */
   upsertCandle(c: Candle, kind: 'append' | 'update' | 'insert', all: readonly Candle[]): void {
     this.candles = all;
+    this.view = this.viewOf(all);
     if (kind === 'insert') {
-      this.series.setData(all.map(toBar));
+      this.series.setData(this.view.map(toBar));
       this.setMaData();
     } else {
-      this.series.update(toBar(c), kind === 'update');
+      this.series.update(toBar(this.haMode() ? this.view[this.view.length - 1] : c), kind === 'update');
       this.updateMaFrom(c.time);
     }
     if (kind !== 'update') {
@@ -346,8 +350,23 @@ export class ChartView {
 
   /** 눌림 알림 표시 켜기/끄기 (매수·매도 따로) */
   setPullback(dirs: PullbackDirs): void {
+    const was = this.haMode();
     this.pullbackDirs = { ...dirs };
+    // 변곡 모드를 켜고 끌 때 봉·MA를 하이킨아시 ↔ 일반으로 다시 그린다
+    if (was !== this.haMode() && this.candles.length) {
+      this.view = this.viewOf(this.candles);
+      this.series.setData(this.view.map(toBar));
+      this.setMaData();
+    }
     this.rebuildPullback(false);
+  }
+
+  private haMode(): boolean {
+    return this.pullbackDirs.long || this.pullbackDirs.short;
+  }
+
+  private viewOf(candles: readonly Candle[]): readonly Candle[] {
+    return this.haMode() ? haCandles(candles) : candles;
   }
 
   getPullback(): readonly PullbackSignal[] {
@@ -449,13 +468,13 @@ export class ChartView {
   }
 
   private setMaData(): void {
-    for (const m of this.ma) m.series.setData(sma(this.candles, m.period).map((p) => ({ time: (p.time / 1000) as UTCTimestamp, value: p.value })));
+    for (const m of this.ma) m.series.setData(sma(this.view, m.period).map((p) => ({ time: (p.time / 1000) as UTCTimestamp, value: p.value })));
     this.renderMaLegend();
   }
 
   /** time 봉부터 끝까지의 MA만 다시 계산 (보통 마지막 1~2봉) */
   private updateMaFrom(time: number): void {
-    const all = this.candles;
+    const all = this.view;
     let i = all.length - 1;
     while (i > 0 && all[i].time > time) i--;
     for (const m of this.ma) {
@@ -476,10 +495,10 @@ export class ChartView {
     const i = this.legendBar();
     const d = decimalsOf(this.tickSize);
     for (const m of this.ma) {
-      const p = i === null ? null : smaAt(this.candles, i, m.period);
+      const p = i === null ? null : smaAt(this.view, i, m.period);
       m.value.textContent = p ? p.value.toFixed(d) : '—';
     }
-    this.renderOhlc(i === null ? null : candleStats(this.candles, i));
+    this.renderOhlc(i === null ? null : candleStats(this.view, i));
   }
 
   private renderOhlc(s: CandleStats | null): void {

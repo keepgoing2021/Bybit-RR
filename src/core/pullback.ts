@@ -2,7 +2,8 @@ import type { Candle } from './types';
 
 /**
  * 눌림 알림 (2026-11-18 사용자 로직). 급락·추세전환(PRZ) 구간에서 단기 엔트리를 "보기 시작할" 자리를 잡는다.
- * 차트 봉은 그대로 두고, 하이킨아시는 계산에만 쓴다.
+ * 변곡 모드에서는 차트도 하이킨아시 봉으로 바꿔 그린다 — 보이는 봉·MA와 계산이 같아야 한다 (2026-11-18 사용자).
+ * MA도 하이킨아시 종가로 (트레이딩뷰에서 하이킨아시 차트에 MA를 얹은 것과 같음).
  *
  * 롱: MA20이 MA100 아래 → 위 (역배열 → 정배열, 골든크로스)
  *     → 하이킨아시 양봉 N개 이상 연속 (첫 파동)
@@ -30,6 +31,12 @@ export function heikinAshi(candles: readonly Candle[]): HaBar[] {
     out.push({ time: c.time, open, close, high: Math.max(c.high, open, close), low: Math.min(c.low, open, close) });
   }
   return out;
+}
+
+/** 하이킨아시 값으로 바꾼 캔들 (거래량·마감 여부는 그대로). 차트 표시와 신호 계산이 같이 쓴다 */
+export function haCandles(candles: readonly Candle[]): Candle[] {
+  const ha = heikinAshi(candles);
+  return candles.map((c, i) => ({ ...c, open: ha[i].open, high: ha[i].high, low: ha[i].low, close: ha[i].close }));
 }
 
 export type PullbackDir = 'long' | 'short';
@@ -123,17 +130,16 @@ const smaAtIndex = (c: readonly Candle[], i: number, p: number): number | null =
 };
 
 /** 마감된 봉만으로 신호를 찾는다 — 진행 중인 봉으로 미리 잡으면 표시·알림이 생겼다 사라진다.
- *  MA는 1RC 차트의 MA20·MA100과 같은 값(실제 종가 단순 이동평균) */
+ *  MA·상자 범위 모두 하이킨아시 값 (변곡 모드 차트에 보이는 그대로) */
 export function pullbackSignals(candles: readonly Candle[], fast = 20, slow = 100, minWave = 3, maxBars = 15): PullbackSignal[] {
   const last = candles[candles.length - 1];
-  const closed = last && !last.confirmed ? candles.slice(0, -1) : candles;
-  const ha = heikinAshi(closed);
+  const closed = haCandles(last && !last.confirmed ? candles.slice(0, -1) : candles);
   const bars: PullbackBar[] = closed.map((c, i) => {
     const f = smaAtIndex(closed, i, fast);
     const sl = smaAtIndex(closed, i, slow);
     return {
       time: c.time,
-      green: ha[i].close >= ha[i].open,
+      green: c.close >= c.open,
       side: f === null || sl === null || f === sl ? null : f > sl ? 'up' : 'down',
     };
   });
