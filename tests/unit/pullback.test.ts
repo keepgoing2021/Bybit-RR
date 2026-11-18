@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { detectPullbacks, heikinAshi, pullbackSignals, type PullbackBar } from '../../src/core/pullback';
 import type { Candle } from '../../src/core/types';
 
-// 'U' = MA20 위 양봉, 'u' = MA20 위 음봉, 'D' = MA20 아래 음봉, 'd' = MA20 아래 양봉, '-' = MA 없음(초반)
+// 'U' = 정배열 양봉, 'u' = 정배열 음봉, 'D' = 역배열 음봉, 'd' = 역배열 양봉, '-' = MA 없음(초반)
 function bars(code: string): PullbackBar[] {
   return [...code].map((ch, i) => ({
     time: i * 60_000,
@@ -12,7 +12,7 @@ function bars(code: string): PullbackBar[] {
 }
 const at = (code: string, minWave = 3) => detectPullbacks(bars(code), minWave).map((s) => `${s.dir}@${s.index}`);
 
-describe('detectPullbacks — MA20 정배열 전환 → 양봉 파동 → 음봉 파동 → 다시 양봉', () => {
+describe('detectPullbacks — 정배열 전환 → 양봉 파동 → 음봉 파동 → 다시 양봉', () => {
   it('역배열에서 정배열로 바뀐 뒤 양봉 3 · 음봉 3 · 양봉 = 롱 신호 (그 양봉 자리)', () => {
     //          0123456789
     expect(at('DDUUUuuuU')).toEqual(['long@8']);
@@ -33,7 +33,7 @@ describe('detectPullbacks — MA20 정배열 전환 → 양봉 파동 → 음봉
     expect(at('DUUUuuUUUuuuU')).toEqual(['long@12']);
   });
 
-  it('음봉 파동 중 MA20 아래로 내려가면 무효 (그 자리부터 숏 쪽으로 다시 본다)', () => {
+  it('음봉 파동 중 역배열로 돌아가면 무효 (그 자리부터 숏 쪽으로 다시 본다)', () => {
     expect(at('DUUUuuDdU')).toEqual([]);
   });
 
@@ -73,37 +73,50 @@ describe('heikinAshi', () => {
   });
 });
 
-describe('pullbackSignals — 실제 캔들로', () => {
-  // 30봉 하락 → 6봉 급등(MA20 위로) → 5봉 눌림 → 반등
+describe('detectPullbacks — 전환 후 기한', () => {
+  it('전환 후 maxBars봉 안에 완성될 때만 신호 (늦게 완성되면 버림)', () => {
+    // 전환 1번 봉 → 신호 7번 봉: 6봉 뒤
+    expect(detectPullbacks(bars('DUUUuuuU'), 3, 6).map((x) => x.index)).toEqual([7]);
+    expect(detectPullbacks(bars('DUUUuuuU'), 3, 5)).toEqual([]);
+  });
+});
+
+describe('pullbackSignals — MA20 × MA100 정배열 전환 (실제 캔들로)', () => {
   function path(closes: number[]): Candle[] {
     return closes.map((c, i) => {
       const o = i === 0 ? c : closes[i - 1];
       return { time: i * 60_000, open: o, close: c, high: Math.max(o, c), low: Math.min(o, c), volume: 1, confirmed: true };
     });
   }
-  const closes = [
-    ...Array.from({ length: 30 }, (_, i) => 130 - i), // 130 → 101
-    104, 108, 112, 116, 120, 124, // 급등
-    121, 118, 116, 115, 114, // 눌림 (MA20 위 유지)
-    118, 122,
-  ];
+  // 120봉 하락 → rally봉 급등(+3) → 5봉 눌림(−2) → 4봉 반등(+3). MA20이 MA100을 넘는 건 140번 봉
+  function closes(rally: number): number[] {
+    const a = Array.from({ length: 120 }, (_, i) => 200 - i * 0.8);
+    let p = a[a.length - 1];
+    for (let i = 0; i < rally; i++) a.push((p += 3));
+    for (let i = 0; i < 5; i++) a.push((p -= 2));
+    for (let i = 0; i < 4; i++) a.push((p += 3));
+    return a;
+  }
 
-  it('눌림 뒤 첫 하이킨아시 양봉에 롱 신호 하나', () => {
-    const s = pullbackSignals(path(closes), 20, 3);
-    expect(s.map((x) => x.dir)).toEqual(['long']);
-    expect(s[0].index).toBeGreaterThanOrEqual(41);
-    const c = path(closes);
-    expect(s[0].price).toBe(c[s[0].index].low);
+  it('골든크로스 직후 눌림 → 반등이면 매수 신호 하나, 상자는 눌림 첫 봉부터', () => {
+    const c = path(closes(25));
+    const s = pullbackSignals(c, 20, 100, 3, 15);
+    expect(s.map((x) => `${x.dir}@${x.index}`)).toEqual(['long@151']);
+    expect(s[0].index - 140).toBeLessThanOrEqual(15);
     const span = c.slice(s[0].fromIndex, s[0].index + 1);
     expect(s[0].high).toBe(Math.max(...span.map((x) => x.high)));
     expect(s[0].low).toBe(Math.min(...span.map((x) => x.low)));
+    expect(s[0].price).toBe(c[s[0].index].low);
+  });
+
+  it('한참 오른 뒤(전환 후 15봉 넘어서) 눌림은 신호 없음 — 고점에서 매수 변곡? 금지 (사용자 지적)', () => {
+    expect(pullbackSignals(path(closes(40)), 20, 100, 3, 15)).toEqual([]);
   });
 
   it('신호 계산에는 마감된 봉만 쓴다 (진행 중인 봉 제외)', () => {
-    const full = pullbackSignals(path(closes), 20, 3);
-    const upTo = path(closes).slice(0, full[0].index + 1);
-    expect(pullbackSignals(upTo, 20, 3)).toHaveLength(1);
+    const upTo = path(closes(25)).slice(0, 152);
+    expect(pullbackSignals(upTo, 20, 100, 3, 15)).toHaveLength(1);
     upTo[upTo.length - 1] = { ...upTo[upTo.length - 1], confirmed: false };
-    expect(pullbackSignals(upTo, 20, 3)).toEqual([]);
+    expect(pullbackSignals(upTo, 20, 100, 3, 15)).toEqual([]);
   });
 });

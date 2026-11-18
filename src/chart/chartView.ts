@@ -83,6 +83,8 @@ export interface ChartViewCallbacks {
 
 /** 눌림 알림 파동 조건: 양봉·음봉 각각 이만큼 연속 (2026-11-18 사용자 지정) */
 const PULLBACK_WAVE = 3;
+/** 정배열·역배열 전환 후 이 봉 수 안에 패턴이 완성될 때만 (30은 길다 → 15, 2026-11-18 사용자) */
+const PULLBACK_MAX_BARS = 15;
 
 const toBar = (c: Candle) => ({
   time: (c.time / 1000) as UTCTimestamp,
@@ -358,7 +360,7 @@ export class ChartView {
       this.pullPrim.set([]);
       return;
     }
-    const signals = pullbackSignals(this.candles, MA_LINES[0].period, PULLBACK_WAVE).filter((x) => this.pullbackDirs[x.dir]);
+    const signals = pullbackSignals(this.candles, MA_LINES[0].period, MA_LINES[1].period, PULLBACK_WAVE, PULLBACK_MAX_BARS).filter((x) => this.pullbackDirs[x.dir]);
     this.pullPrim.set(signals);
     const last = this.candles[this.candles.length - 1];
     const lastClosed = this.candles.length - (last.confirmed ? 1 : 2);

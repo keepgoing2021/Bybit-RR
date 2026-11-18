@@ -4,10 +4,11 @@ import type { Candle } from './types';
  * 눌림 알림 (2026-11-18 사용자 로직). 급락·추세전환(PRZ) 구간에서 단기 엔트리를 "보기 시작할" 자리를 잡는다.
  * 차트 봉은 그대로 두고, 하이킨아시는 계산에만 쓴다.
  *
- * 롱: 하이킨아시 종가가 MA20 아래 → 위 (정배열 전환)
+ * 롱: MA20이 MA100 아래 → 위 (역배열 → 정배열, 골든크로스)
  *     → 하이킨아시 양봉 N개 이상 연속 (첫 파동)
- *     → 음봉 N개 이상 연속 (눌림, 그동안 MA20 위 유지 — 아래로 가면 무효)
- *     → 다시 첫 양봉 = 신호. 전환 한 번에 한 번만.
+ *     → 음봉 N개 이상 연속 (눌림, 그동안 정배열 유지 — 다시 역배열이 되면 무효)
+ *     → 다시 첫 양봉 = 신호. 전환 한 번에 한 번만, 전환 후 maxBars봉 안에 완성될 때만.
+ * (2026-11-18 수정: 처음엔 「가격 vs MA20」·기한 없음이라 한참 오른 고점에서도 떴다 — 사용자 지적)
  * 숏: 정반대.
  */
 
@@ -39,7 +40,7 @@ export interface PullbackBar {
   time: number;
   /** 하이킨아시 양봉 (종가 ≥ 시가) */
   green: boolean;
-  /** 하이킨아시 종가가 MA 위(up)/아래(down). MA가 아직 없으면 null */
+  /** 정배열(up: 단기 MA > 장기 MA)/역배열(down). MA가 아직 없으면 null */
   side: 'up' | 'down' | null;
 }
 
@@ -60,13 +61,14 @@ export interface PullbackSignal {
 type Phase = 'wave' | 'pull' | 'done';
 
 /** 파동 상태 기계. 순수 함수라 테스트하기 쉽다 */
-export function detectPullbacks(bars: readonly PullbackBar[], minWave: number): PullbackSignal[] {
+export function detectPullbacks(bars: readonly PullbackBar[], minWave: number, maxBars = Infinity): PullbackSignal[] {
   const out: PullbackSignal[] = [];
   let dir: PullbackDir | null = null;
   let phase: Phase = 'done';
   let waveRun = 0;
   let pullRun = 0;
   let pullFrom = 0;
+  let flipAt = 0;
   let prevSide: 'up' | 'down' | null = null;
 
   for (let i = 0; i < bars.length; i++) {
@@ -78,9 +80,15 @@ export function detectPullbacks(bars: readonly PullbackBar[], minWave: number): 
       phase = 'wave';
       waveRun = 0;
       pullRun = 0;
+      flipAt = i;
     }
     if (b.side !== null) prevSide = b.side;
     if (!dir || phase === 'done') continue;
+    // 전환에서 너무 멀어지면 버린다 — 이미 벌어진 추세 한가운데에서 뜨지 않게
+    if (i - flipAt > maxBars) {
+      phase = 'done';
+      continue;
+    }
 
     // 롱: 진행 방향 봉 = 양봉, 눌림 봉 = 음봉. 숏은 반대
     const withTrend = dir === 'long' ? b.green : !b.green;
@@ -107,26 +115,29 @@ export function detectPullbacks(bars: readonly PullbackBar[], minWave: number): 
   return out;
 }
 
-/** 마감된 봉만으로 신호를 찾는다 — 진행 중인 봉으로 미리 잡으면 표시·알림이 생겼다 사라진다 */
-export function pullbackSignals(candles: readonly Candle[], maPeriod = 20, minWave = 3): PullbackSignal[] {
+const smaAtIndex = (c: readonly Candle[], i: number, p: number): number | null => {
+  if (i < p - 1) return null;
+  let sum = 0;
+  for (let k = i - p + 1; k <= i; k++) sum += c[k].close;
+  return sum / p;
+};
+
+/** 마감된 봉만으로 신호를 찾는다 — 진행 중인 봉으로 미리 잡으면 표시·알림이 생겼다 사라진다.
+ *  MA는 1RC 차트의 MA20·MA100과 같은 값(실제 종가 단순 이동평균) */
+export function pullbackSignals(candles: readonly Candle[], fast = 20, slow = 100, minWave = 3, maxBars = 15): PullbackSignal[] {
   const last = candles[candles.length - 1];
   const closed = last && !last.confirmed ? candles.slice(0, -1) : candles;
   const ha = heikinAshi(closed);
-  const bars: PullbackBar[] = [];
-  let sum = 0;
-  for (let i = 0; i < closed.length; i++) {
-    // MA는 1RC 차트의 MA20과 같은 값(실제 종가 단순 이동평균)
-    sum += closed[i].close;
-    if (i >= maPeriod) sum -= closed[i - maPeriod].close;
-    const ma = i >= maPeriod - 1 ? sum / maPeriod : null;
-    const h = ha[i];
-    bars.push({
-      time: h.time,
-      green: h.close >= h.open,
-      side: ma === null || h.close === ma ? null : h.close > ma ? 'up' : 'down',
-    });
-  }
-  return detectPullbacks(bars, minWave).map((s) => {
+  const bars: PullbackBar[] = closed.map((c, i) => {
+    const f = smaAtIndex(closed, i, fast);
+    const sl = smaAtIndex(closed, i, slow);
+    return {
+      time: c.time,
+      green: ha[i].close >= ha[i].open,
+      side: f === null || sl === null || f === sl ? null : f > sl ? 'up' : 'down',
+    };
+  });
+  return detectPullbacks(bars, minWave, maxBars).map((s) => {
     const span = closed.slice(s.fromIndex, s.index + 1);
     return {
       ...s,
