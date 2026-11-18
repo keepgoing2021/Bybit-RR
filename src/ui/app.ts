@@ -873,10 +873,10 @@ export class App {
     volPeakBtn.addEventListener('click', () => this.toggleVolPeak());
     // 눌림 알림 (2026-11-18): MA20 전환 → 하이킨아시 파동 3+ → 반대 파동 3+ → 다시 원래 방향 봉에 테두리 + 윈도우 알림.
     // 버튼 하나로 끔(흰 테두리) → 매수(초록) → 매도(빨강) → 끔 (사용자 요청: 단방향 거래만)
-    const pullbackLabel = h('span', { 'data-testid': 'pullback-label' }, '눌림 알림');
+    const pullbackLabel = h('span', { 'data-testid': 'pullback-label' }, '변곡?');
     const pullbackBtn = h(
       'button',
-      { type: 'button', class: 'struct-toggle pb-toggle', 'data-testid': 'pullback-toggle', 'data-mode': 'off', title: '눌림 알림 · 누를 때마다 끔 → 매수 → 매도 · MA20 전환 → 하이킨아시 파동 3개+ → 반대 파동 3개+ → 다시 원래 방향 봉이면 표시와 윈도우 알림 · 마감된 봉 기준 · 1RC 탭이 열려 있을 때만' },
+      { type: 'button', class: 'struct-toggle pb-toggle', 'data-testid': 'pullback-toggle', 'data-mode': 'off', title: '변곡? (추정) 알림 · 누를 때마다 끔 → 매수 → 매도 · MA20 전환 → 하이킨아시 파동 3개+ → 반대 파동 3개+ → 다시 원래 방향 봉이면 표시와 윈도우 알림 · 마감된 봉 기준 · 1RC 탭이 열려 있을 때만' },
       h('span', { class: 'dot', 'aria-hidden': 'true' }),
       pullbackLabel,
     );
@@ -2273,23 +2273,23 @@ export class App {
     const e = this.el;
     if (!e) return;
     const name = mode === 'long' ? '매수' : mode === 'short' ? '매도' : '';
-    setText(e.pullbackLabel, name ? `눌림 · ${name}` : '눌림 알림');
+    setText(e.pullbackLabel, name ? `변곡? · ${name}` : '변곡?');
     e.pullbackBtn.dataset.mode = mode;
     e.pullbackBtn.setAttribute('aria-pressed', String(mode !== 'off'));
     e.pullbackBtn.classList.toggle('on', mode !== 'off');
     const next = mode === 'off' ? '매수로 켜기' : mode === 'long' ? '매도로 바꾸기' : '끄기';
-    e.pullbackBtn.setAttribute('aria-label', `눌림 알림 (${name || '꺼짐'}) · 누르면 ${next}`);
+    e.pullbackBtn.setAttribute('aria-label', `변곡? 알림 (${name || '꺼짐'}) · 누르면 ${next}`);
   }
 
   /** 새 눌림 신호: 화면 안내 + 윈도우 알림 (탭이 뒤에 있어도, 창이 최소화돼도 뜬다) */
   private notifyPullback(sig: PullbackSignal): void {
-    const side = sig.dir === 'long' ? '롱 ▲' : '숏 ▼';
-    const title = `${this.ui.symbol} ${tfName(this.ui.timeframe)} 눌림 ${side}`;
+    const side = sig.dir === 'long' ? '▲ (매수)' : '▼ (매도)';
+    const title = `${this.ui.symbol} ${tfName(this.ui.timeframe)} · 변곡? ${side}`;
     this.toast(`🔔 ${title}`);
     const N = globalThis.Notification;
     if (N?.permission !== 'granted') return;
     try {
-      const n = new N(title, { body: '음봉 파동 뒤 첫 하이킨아시 양봉 — 차트를 확인하세요', tag: `pullback-${this.ui.symbol}-${this.ui.timeframe}` });
+      const n = new N(title, { body: sig.dir === 'long' ? '음봉 파동 뒤 첫 하이킨아시 양봉 — 추정일 뿐, 차트를 확인하세요' : '양봉 파동 뒤 첫 하이킨아시 음봉 — 추정일 뿐, 차트를 확인하세요', tag: `pullback-${this.ui.symbol}-${this.ui.timeframe}` });
       n.onclick = () => {
         window.focus();
         n.close();

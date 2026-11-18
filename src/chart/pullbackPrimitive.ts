@@ -69,7 +69,7 @@ export class PullbackPrimitive implements ISeriesPrimitive<Time> {
         // 이름표: 매수는 상자 아래, 매도는 상자 위
         ctx.fillStyle = color;
         ctx.textBaseline = long ? 'top' : 'bottom';
-        ctx.fillText(long ? '눌림 매수 ▲' : '눌림 매도 ▼', (left + right) / 2, long ? bottom + 3 : top - 3);
+        ctx.fillText(long ? '변곡? ▲' : '변곡? ▼', (left + right) / 2, long ? bottom + 3 : top - 3);
       }
       ctx.restore();
     });
