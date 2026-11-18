@@ -6,7 +6,7 @@ import type { Candle } from './types';
  * MA도 하이킨아시 종가로 (트레이딩뷰에서 하이킨아시 차트에 MA를 얹은 것과 같음).
  *
  * 정배열 = MA20이 MA100 위에 올라타 있고 하이킨아시 가격이 둘 다 위, 역배열 = 정반대 (2026-11-19 사용자 정의 확정)
- * 롱: 역배열에서 하이킨아시 양봉 N개+ 파동 → 그 파동 중·직후 정배열 전환
+ * 롱: 역배열에서 강한 음봉 파동 N개+ → 하이킨아시 양봉 N개+ 파동 → 그 파동 중·직후 정배열 전환
  *     → 음봉 N개 이상 연속 (눌림. 다시 역배열이 되면 무효)
  *     → 다시 첫 양봉(두 번째 양봉 파동) = 신호. 전환 한 번에 한 번만, 전환 후 maxBars봉 안에 완성될 때만.
  * (2026-11-18 수정 이력: 가격 vs MA20 하나·기한 없음 → 고점에서도 뜸, MA20×MA100 크로스 → 사용자 정의와 다름)
@@ -81,11 +81,13 @@ export function detectPullbacks(bars: readonly PullbackBar[], minWave: number, m
   // 같은 색이 이어진 봉 수 (지금 봉 포함)와 그 직전 반대색 묶음의 봉 수
   let run = 0;
   let prevRun = 0;
+  let prevPrevRun = 0;
 
   for (let i = 0; i < bars.length; i++) {
     const b = bars[i];
     if (i > 0 && bars[i - 1].green === b.green) run++;
     else {
+      prevPrevRun = prevRun;
       prevRun = run;
       run = 1;
     }
@@ -98,19 +100,18 @@ export function detectPullbacks(bars: readonly PullbackBar[], minWave: number, m
       dir = side === 'up' ? 'long' : 'short';
       flipAt = i;
       const withTrend = dir === 'long' ? b.green : !b.green;
-      if (withTrend) {
-        // 첫 파동 진행 중에 전환 — 전환 전부터 이어진 봉까지 센다
+      // 모든 조건의 교집합일 때만 (2026-11-19 사용자): 역배열에서 강한 반대 파동 → 첫 파동 → 정배열 전환 → 눌림 → 다시 첫 봉.
+      // 전환 앞에 반대 파동(롱이면 음봉 파동)이 없으면 이번 전환은 버린다
+      if (withTrend && prevRun >= minWave) {
+        // 첫 파동 진행 중에 전환 — 전환 전부터 이어진 봉까지 센다. 그 앞이 음봉 파동
         phase = 'wave';
         waveRun = run;
-      } else if (prevRun >= minWave) {
-        // 첫 파동이 끝나고 눌림이 시작된 뒤 전환
+      } else if (!withTrend && prevRun >= minWave && prevPrevRun >= minWave) {
+        // 첫 파동이 끝나고 눌림이 시작된 뒤 전환. 첫 파동 앞이 음봉 파동
         phase = 'pull';
         pullRun = run;
         pullFrom = i - run + 1;
-      } else {
-        phase = 'wave';
-        waveRun = 0;
-      }
+      } else phase = 'done';
       continue;
     }
     if (!dir || phase === 'done') continue;

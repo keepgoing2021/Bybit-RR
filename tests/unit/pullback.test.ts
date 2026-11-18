@@ -12,61 +12,68 @@ function bars(code: string): PullbackBar[] {
 }
 const at = (code: string, minWave = 3) => detectPullbacks(bars(code), minWave).map((s) => `${s.dir}@${s.index}`);
 
-describe('detectPullbacks — 정배열 전환 → 양봉 파동 → 음봉 파동 → 다시 양봉', () => {
-  it('역배열에서 정배열로 바뀐 뒤 양봉 3 · 음봉 3 · 양봉 = 롱 신호 (그 양봉 자리)', () => {
-    //          0123456789
-    expect(at('DDUUUuuuU')).toEqual(['long@8']);
+describe('detectPullbacks — 역배열 음봉 파동 → 양봉 파동 → 정배열 → 음봉 눌림 → 다시 양봉 (교집합)', () => {
+  it('음봉 3 → 양봉 3(전환) → 음봉 3 → 양봉 = 롱 신호 (그 양봉 자리)', () => {
+    expect(at('DDDUUUuuuU')).toEqual(['long@9']);
   });
 
-  it('숏은 정반대: 역배열 전환 → 음봉 3 → 양봉 3 → 다시 음봉', () => {
-    expect(at('UUDDDdddD')).toEqual(['short@8']);
+  it('숏은 정반대', () => {
+    expect(at('UUUDDDdddD')).toEqual(['short@9']);
   });
 
-  it('파동이 3개 미만이면 신호 없음 (양봉 2개)', () => {
-    expect(at('DDUUuuuU')).toEqual([]);
+  it('전환 앞에 강한 음봉 파동(3개+)이 없으면 신호 없음', () => {
+    expect(at('DDUUUuuuU')).toEqual([]);
+    expect(at('DdddUuuuU')).toEqual([]);
   });
 
-  it('음봉 파동이 3개 미만이면 신호 없음, 그 양봉은 다시 첫 양봉 파동으로 센다', () => {
-    // 양봉3 → 음봉2 → 양봉(파동 다시 셈: 1) → 음봉3 → 양봉: 양봉 파동이 1개뿐이라 신호 없음
-    expect(at('DUUUuuUuuuU')).toEqual([]);
-    // 양봉3 → 음봉2 → 양봉3 → 음봉3 → 양봉 = 신호
-    expect(at('DUUUuuUUUuuuU')).toEqual(['long@12']);
+  it('첫 양봉 파동이 3개 미만이면 신호 없음', () => {
+    expect(at('DDDUUuuuU')).toEqual([]);
   });
 
-  it('음봉 파동 중 역배열로 돌아가면 무효 (그 자리부터 숏 쪽으로 다시 본다)', () => {
-    expect(at('DUUUuuDdU')).toEqual([]);
+  it('음봉 눌림이 3개 미만이면 그 양봉부터 첫 파동을 다시 센다', () => {
+    expect(at('DDDUUUuuUuuuU')).toEqual([]);
+    expect(at('DDDUUUuuUUUuuuU')).toEqual(['long@14']);
   });
 
-  it('테두리 상자는 눌림 파동 첫 봉부터 신호 봉까지', () => {
-    const [s] = detectPullbacks(bars('DDUUUuuuU'), 3);
-    expect([s.fromIndex, s.index]).toEqual([5, 8]);
-    const [r] = detectPullbacks(bars('DUUUuuUUUuuuU'), 3);
-    expect(r.fromIndex).toBe(9);
+  it('첫 양봉 파동이 역배열 때부터 이어져 와도 된다 (전환 순간에 거꾸로 센다)', () => {
+    expect(at('DDDdddUuuuU')).toEqual(['long@10']);
   });
 
-  it('신호는 정배열 전환 한 번에 한 번만', () => {
-    expect(at('DUUUuuuUUUuuuU')).toEqual(['long@7']);
+  it('첫 파동이 끝나고 눌림 중에 전환해도 된다 (그 앞 음봉 파동도 필요)', () => {
+    expect(at('DDDddduuuU')).toEqual(['long@9']);
+    expect(at('DddduuuU')).toEqual([]);
   });
 
-  it('처음부터 정배열이면(전환을 못 봤으면) 신호 없음 — MA가 생기기 전 구간도 전환으로 치지 않는다', () => {
+  it('음봉 눌림 중 역배열로 돌아가면 무효', () => {
+    expect(at('DDDUUUuuDdU')).toEqual([]);
+  });
+
+  it('신호는 전환 한 번에 한 번만', () => {
+    expect(at('DDDUUUuuuUUUuuuU')).toEqual(['long@9']);
+  });
+
+  it('처음부터 정배열이면(전환을 못 봤으면) 신호 없음', () => {
     expect(at('UUUuuuU')).toEqual([]);
     expect(at('--UUUuuuU')).toEqual([]);
   });
 
-  it('첫 양봉 파동이 역배열 때부터 이어져 와도 된다 (전환 순간에 거꾸로 센다)', () => {
-    // 역배열 양봉 3개(d) → 전환 봉(U) → 음봉 3 → 양봉
-    expect(at('DdddUuuuU')).toEqual(['long@8']);
-  });
-
-  it('첫 파동이 끝나고 눌림 중에 전환해도 된다', () => {
-    // 역배열 양봉 3 → 정배열 음봉(전환) 3 → 양봉
-    expect(at('DddduuuU')).toEqual(['long@7']);
-    // 첫 파동이 2개뿐이면 아님
-    expect(at('DdduuuU')).toEqual([]);
-  });
-
   it('파동 개수를 바꿀 수 있다 (2개)', () => {
-    expect(at('DUUuuU', 2)).toEqual(['long@5']);
+    expect(at('DDUUuuU', 2)).toEqual(['long@6']);
+  });
+
+  it('테두리 상자는 눌림 파동 첫 봉부터 신호 봉까지', () => {
+    const [s] = detectPullbacks(bars('DDDUUUuuuU'), 3);
+    expect([s.fromIndex, s.index]).toEqual([6, 9]);
+    const [r] = detectPullbacks(bars('DDDUUUuuUUUuuuU'), 3);
+    expect(r.fromIndex).toBe(11);
+  });
+});
+
+describe('detectPullbacks — 전환 후 기한', () => {
+  it('전환 후 maxBars봉 안에 완성될 때만 신호 (늦게 완성되면 버림)', () => {
+    // 전환 3번 봉 → 신호 9번 봉: 6봉 뒤
+    expect(detectPullbacks(bars('DDDUUUuuuU'), 3, 6).map((x) => x.index)).toEqual([9]);
+    expect(detectPullbacks(bars('DDDUUUuuuU'), 3, 5)).toEqual([]);
   });
 });
 
@@ -92,14 +99,6 @@ describe('heikinAshi', () => {
     expect(ha[1].close).toBe(13.5);
     expect(ha[1].high).toBe(16);
     expect(ha[1].low).toBe(11);
-  });
-});
-
-describe('detectPullbacks — 전환 후 기한', () => {
-  it('전환 후 maxBars봉 안에 완성될 때만 신호 (늦게 완성되면 버림)', () => {
-    // 전환 1번 봉 → 신호 7번 봉: 6봉 뒤
-    expect(detectPullbacks(bars('DUUUuuuU'), 3, 6).map((x) => x.index)).toEqual([7]);
-    expect(detectPullbacks(bars('DUUUuuuU'), 3, 5)).toEqual([]);
   });
 });
 
