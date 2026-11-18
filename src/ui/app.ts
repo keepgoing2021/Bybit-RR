@@ -168,6 +168,8 @@ export const BOX_HINT_KEY = 'rrtool.v1.boxhint';
 export const SPLIT_KEY = 'rrtool.v1.split';
 /** 구조는 SL용 스윙(기본 2봉)보다 크게 본다 — 2봉이면 15분봉에서 CHoCH가 수십 개라 읽을 수 없다(2026-11-04 시안) */
 export const STRUCTURE_BARS = 5;
+/** 다우 구조 숨김 (2026-11-19 사용자: 전부 손봐야 함). false로 돌리면 버튼·표시가 돌아온다 */
+const DOW_HIDDEN = true;
 const DRAW_COLOR_KEY = 'rrtool.v1.drawcolor';
 
 /** 작도 도구 아이콘 (20×20 선화) */
@@ -345,7 +347,8 @@ export class App {
     } catch {
       // 기본 1칸
     }
-    this.structureOn = this.loadStructureOn();
+    // 다우 구조(추세 지속·추세전환 표시)는 다시 손볼 때까지 숨긴다 (2026-11-19 사용자). 저장된 값은 무시, 버튼도 안 붙임
+    this.structureOn = DOW_HIDDEN ? false : this.loadStructureOn();
     this.applyPullback();
     this.volPeakMode = this.loadVolPeakMode();
     this.applyStructure();
@@ -1957,9 +1960,9 @@ export class App {
   private placeControls(): void {
     const e = this.el;
     if (PHONE.matches) {
-      e.morePanel.append(e.structBtn, e.volPeakBtn, e.pullbackBtn, e.tourBtn, e.themeBtn);
+      e.morePanel.append(...(DOW_HIDDEN ? [] : [e.structBtn]), e.volPeakBtn, e.pullbackBtn, e.tourBtn, e.themeBtn);
     } else {
-      this.chart.addLegendControl(e.structBtn);
+      if (!DOW_HIDDEN) this.chart.addLegendControl(e.structBtn);
       this.chart.addLegendControl(e.volPeakBtn);
       this.chart.addLegendControl(e.pullbackBtn);
       e.chartHeadTools.append(e.tourBtn, e.themeBtn);
