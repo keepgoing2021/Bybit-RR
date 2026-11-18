@@ -87,6 +87,8 @@ const PULLBACK_WAVE = 3;
 const PULLBACK_PULL = 2;
 /** 1차 "많이 역배열": MA100 − MA20 간격 ≥ 평균 봉 크기 × 이 값 (5분봉 1000봉에 3~4번, 2026-11-19) */
 const PULLBACK_GAP_K = 2;
+/** 2차(정배열 후 MA20 지지)는 아직 표시·알림 안 함 (2026-11-19 사용자: 1차만 먼저) */
+const PULLBACK_STABLE_ON = false;
 /** 정배열·역배열 전환 후 이 봉 수 안에 패턴이 완성될 때만 (30은 길다 → 15, 2026-11-18 사용자) */
 const PULLBACK_MAX_BARS = 15;
 
@@ -383,7 +385,7 @@ export class ChartView {
       this.pullPrim.set([]);
       return;
     }
-    const signals = pullbackSignals(this.candles, MA_LINES[0].period, MA_LINES[1].period, { wave: PULLBACK_WAVE, pull: PULLBACK_PULL, maxBars: PULLBACK_MAX_BARS, gapK: PULLBACK_GAP_K }).filter((x) => this.pullbackDirs[x.dir]);
+    const signals = pullbackSignals(this.candles, MA_LINES[0].period, MA_LINES[1].period, { wave: PULLBACK_WAVE, pull: PULLBACK_PULL, maxBars: PULLBACK_MAX_BARS, gapK: PULLBACK_GAP_K }).filter((x) => this.pullbackDirs[x.dir] && (PULLBACK_STABLE_ON || x.kind === 'aggr'));
     this.pullPrim.set(signals);
     const last = this.candles[this.candles.length - 1];
     const lastClosed = this.candles.length - (last.confirmed ? 1 : 2);
