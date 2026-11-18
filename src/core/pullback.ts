@@ -5,11 +5,11 @@ import type { Candle } from './types';
  * 변곡 모드에서는 차트도 하이킨아시 봉으로 바꿔 그린다 — 보이는 봉·MA와 계산이 같아야 한다 (2026-11-18 사용자).
  * MA도 하이킨아시 종가로 (트레이딩뷰에서 하이킨아시 차트에 MA를 얹은 것과 같음).
  *
- * 롱: MA20이 MA100 아래 → 위 (역배열 → 정배열, 골든크로스)
- *     → 하이킨아시 양봉 N개 이상 연속 (첫 파동)
- *     → 음봉 N개 이상 연속 (눌림, 그동안 정배열 유지 — 다시 역배열이 되면 무효)
- *     → 다시 첫 양봉 = 신호. 전환 한 번에 한 번만, 전환 후 maxBars봉 안에 완성될 때만.
- * (2026-11-18 수정: 처음엔 「가격 vs MA20」·기한 없음이라 한참 오른 고점에서도 떴다 — 사용자 지적)
+ * 역배열 = 하이킨아시 가격이 MA20·MA100 둘 다 아래, 정배열 = 둘 다 위 (선끼리 순서가 아님 — 사용자 정의)
+ * 롱: 역배열에서 하이킨아시 양봉 N개+ 파동 → 그 파동 중·직후 정배열 전환
+ *     → 음봉 N개 이상 연속 (눌림. 다시 역배열이 되면 무효)
+ *     → 다시 첫 양봉(두 번째 양봉 파동) = 신호. 전환 한 번에 한 번만, 전환 후 maxBars봉 안에 완성될 때만.
+ * (2026-11-18 수정 이력: 가격 vs MA20 하나·기한 없음 → 고점에서도 뜸, MA20×MA100 크로스 → 사용자 정의와 다름)
  * 숏: 정반대.
  */
 
@@ -47,7 +47,7 @@ export interface PullbackBar {
   time: number;
   /** 하이킨아시 양봉 (종가 ≥ 시가) */
   green: boolean;
-  /** 정배열(up: 단기 MA > 장기 MA)/역배열(down). MA가 아직 없으면 null */
+  /** 정배열(up: 가격이 두 MA 위)/역배열(down: 두 MA 아래). 사이거나 MA가 아직 없으면 null */
   side: 'up' | 'down' | null;
 }
 
@@ -67,7 +67,8 @@ export interface PullbackSignal {
 
 type Phase = 'wave' | 'pull' | 'done';
 
-/** 파동 상태 기계. 순수 함수라 테스트하기 쉽다 */
+/** 파동 상태 기계. 순수 함수라 테스트하기 쉽다.
+ *  첫 파동은 전환 전(역배열)부터 이어져 와도 된다 — 전환 순간에 지금까지 이어진 봉 수를 거꾸로 세서 시작한다 (2026-11-18 사용자 구조) */
 export function detectPullbacks(bars: readonly PullbackBar[], minWave: number, maxBars = Infinity): PullbackSignal[] {
   const out: PullbackSignal[] = [];
   let dir: PullbackDir | null = null;
@@ -77,19 +78,41 @@ export function detectPullbacks(bars: readonly PullbackBar[], minWave: number, m
   let pullFrom = 0;
   let flipAt = 0;
   let prevSide: 'up' | 'down' | null = null;
+  // 같은 색이 이어진 봉 수 (지금 봉 포함)와 그 직전 반대색 묶음의 봉 수
+  let run = 0;
+  let prevRun = 0;
 
   for (let i = 0; i < bars.length; i++) {
     const b = bars[i];
+    if (i > 0 && bars[i - 1].green === b.green) run++;
+    else {
+      prevRun = run;
+      run = 1;
+    }
     const side = b.side ?? prevSide;
-    if (side && prevSide && side !== prevSide) {
+    const flipped = side !== null && prevSide !== null && side !== prevSide;
+    if (b.side !== null) prevSide = b.side;
+
+    if (flipped) {
       // 배열이 바뀌면 그 방향으로 새로 센다 (반대쪽 진행 중이던 건 무효)
       dir = side === 'up' ? 'long' : 'short';
-      phase = 'wave';
-      waveRun = 0;
-      pullRun = 0;
       flipAt = i;
+      const withTrend = dir === 'long' ? b.green : !b.green;
+      if (withTrend) {
+        // 첫 파동 진행 중에 전환 — 전환 전부터 이어진 봉까지 센다
+        phase = 'wave';
+        waveRun = run;
+      } else if (prevRun >= minWave) {
+        // 첫 파동이 끝나고 눌림이 시작된 뒤 전환
+        phase = 'pull';
+        pullRun = run;
+        pullFrom = i - run + 1;
+      } else {
+        phase = 'wave';
+        waveRun = 0;
+      }
+      continue;
     }
-    if (b.side !== null) prevSide = b.side;
     if (!dir || phase === 'done') continue;
     // 전환에서 너무 멀어지면 버린다 — 이미 벌어진 추세 한가운데에서 뜨지 않게
     if (i - flipAt > maxBars) {
@@ -140,7 +163,8 @@ export function pullbackSignals(candles: readonly Candle[], fast = 20, slow = 10
     return {
       time: c.time,
       green: c.close >= c.open,
-      side: f === null || sl === null || f === sl ? null : f > sl ? 'up' : 'down',
+      // 정배열 = 하이킨아시 종가가 MA20·MA100 둘 다 위, 역배열 = 둘 다 아래. 사이에 끼면 직전 상태 유지 (2026-11-18 사용자 정의)
+      side: f === null || sl === null ? null : c.close > Math.max(f, sl) ? 'up' : c.close < Math.min(f, sl) ? 'down' : null,
     };
   });
   return detectPullbacks(bars, minWave, maxBars).map((s) => {
